@@ -38,3 +38,9 @@ For a local agent, a graph exceeding 5,000–10,000 nodes often starts to introd
     3. The Observation Log: tool result + meta-context
 - Gemini sugguesion:
 The Local Edge: In a hybrid setup, keeping the Scratchpad and Observation Log in a fast local file or Redis instance makes the agent feel snappy. If you forced these through a slow Cloud DB, you'd feel a "lag" between every thought.
+
+## Why using Redis?
+| Path | Mechanism | Purpose |
+|------|-----------|---------|
+| Path A: The User Path	| LLM → API → Streaming Tokens → Your Screen | This is purely for Human-AI interaction. It’s the words you are reading right now. |
+| Path B: The Action Path | LLM → Tool Call → Redis Write → Local Agent | This is for System-to-System coordination. It’s where the actual "work" happens on your Ubuntu/Mac hybrid. |
