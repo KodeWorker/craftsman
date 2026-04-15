@@ -3,6 +3,7 @@
 # Overview
 
 # Dependencies
+- click
 - keyring
 - fastapi
 - litellm
