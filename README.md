@@ -20,7 +20,7 @@ uv run craftsman init
 # Start the craftsman agent server
 uv run craftsman server [--port]
 # Connect to a running craftsman server as a client
-uv run craftsman client [--host|--port]
+uv run craftsman client [--host] [--port]
 # Start both server and client in one terminal
 uv run craftsman dev
 
