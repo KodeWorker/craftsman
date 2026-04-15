@@ -1,2 +1,0 @@
-[console_scripts]
-craftsman = craftsman.cli:main
