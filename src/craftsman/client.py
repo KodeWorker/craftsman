@@ -3,6 +3,6 @@ class Client:
         self.host = host
         self.port = port
 
-    def start(self):
+    def connect(self):
         # Your client startup code here
         pass

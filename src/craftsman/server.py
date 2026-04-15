@@ -2,6 +2,6 @@ class Server:
     def __init__(self, port: int):
         self.port = port
 
-    def connect(self):
+    def start(self):
         # Your server startup code here
         pass
