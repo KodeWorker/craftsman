@@ -12,7 +12,6 @@
 # Uage
 
 ```shell
-
 # Initialize the craftsman environment
 uv run craftsman init
 # Start the craftsman agent server
