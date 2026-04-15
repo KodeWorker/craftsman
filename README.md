@@ -8,6 +8,8 @@
 - litellm
 
 # Configuration
+1. Setup our own LLM service in [docs/setup/llama.cpp.md](docs/setup/llama.cpp.md)
+2. Configure `craftsman` in [docs/configuration.md]
 
 # Uage
 
