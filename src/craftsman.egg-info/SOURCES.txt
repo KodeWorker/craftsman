@@ -1,9 +1,13 @@
 LICENSE
 README.md
 pyproject.toml
-src/main.py
+src/craftsman/__init__.py
+src/craftsman/cli.py
+src/craftsman/client.py
+src/craftsman/server.py
 src/craftsman.egg-info/PKG-INFO
 src/craftsman.egg-info/SOURCES.txt
 src/craftsman.egg-info/dependency_links.txt
 src/craftsman.egg-info/entry_points.txt
+src/craftsman.egg-info/requires.txt
 src/craftsman.egg-info/top_level.txt
