@@ -1,5 +1,15 @@
 # Configuration
 
+## Python Environment
+### Runtime Environment
+### Development Environment
+
+## Craftsman Configuration
+
+`uv run craftsman init`
+
+`uv run craftsman auth`
+
 ## Auth Credentials
 
 | Variable | Description | Default |
