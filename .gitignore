@@ -1,4 +1,3 @@
 .venv/
-craftsman.egg-info/
-**/craftsman.egg-info/
+src/craftsman.egg-info/
 *.pyc
