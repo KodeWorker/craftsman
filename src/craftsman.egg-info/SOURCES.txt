@@ -1,0 +1,9 @@
+LICENSE
+README.md
+pyproject.toml
+src/main.py
+src/craftsman.egg-info/PKG-INFO
+src/craftsman.egg-info/SOURCES.txt
+src/craftsman.egg-info/dependency_links.txt
+src/craftsman.egg-info/entry_points.txt
+src/craftsman.egg-info/top_level.txt
