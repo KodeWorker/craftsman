@@ -3,5 +3,5 @@ class Server:
         self.port = port
 
     def start(self):
-        # Your server startup code here
-        pass
+        # TODO: Implement server startup logic
+        print(f"Starting server on port {self.port}...")
