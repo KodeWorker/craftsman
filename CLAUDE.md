@@ -46,7 +46,7 @@ All embedded — zero daemons required. See `docs/roadmap.md` and `docs/schema.m
 
 - **In-process dict** — session scratchpad, agent state, task queue (lives in server process)
 - **SQLite** (`~/.craftsman/craftsman.db`) — projects, sessions, messages, global_facts, artifacts
-- **ChromaDB or sqlite-vec** — vector embeddings (entities, relations, text_chunks) managed by LightRAG
+- **sqlite-vec** — vector embeddings (entities, relations, text_chunks) managed by LightRAG; SQLite extension, lives in same DB file
 - **Kuzu** (embedded graph DB) — knowledge graph, managed by LightRAG, no daemon
 - **LightRAG** — KG orchestration: entity extraction + graph+vector hybrid retrieval
 - **Local filesystem** (`~/.craftsman/workspace/`) — artifact storage

@@ -2,7 +2,7 @@
 
 ## Structure Database (SQLite)
 
-Single file at `~/.craftsman/craftsman.db`.
+Single file at `~/.craftsman/database/craftsman.db`.
 
 ```sql
 -- Projects: groups of related sessions
@@ -68,7 +68,7 @@ No persistence layer. Python dict keyed by session ID, lives in the server proce
 | `session:{id}:context`       | list  | Recent message window (sliding context) |
 | `tasks`                      | list  | Plan/TODO jobs and scheduled jobs       |
 
-## Vector Store (ChromaDB or sqlite-vec)
+## Vector Store (sqlite-vec)
 
 Collections managed by LightRAG. File-based, no daemon.
 

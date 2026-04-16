@@ -46,7 +46,7 @@ flowchart TD
         AG -->|log messages| MSG[(SQLite\nMessages)]
         AG -->|entity extraction| LR[LightRAG]
         LR -->|nodes + edges| KZ[(Kuzu\nembedded)]
-        LR -->|embeddings| VEC[(ChromaDB\nor sqlite-vec)]
+        LR -->|embeddings| VEC[(sqlite-vec)]
     end
 
     subgraph EOS["② End of Session"]
@@ -72,7 +72,7 @@ flowchart TD
 
 ## Services:
 - SQLite (Structured DB — `~/.craftsman/craftsman.db`)
-- ChromaDB or sqlite-vec (Vector DB — file-based)
+- sqlite-vec (Vector DB — SQLite extension, same file as structured DB)
 - Kuzu (Knowledge Graph — embedded, no daemon)
 - LightRAG (KG orchestration: entity extraction, graph+vector hybrid retrieval)
 - Local filesystem (artifact storage — `~/.craftsman/workspace/`)
