@@ -5,6 +5,7 @@
 ### Major Components
 - CLI tools
 - agent chat TUI (debug mode)
+- llm router
 - agent memory
 - agent tools
 - sandbox
