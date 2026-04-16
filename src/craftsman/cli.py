@@ -5,6 +5,7 @@ import click
 
 from craftsman.auth import Auth
 from craftsman.client import Client
+from craftsman.configure import get_config
 from craftsman.server import Server
 
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
@@ -20,12 +21,14 @@ def main():
 def init():
     """Initializes the craftsman environment."""
     # Create necessary directories
-    root_dir = os.path.expanduser("~/.craftsman")
+    config = get_config()
+    root_dir = os.path.expanduser(config["workspace"]["root"])
     os.makedirs(root_dir, exist_ok=True)
-    os.makedirs(os.path.join(root_dir, "workspace"), exist_ok=True)
-    os.makedirs(os.path.join(root_dir, "database"), exist_ok=True)
-    os.makedirs(os.path.join(root_dir, "logs"), exist_ok=True)
-    click.echo("Craftsman environment initialized.")
+    os.makedirs(
+        os.path.expanduser(config["workspace"]["database"]), exist_ok=True
+    )
+    os.makedirs(os.path.expanduser(config["workspace"]["logs"]), exist_ok=True)
+    click.echo(f"Craftsman environment initialized at {root_dir}")
 
 
 @main.command()

@@ -1,0 +1,17 @@
+# craftsman.yaml
+# Configuration file for the Craftsman autonomous agent framework.
+# Edit values as needed for your environment.
+
+logging:
+  level: INFO
+  debug: false
+
+workspace:
+  root: ~/.craftsman
+  database: ~/.craftsman/database
+  logs: ~/.craftsman/logs
+
+provider:
+  # llama.cpp uses openai/<model-name> for compatibility
+  model: openai/gemma-4-E4B-it
+  embedding_model:
