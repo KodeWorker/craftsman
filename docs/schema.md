@@ -57,6 +57,53 @@ CREATE TABLE artifacts (
 );
 ```
 
+```sql
+-- Tool registry: named tools with JSON schemas
+CREATE TABLE tools (
+  name        TEXT PRIMARY KEY,
+  description TEXT NOT NULL,
+  category    TEXT NOT NULL,  -- meta, bash, text, web, memory, schedule
+  schema      TEXT NOT NULL,  -- JSON schema
+  call_count  INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- sqlite-vec virtual table for tool:find semantic search
+CREATE VIRTUAL TABLE tools_vec USING vec0(
+  name        TEXT PRIMARY KEY,
+  embedding   FLOAT[1536]
+);
+
+-- Tool macros: composed pipelines from tool:compose
+CREATE TABLE tool_macros (
+  name       TEXT PRIMARY KEY,
+  steps      TEXT NOT NULL,   -- JSON array of {tool, args}
+  scope      TEXT NOT NULL DEFAULT 'session' CHECK (scope IN ('session', 'global')),
+  session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,  -- null if global
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Scheduled jobs: one-shot deferred tool calls
+CREATE TABLE scheduled_jobs (
+  id          TEXT PRIMARY KEY,  -- UUID
+  tool_call   TEXT NOT NULL,     -- JSON {tool, args}
+  run_at      TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'done', 'failed')),
+  result      TEXT,              -- JSON result or error
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Cron jobs: recurring tool calls
+CREATE TABLE cron_jobs (
+  id         TEXT PRIMARY KEY,  -- UUID
+  expression TEXT NOT NULL,     -- standard cron expression
+  tool_call  TEXT NOT NULL,     -- JSON {tool, args}
+  active     INTEGER NOT NULL DEFAULT 1,
+  last_run   TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+```
+
 ## Session State (In-Process)
 
 No persistence layer. Python dict keyed by session ID, lives in the server process.
