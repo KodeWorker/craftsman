@@ -1,18 +1,16 @@
 # craftsman
 
-# Overview
+Python framework for self-hosted autonomous agents.
 
 # Dependencies
 - click
 - keyring
-- fastapi
-- litellm
 
 # Configuration
 1. Setup our own LLM service in [docs/setup/llama.cpp.md](docs/setup/llama.cpp.md)
 2. Configure `craftsman` in [docs/configuration.md](docs/configuration.md)
 
-# Uage
+# Usage
 
 ```shell
 # Initialize the craftsman environment
@@ -35,5 +33,3 @@ uv run craftsman auth clear
 # Clear authentication credentials for a specific provider
 uv run craftsman auth clear <provider>
 ```
-
-# Documentation

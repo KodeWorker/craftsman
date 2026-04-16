@@ -1,0 +1,68 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Commands
+
+```bash
+# Install dependencies
+uv sync
+
+# Run CLI
+uv run craftsman <command>
+
+# Lint / format (via pre-commit)
+uv run pre-commit run --all-files
+
+# Format only
+uv run black --line-length=79 src/
+uv run isort src/
+```
+
+No test suite exists yet.
+
+## Architecture
+
+Early-stage autonomous agent framework. CLI is the only functional layer; server/client/memory are stubs.
+
+### Entry point
+
+`src/craftsman/cli.py` — Click CLI with two command groups:
+- Top-level: `init`, `server`, `client`, `dev`
+- `auth` subgroup: `list`, `set`, `get`, `clear`
+
+### Modules
+
+| Module | Status | Purpose |
+|--------|--------|---------|
+| `cli.py` | Done | Click entrypoint, wires all commands |
+| `auth.py` | Done | Keyring wrapper; credentials: `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_SSL_CRT` |
+| `server.py` | Stub | Will run the always-on background agent worker |
+| `client.py` | Stub | Will connect to server, mount workspace |
+
+### Planned infrastructure (not yet implemented)
+
+All embedded — zero daemons required. See `docs/roadmap.md` and `docs/schema.md`.
+
+- **In-process dict** — session scratchpad, agent state, task queue (lives in server process)
+- **SQLite** (`~/.craftsman/craftsman.db`) — projects, sessions, messages, global_facts, artifacts
+- **ChromaDB or sqlite-vec** — vector embeddings (entities, relations, text_chunks) managed by LightRAG
+- **Kuzu** (embedded graph DB) — knowledge graph, managed by LightRAG, no daemon
+- **LightRAG** — KG orchestration: entity extraction + graph+vector hybrid retrieval
+- **Local filesystem** (`~/.craftsman/workspace/`) — artifact storage
+
+### Memory hierarchy
+
+Three layers, promoted upward over time:
+
+1. **Session** (in-process dict) — scratchpad, discarded at end; promotes to Project
+2. **Project** (SQLite) — retained for continuation/resume
+3. **Global** (SQLite) — nightly-distilled keynotes from Project layer
+
+LightRAG/Kuzu knowledge graph spans all layers; nightly batch promotes/prunes nodes.
+
+## Code style
+
+- Line length: 79 (Black)
+- Imports sorted via isort
+- Pre-commit enforces trailing whitespace, EOF newline, YAML validity, Black, isort, flake8

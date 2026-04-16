@@ -1,73 +1,86 @@
 # Schema
 
-## Structure Database (PostgreSQL)
+## Structure Database (SQLite)
+
+Single file at `~/.craftsman/craftsman.db`.
 
 ```sql
 -- Projects: groups of related sessions
 CREATE TABLE projects (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id          TEXT PRIMARY KEY,  -- UUID
   name        TEXT NOT NULL,
   description TEXT,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Sessions: individual conversations
 CREATE TABLE sessions (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
+  id         TEXT PRIMARY KEY,  -- UUID
+  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
   title      TEXT,
-  metadata   JSONB,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-  ended_at   TIMESTAMPTZ
+  metadata   TEXT,  -- JSON string
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  ended_at   TEXT
 );
 
 -- Messages: full history for session continuation/resume
 CREATE TABLE messages (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  id         TEXT PRIMARY KEY,  -- UUID
+  session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
   role       TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool')),
   content    TEXT NOT NULL,
   tokens     INTEGER,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 -- Global facts: distilled keynotes promoted from Project layer
 CREATE TABLE global_facts (
-  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id                TEXT PRIMARY KEY,  -- UUID
   content           TEXT NOT NULL,
-  source_session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
-  source_project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
-  promoted_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
-  expires_at        TIMESTAMPTZ
+  source_session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+  source_project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  promoted_at       TEXT NOT NULL DEFAULT (datetime('now')),
+  expires_at        TEXT
 );
 
--- Artifacts: references to files stored in SeaweedFS
+-- Artifacts: references to files stored in ~/.craftsman/workspace/
 CREATE TABLE artifacts (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  session_id UUID REFERENCES sessions(id) ON DELETE SET NULL,
-  project_id UUID REFERENCES projects(id) ON DELETE SET NULL,
-  fid        TEXT NOT NULL,  -- SeaweedFS file ID
+  id         TEXT PRIMARY KEY,  -- UUID
+  session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+  project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  filepath   TEXT NOT NULL,  -- relative to ~/.craftsman/workspace/
   filename   TEXT NOT NULL,
   mime_type  TEXT,
-  size_bytes BIGINT,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+  size_bytes INTEGER,
+  created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 ```
 
-## Vector Database (Qdrant)
+## Session State (In-Process)
 
-Collections are managed by LightRAG.
+No persistence layer. Python dict keyed by session ID, lives in the server process.
 
-| Collection    | Description                                          | Key Payload Fields                                      |
-|---------------|------------------------------------------------------|---------------------------------------------------------|
-| `entities`    | Entity embeddings extracted from sessions            | `name`, `type`, `description`, `layer`, `session_id`   |
-| `relations`   | Relationship embeddings between entities             | `source`, `target`, `description`, `weight`             |
-| `text_chunks` | Source chunk embeddings for retrieval context        | `content`, `session_id`, `project_id`, `layer`          |
+| Key                          | Type  | Description                             |
+|------------------------------|-------|-----------------------------------------|
+| `session:{id}:scratchpad`    | dict  | Agent scratchpad key/value state        |
+| `session:{id}:state`         | dict  | Agent runtime state                     |
+| `session:{id}:context`       | list  | Recent message window (sliding context) |
+| `tasks`                      | list  | Plan/TODO jobs and scheduled jobs       |
 
-## Knowledge Graph (Neo4j)
+## Vector Store (ChromaDB or sqlite-vec)
 
-Managed by LightRAG. Nodes and relationships are created during live extraction and pruned by the nightly batch job.
+Collections managed by LightRAG. File-based, no daemon.
+
+| Collection    | Description                                       | Key Fields                                            |
+|---------------|---------------------------------------------------|-------------------------------------------------------|
+| `entities`    | Entity embeddings extracted from sessions         | `name`, `type`, `description`, `layer`, `session_id` |
+| `relations`   | Relationship embeddings between entities          | `source`, `target`, `description`, `weight`           |
+| `text_chunks` | Source chunk embeddings for retrieval context     | `content`, `session_id`, `project_id`, `layer`        |
+
+## Knowledge Graph (Kuzu)
+
+Embedded graph DB, no daemon. Managed by LightRAG. Nodes and relationships created during live extraction, pruned by the nightly batch job.
 
 ```cypher
 // Node types
@@ -77,33 +90,24 @@ Managed by LightRAG. Nodes and relationships are created during live extraction 
   type        : STRING,   // e.g. person, concept, tool, fact
   description : STRING,
   layer       : STRING,   // session | project | global
-  created_at  : DATETIME,
-  expires_at  : DATETIME  // null = no TTL
+  created_at  : TIMESTAMP,
+  expires_at  : TIMESTAMP  // null = no TTL
 })
 
 (:Chunk {
   id         : STRING,
   content    : STRING,
   session_id : STRING,
-  tokens     : INTEGER,
-  created_at : DATETIME
+  tokens     : INT64,
+  created_at : TIMESTAMP
 })
 
 // Relationship types
 (:Entity)-[:RELATED_TO {
   description : STRING,
-  weight      : FLOAT,
-  created_at  : DATETIME
+  weight      : DOUBLE,
+  created_at  : TIMESTAMP
 }]->(:Entity)
 
 (:Entity)-[:MENTIONED_IN]->(:Chunk)
 ```
-
-## Cache (Redis)
-
-| Key pattern                    | Type   | Description                              |
-|--------------------------------|--------|------------------------------------------|
-| `session:{id}:scratchpad`      | Hash   | Agent scratchpad key/value state         |
-| `session:{id}:state`           | Hash   | Agent runtime state                      |
-| `session:{id}:context`         | List   | Recent message window (sliding context)  |
-| `tasks`                        | Stream | Plan/TODO jobs and cron/scheduled jobs   |
