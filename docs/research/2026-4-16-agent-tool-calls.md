@@ -27,7 +27,7 @@ Tools that operate on the tool system itself — discovery, schema injection, an
 
 When the tool list grows beyond ~20 entries, injecting every schema into every prompt wastes tokens and degrades reasoning. Instead:
 
-1. Store all tool schemas (JSON) in a local vector store (e.g., Qdrant).
+1. Store all tool schemas (JSON) in sqlite-vec.
 2. Expose only `tool:find(intent)` and `tool:describe(name)` to the agent by default.
 3. When the agent calls `tool:find("search log for errors")`, the backend retrieves the `bash:grep` schema and injects it into the **next turn** as a newly available tool.
 4. After the session ends, the `librarian` worker evicts schemas that were never called to keep the registry lean.
@@ -79,7 +79,7 @@ Frequently chained sequences can be promoted to a named macro:
 
 When the tool list grows, don't dump every schema into every prompt:
 
-1. Store JSON schemas for `bash:grep`, `bash:find`, etc. in a local vector store.
+1. Store JSON schemas for `bash:grep`, `bash:find`, etc. in sqlite-vec.
 2. Expose a single tool `find_shell_utility(intent: str)` to the agent.
 3. When the agent says "Find all errors in the log," it calls `find_shell_utility("search log for errors")` — your backend retrieves the `bash:grep` schema and injects it into the next turn.
 
@@ -138,7 +138,7 @@ Tools for structured file editing — safer than `bash:cat` + `bash_run` write f
 **Within session:**
 - `memory:store` and `memory:forget` write to the scratchpad and maintain a live session knowledge graph
 - `memory:retrieve` does a hybrid lookup: relationship traversal (graph) + semantic similarity (vector DB)
-- The scratchpad lives in Redis for sub-millisecond access (see [agent-memory.md](./2026-4-16-agent-memory.md))
+- The scratchpad lives in an in-process dict for sub-millisecond access (see [agent-memory.md](./2026-4-16-agent-memory.md))
 
 **Cross-session (offline):**
 - A `librarian` worker runs at the end of each session (or nightly)
@@ -167,16 +167,34 @@ Two distinct concepts — pick based on trigger type:
 
 ---
 
-## Infra
+## Plan / Task
 
-**Yes, necessary** — once the agent manages its own runtime environment (local LLM, Redis, vector DB), it needs tools to inspect and control those services without dropping to raw `bash_run`.
+Tools for structured goal execution. State transitions are enforced at the tool layer — the backend rejects invalid transitions regardless of what the agent reasons. This is a programmatic guardrail, not a prompt instruction.
 
-1. `service:status(name)` — check if a named service (Redis, Ollama, Qdrant) is running; returns PID, uptime, port
-2. `service:restart(name)` — restart a hung service; safer than `bash:ps` + kill PID manually
-3. `docker:ps` — list running containers with status and port mappings
-4. `docker:logs(container, tail)` — tail container logs; respects the `tail` line limit to avoid context overflow
-5. `docker:exec(container, cmd)` — run a command inside a container; uses `shlex` check same as `bash_run`
-6. `port:check(port)` — verify a port is open and which process owns it; useful before starting a service
-7. `gpu:status` — VRAM usage, GPU utilization, temperature; relevant when running local LLMs
+### State machine
 
-**Design note:** These tools are read-heavy by default. Mutating actions (`service:restart`, `docker:exec`) should require an explicit `confirm: true` parameter so the agent cannot trigger restarts accidentally mid-reasoning.
+```
+pending → in_progress → verifying → done
+                                   ↘ failed
+```
+
+The `status` column has a `CHECK` constraint; the tool backend additionally validates that the transition is legal before updating the row. An agent cannot call `task:verify` before `task:start`, or `task:done` before `task:verify` — the tool returns an error, not a warning.
+
+### Core operations
+
+| Tool | Purpose | Key Parameters |
+|------|---------|----------------|
+| `plan:create` | Create a plan with goal + context; agent calls this after research via other tools | `goal`, `context` |
+| `plan:done` | Close a completed plan | `plan_id` |
+| `task:create` | Add a task to a plan with description + acceptance criteria | `plan_id`, `description`, `criteria` |
+| `task:start` | Transition task `pending → in_progress` | `task_id` |
+| `task:verify` | Check task output against acceptance criteria; transition `in_progress → verifying` | `task_id`, `output` |
+| `task:done` | Transition `verifying → done` | `task_id` |
+| `task:fail` | Transition to `failed` with reason | `task_id`, `reason` |
+| `task:list` | List tasks for a plan with current status | `plan_id` |
+
+### Design notes
+
+- `plan:create` is called **after** research, not before — the agent uses `web:search`, `bash:grep`, `memory:retrieve` etc. to gather context, then crystallises it into a plan.
+- `task:verify` should run acceptance criteria deterministically where possible (e.g. run a test, check a file exists) rather than asking the LLM to self-assess.
+- A failed task transitions to `failed` but does not block the plan — the agent can create a replacement task or mark the plan done with caveats.

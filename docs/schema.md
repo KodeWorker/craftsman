@@ -58,6 +58,31 @@ CREATE TABLE artifacts (
 ```
 
 ```sql
+-- Plans: agent goal + context
+CREATE TABLE plans (
+  id         TEXT PRIMARY KEY,  -- UUID
+  session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+  goal       TEXT NOT NULL,
+  context    TEXT,
+  status     TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'done')),
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  ended_at   TEXT
+);
+
+-- Tasks: units of work within a plan; state machine enforced at tool layer
+CREATE TABLE tasks (
+  id         TEXT PRIMARY KEY,  -- UUID
+  plan_id    TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
+  description TEXT NOT NULL,
+  criteria   TEXT,   -- acceptance criteria for task:verify
+  status     TEXT NOT NULL DEFAULT 'pending'
+               CHECK (status IN ('pending', 'in_progress', 'verifying', 'done', 'failed')),
+  output     TEXT,   -- captured output from task:verify
+  fail_reason TEXT,
+  created_at TEXT NOT NULL DEFAULT (datetime('now')),
+  updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Tool registry: named tools with JSON schemas
 CREATE TABLE tools (
   name        TEXT PRIMARY KEY,
