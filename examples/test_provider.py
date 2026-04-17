@@ -18,17 +18,9 @@ async def test_completion(provider: Provider):
     print()
 
 
-async def test_embedding(provider: Provider):
-    print("=== embedding ===")
-    response = await provider.embedding("hello world")
-    vector = response.data[0]["embedding"]
-    print(f"dims: {len(vector)}, first 5 values: {vector[:5]}")
-
-
 async def main():
     provider = Provider()
     await test_completion(provider)
-    await test_embedding(provider)
 
 
 if __name__ == "__main__":

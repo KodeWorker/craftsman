@@ -1,6 +1,6 @@
 import os
 
-from litellm import acompletion, aembedding
+from litellm import acompletion
 
 from craftsman.auth import Auth
 from craftsman.configure import get_config
@@ -17,29 +17,25 @@ class Provider:
             embedding_model or self.config["provider"]["embedding_model"]
         )
         self.auth = Auth()
+
         self.cert = self.auth.get_password("LLM_SSL_CRT")
-        os.environ["SSL_CERT_FILE"] = self.cert if self.cert else ""
+        self.verify = True if self.cert else False
+        os.environ["SSL_CERT_FILE"] = self.cert
+
+        api_key = self.auth.get_password("LLM_API_KEY")
+        self.api_key = api_key if api_key else "dummy_api_key"
 
     async def completion(self, messages: list):
+
         response = await acompletion(
             model=self.model,
-            api_key=self.auth.get_password("LLM_API_KEY"),
+            api_key=self.api_key,
             api_base=self.auth.get_password("LLM_BASE_URL"),
             messages=messages,
-            ssl_verify=True if self.cert else False,
+            ssl_verify=self.verify,
             stream=True,
         )
         async for chunk in response:
             content = chunk.choices[0].delta.content
             if content:
                 yield content
-
-    async def embedding(self, input: str):
-        response = await aembedding(
-            model=self.embedding_model,
-            api_key=self.auth.get_password("LLM_API_KEY"),
-            api_base=self.auth.get_password("LLM_BASE_URL"),
-            input=input,
-            ssl_verify=True if self.cert else False,
-        )
-        return response

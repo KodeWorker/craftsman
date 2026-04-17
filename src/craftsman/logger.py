@@ -22,6 +22,10 @@ class CraftsmanLogger:
             return
         config = get_config()
         root_dir = os.path.expanduser(config["workspace"]["root"])
+        assert os.path.isdir(root_dir), (
+            f"Root directory {root_dir} does not exist."
+            " Please run `craftsman init` first."
+        )
         log_file = os.path.join(root_dir, "logs", "craftsman-%Y-%m-%d.log")
         self.log_file = datetime.datetime.now().strftime(log_file)
         self.log_level = getattr(

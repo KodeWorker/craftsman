@@ -23,7 +23,8 @@ class Auth:
                 f"Username {username} is not recognized."
                 f" Valid usernames are: {', '.join(Auth.USERNAME_LIST)}"
             )
-        return keyring.get_password(Auth.SERVICE_NAME, username)
+        pw = keyring.get_password(Auth.SERVICE_NAME, username)
+        return pw if pw is not None else ""
 
     @staticmethod
     def delete_password(username: str):
