@@ -19,8 +19,5 @@ craftsman = "craftsman.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.flake8]
-extend-ignore = ["E203"]
-
 [tool.setuptools.data-files]
 "craftsman" = ["craftsman.yaml"]
