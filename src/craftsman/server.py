@@ -33,7 +33,10 @@ class Server:
 
         async def stream():
             async for kind, text in self.provider.completion(messages):
-                yield json.dumps({"kind": kind, "text": text}) + "\n"
+                if kind == "meta":
+                    yield json.dumps({"kind": "meta", **text}) + "\n"
+                else:
+                    yield json.dumps({"kind": kind, "text": text}) + "\n"
 
         return StreamingResponse(stream(), media_type="application/x-ndjson")
 

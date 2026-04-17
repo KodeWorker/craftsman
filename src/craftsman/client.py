@@ -125,7 +125,18 @@ class Client:
                 if not line:
                     continue
                 chunk = json.loads(line)
-                kind, text = chunk["kind"], chunk["text"]
+                kind = chunk["kind"]
+                if kind == "meta":
+                    print()
+                    self.update_banner(
+                        model=chunk.get("model", ""),
+                        ctx_used=chunk.get("total_tokens", 0),
+                        ctx_total=chunk.get("ctx_total", 0),
+                        upload_tokens=chunk.get("prompt_tokens", 0),
+                        download_tokens=chunk.get("completion_tokens", 0),
+                    )
+                    continue
+                text = chunk["text"]
                 if kind == "reasoning":
                     if not in_reasoning:
                         print(
@@ -154,14 +165,4 @@ class Client:
                         )
                     print(text, end="", flush=True)
                     assistant_content += text
-            print()
             messages += [{"role": "assistant", "content": assistant_content}]
-            self.update_banner(
-                model="",
-                session="",
-                ctx_used=0,
-                ctx_total=0,
-                upload_tokens=0,
-                download_tokens=0,
-                sandbox=False,
-            )
