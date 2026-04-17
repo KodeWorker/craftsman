@@ -6,8 +6,11 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "click>=8.3.2",
+    "colorama>=0.4.6",
+    "fastapi>=0.136.0",
     "keyring>=25.7.0",
     "litellm>=1.83.0",
+    "uvicorn>=0.44.0",
 ]
 
 [project.scripts]
@@ -15,6 +18,9 @@ craftsman = "craftsman.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.flake8]
+extend-ignore = ["E203"]
 
 [tool.setuptools.data-files]
 "craftsman" = ["craftsman.yaml"]

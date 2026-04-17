@@ -31,7 +31,7 @@ class CraftsmanLogger:
         self.log_level = getattr(
             logging, config["logging"]["level"].upper(), logging.INFO
         )
-        self.debug = config["logging"]["debug"]
+        self.debug = config["logging"].get("debug", False)
         self._fmt = "%(asctime)s | %(name)s | %(levelname)s : %(message)s"
         self._initialized = True
 

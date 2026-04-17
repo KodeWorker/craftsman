@@ -1,5 +1,6 @@
 import multiprocessing
 import os
+import time
 
 import click
 
@@ -54,6 +55,7 @@ def dev(port: int = 6969):
     """Starts both server and client for development."""
     server = Server(port=port)
     multiprocessing.Process(target=server.start).start()
+    time.sleep(1)  # Give the server a moment to start
     client = Client(host="localhost", port=port)
     client.connect()
 
