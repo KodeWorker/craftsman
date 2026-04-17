@@ -6,12 +6,11 @@ from craftsman.auth import Auth
 from craftsman.configure import get_config
 from craftsman.logger import CraftsmanLogger
 
-logger = CraftsmanLogger().get_logger(__name__)
-
 
 class Provider:
     def __init__(self, model: str = None, embedding_model: str = None):
         self.config = get_config()
+        self.logger = CraftsmanLogger().get_logger(__name__)
         self.debug = self.config["provider"].get("debug", False)
         self.model = model or self.config["provider"]["model"]
         self.think = (
@@ -63,6 +62,8 @@ class Provider:
             + getattr(usage, "completion_tokens", 0)
             * self.output_cost_per_token
         )
+        self.logger.info("Model response completed.")
+
         yield (
             "meta",
             {
