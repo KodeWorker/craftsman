@@ -1,5 +1,7 @@
+import itertools
 import json
 import os
+import threading
 import time
 from pathlib import Path
 
@@ -148,12 +150,36 @@ class Client:
             assistant_content = ""
             reasoning_content = ""
             in_reasoning = False
+            first_chunk = True
+            spinner_stop = threading.Event()
+
+            def _spin():
+                for frame in itertools.cycle(
+                    ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+                ):
+                    if spinner_stop.is_set():
+                        break
+                    print(
+                        f"\r{Style.DIM}{frame} Thinking...{Style.RESET_ALL}",
+                        end="",
+                        flush=True,
+                    )
+                    time.sleep(0.08)
+                print("\r  \r", end="", flush=True)
+
+            spinner_thread = threading.Thread(target=_spin, daemon=True)
+            spinner_thread.start()
+
             for line in response.iter_lines():
                 if not line:
                     continue
                 chunk = json.loads(line)
                 kind = chunk["kind"]
                 if kind == "meta":
+                    if first_chunk:
+                        spinner_stop.set()
+                        spinner_thread.join()
+                        first_chunk = False
                     print()
                     self.update_banner(
                         model=chunk.get("model", ""),
@@ -166,6 +192,10 @@ class Client:
                     )
                     continue
                 text = chunk["text"]
+                if first_chunk:
+                    spinner_stop.set()
+                    spinner_thread.join()
+                    first_chunk = False
                 if kind == "reasoning":
                     if not in_reasoning:
                         print(

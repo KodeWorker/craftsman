@@ -12,7 +12,7 @@ workspace:
   logs: ~/.craftsman/logs
 
 provider:
-  debug: true # show reasoning steps and tool calls in the console
+  debug: false # true: show reasoning steps
   # llama.cpp uses openai/<model-name> for compatibility
   model: openai/gemma-4-E4B-it
   max_tokens: 131072
