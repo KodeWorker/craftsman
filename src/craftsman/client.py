@@ -122,6 +122,7 @@ class Client:
                         + Style.RESET_ALL
                     )
                 elif user_input.lower() == "/clear":
+                    os.system("cls" if os.name == "nt" else "clear")
                     print(Fore.RED + user_input + Style.RESET_ALL)
                     messages = []
                     self.logger.info("Conversation history cleared.")
