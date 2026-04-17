@@ -147,8 +147,6 @@ class Client:
                 )
                 continue
 
-            assistant_content = ""
-            reasoning_content = ""
             in_reasoning = False
             first_chunk = True
             spinner_stop = threading.Event()
@@ -185,7 +183,7 @@ class Client:
                     self.update_banner(
                         model=chunk.get("model", ""),
                         session=session_id[:8],
-                        ctx_used=chunk.get("total_tokens", 0),
+                        ctx_used=chunk.get("ctx_used", 0),
                         ctx_total=chunk.get("ctx_total", 0),
                         upload_tokens=chunk.get("prompt_tokens", 0),
                         download_tokens=chunk.get("completion_tokens", 0),
@@ -209,7 +207,6 @@ class Client:
                     print(
                         Style.DIM + text + Style.RESET_ALL, end="", flush=True
                     )
-                    reasoning_content += text
                 else:
                     if in_reasoning:
                         print()
@@ -219,11 +216,4 @@ class Client:
                             end="",
                             flush=True,
                         )
-                    elif not assistant_content:
-                        print(
-                            Fore.MAGENTA + "assistant:\n" + Style.RESET_ALL,
-                            end="",
-                            flush=True,
-                        )
                     print(text, end="", flush=True)
-                    assistant_content += text

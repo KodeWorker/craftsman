@@ -62,20 +62,25 @@ class Provider:
             + getattr(usage, "completion_tokens", 0)
             * self.output_cost_per_token
         )
-        self.logger.info("Model response completed.")
 
+        completion_details = getattr(usage, "completion_tokens_details", None)
+        reasoning_tokens = getattr(completion_details, "reasoning_tokens", 0)
+        ctx_used = getattr(usage, "total_tokens", 0) - reasoning_tokens
         yield (
             "meta",
             {
                 "model": self.model,
                 "ctx_total": self.max_tokens,
-                "prompt_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+                "prompt_tokens": getattr(usage, "prompt_tokens", 0),
                 "completion_tokens": getattr(usage, "completion_tokens", 0)
                 or 0,
-                "total_tokens": getattr(usage, "total_tokens", 0) or 0,
+                "ctx_used": ctx_used,
+                "reasoning_tokens": reasoning_tokens,
                 "cost": cost,
             },
         )
+
+        self.logger.info("Model response completed.")
 
     async def model_response_parser(
         self,

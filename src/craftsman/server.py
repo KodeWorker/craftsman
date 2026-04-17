@@ -45,32 +45,47 @@ class Server:
         context = self.librarian.get_context(self.session_id)
 
         async def stream():
-            chunks = []
+            content = []
+            reasoning = []
             up_tokens = 0
             down_tokens = 0
+            reason_tokens = 0
             async for kind, text in self.provider.completion(context):
                 if kind == "meta":
                     up_tokens = text.get("prompt_tokens", 0)
                     down_tokens = text.get("completion_tokens", 0)
+                    reason_tokens = text.get("reasoning_tokens", 0)
                     yield json.dumps({"kind": "meta", **text}) + "\n"
                 else:
                     if kind == "content":
-                        chunks.append(text)
+                        content.append(text)
+                    elif kind == "reasoning":
+                        reasoning.append(text)
                     yield json.dumps({"kind": kind, "text": text}) + "\n"
-            content = "".join(chunks)
+            content = "".join(content)
+            reasoning = "".join(reasoning)
             self.librarian.push_context(
                 self.session_id, {"role": "assistant", "content": content}
             )
             # Store messages and token usage in the structure DB
             message["tokens"] = up_tokens
             self.librarian.store_message(self.session_id, message)
+            # Store reasoning and token usage
+            self.librarian.store_message(
+                self.session_id,
+                {
+                    "role": "reasoning",
+                    "content": reasoning,
+                    "tokens": reason_tokens,
+                },
+            )
             # Store assistant response with token usage
             self.librarian.store_message(
                 self.session_id,
                 {
                     "role": "assistant",
                     "content": content,
-                    "tokens": down_tokens,
+                    "tokens": down_tokens - reason_tokens,
                 },
             )
 
