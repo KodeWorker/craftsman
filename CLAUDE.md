@@ -23,7 +23,7 @@ No test suite exists yet.
 
 ## Architecture
 
-Early-stage autonomous agent framework. CLI is the only functional layer; server/client/memory are stubs.
+Early-stage autonomous agent framework. CLI + server functional; client/vector/graph are stubs.
 
 ### Entry point
 
@@ -37,16 +37,21 @@ Early-stage autonomous agent framework. CLI is the only functional layer; server
 |--------|--------|---------|
 | `cli.py` | Done | Click entrypoint, wires all commands |
 | `auth.py` | Done | Keyring wrapper; credentials: `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_SSL_CRT` |
-| `server.py` | Stub | Will run the always-on background agent worker |
+| `server.py` | Done | FastAPI server; streaming completion, session management |
+| `provider.py` | Done | LiteLLM wrapper; streams `(kind, text)` tuples |
+| `memory/structure.py` | Done | SQLite layer; all tables per `docs/schema.md` |
+| `memory/librarian.py` | Done | Unified memory interface; in-process cache + SQLite |
+| `memory/vector.py` | Stub | sqlite-vec embeddings via LightRAG |
+| `memory/graph.py` | Stub | Kuzu knowledge graph via LightRAG |
 | `client.py` | Stub | Will connect to server, mount workspace |
 
-### Planned infrastructure (not yet implemented)
+### Infrastructure
 
-All embedded — zero daemons required. See `docs/roadmap.md` and `docs/schema.md`.
+All embedded — zero daemons required. See `docs/schema.md`.
 
-- **In-process dict** — session scratchpad, agent state, task queue (lives in server process)
-- **SQLite** (`~/.craftsman/craftsman.db`) — projects, sessions, messages, global_facts, artifacts
-- **sqlite-vec** — vector embeddings (entities, relations, text_chunks) managed by LightRAG; SQLite extension, lives in same DB file
+- **In-process dict** — session scratchpad, agent state, context window (lives in server process)
+- **SQLite** (`~/.craftsman/database/craftsman.db`) — projects, sessions, messages, global_facts, artifacts, plans, tasks, tools, scheduled/cron jobs
+- **sqlite-vec** — vector embeddings managed by LightRAG; SQLite extension, same DB file
 - **Kuzu** (embedded graph DB) — knowledge graph, managed by LightRAG, no daemon
 - **LightRAG** — KG orchestration: entity extraction + graph+vector hybrid retrieval
 - **Local filesystem** (`~/.craftsman/workspace/`) — artifact storage
