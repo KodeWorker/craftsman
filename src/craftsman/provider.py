@@ -30,20 +30,11 @@ class Provider:
         self.api_base = self.auth.get_password("LLM_BASE_URL")
 
         self.max_tokens = self.config["provider"].get("max_tokens", 4096)
-        litellm.register_model(
-            {
-                self.model: {
-                    "max_tokens": self.max_tokens,
-                    "input_cost_per_token": self.config["provider"].get(
-                        "input_cost_per_token", 0.00000
-                    ),
-                    "output_cost_per_token": self.config["provider"].get(
-                        "output_cost_per_token", 0.00000
-                    ),
-                    "litellm_provider": "openai",
-                    "mode": "chat",
-                },
-            }
+        self.input_cost_per_token = self.config["provider"].get(
+            "input_cost_per_token", 0.0
+        )
+        self.output_cost_per_token = self.config["provider"].get(
+            "output_cost_per_token", 0.0
         )
 
     async def completion(self, messages: list):
@@ -67,6 +58,11 @@ class Provider:
                 continue
             yield (kind, text)
 
+        cost = (
+            getattr(usage, "prompt_tokens", 0) * self.input_cost_per_token
+            + getattr(usage, "completion_tokens", 0)
+            * self.output_cost_per_token
+        )
         yield (
             "meta",
             {
@@ -76,6 +72,7 @@ class Provider:
                 "completion_tokens": getattr(usage, "completion_tokens", 0)
                 or 0,
                 "total_tokens": getattr(usage, "total_tokens", 0) or 0,
+                "cost": cost,
             },
         )
 

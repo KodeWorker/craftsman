@@ -28,7 +28,7 @@ CREATE TABLE sessions (
 CREATE TABLE messages (
   id         TEXT PRIMARY KEY,  -- UUID
   session_id TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
-  role       TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool')),
+  role       TEXT NOT NULL CHECK (role IN ('user', 'assistant', 'system', 'tool', 'summary', 'reasoning')),
   content    TEXT NOT NULL,
   tokens     INTEGER,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))

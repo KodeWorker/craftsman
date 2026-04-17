@@ -1,6 +1,7 @@
 import json
 import os
 import time
+from pathlib import Path
 
 import requests
 from colorama import Fore, Style
@@ -8,6 +9,8 @@ from prompt_toolkit import prompt
 from prompt_toolkit.history import FileHistory
 
 from craftsman.logger import CraftsmanLogger
+
+PROMPT_HISTORY_PATH = Path.home() / ".craftsman" / "database" / "craftsman.db"
 
 
 class Client:
@@ -27,6 +30,7 @@ class Client:
         ctx_total: int = 0,
         upload_tokens: int = 0,
         download_tokens: int = 0,
+        cost: float = 0.0,
         sandbox: bool = False,
     ):
         ctx_used_display = (
@@ -49,12 +53,16 @@ class Client:
             f"model: {model} | session: {session} "
             f"| ctx: {ctx_used_display}/{ctx_total_display} "
             f"| {upload_tokens_display}↑ {download_tokens_display}↓ "
+            f"({cost:.4f}$) "
             f"| sandbox: {sandbox}"
         )
 
     def connect(self):
         entry_point = f"http://{self.host}:{self.port}"
         self.logger.info(f"Connecting to server at {entry_point}...")
+
+        response = requests.get(f"{entry_point}/chat/session_id")
+        session_id = response.json().get("session_id", "")
 
         while True:
             try:
@@ -68,11 +76,10 @@ class Client:
                 )
                 time.sleep(2)
 
-        history = FileHistory(os.path.expanduser("~/.craftsman/.history"))
+        history = FileHistory(str(PROMPT_HISTORY_PATH))
 
-        messages = []
         while True:
-            saperator = "=" * os.get_terminal_size().columns
+            saperator = "_" * os.get_terminal_size().columns
             print(Style.BRIGHT + saperator + Style.RESET_ALL)
             print(Style.BRIGHT + Fore.CYAN + self.banner + Style.RESET_ALL)
             user_input = prompt(
@@ -101,7 +108,7 @@ class Client:
                     )
                     print(
                         Style.BRIGHT
-                        + "  /clear - Clear the conversation history"
+                        + "  /clear - Clear the session"
                         + Style.RESET_ALL
                     )
                     print(
@@ -111,19 +118,24 @@ class Client:
                     )
                 elif user_input.lower() == "/clear":
                     os.system("cls" if os.name == "nt" else "clear")
-                    print(Fore.RED + user_input + Style.RESET_ALL)
-                    messages = []
-                    self.logger.info("Conversation history cleared.")
+                    response = requests.post(f"{entry_point}/chat/clear")
+                    if response.status_code == 200:
+                        self.logger.info("Session cleared.")
+                    else:
+                        self.logger.error(
+                            "Error clearing session: "
+                            f"{response.status_code} - {response.text}"
+                        )
                 else:
                     print(user_input)
                 continue
             else:
                 print(user_input)
 
-            messages += [{"role": "user", "content": user_input}]
+            message = {"role": "user", "content": user_input}
             response = requests.post(
-                f"{entry_point}/completion",
-                json={"messages": messages},
+                f"{entry_point}/chat/completion",
+                json={"message": message},
                 stream=True,
             )
             if response.status_code != 200:
@@ -134,6 +146,7 @@ class Client:
                 continue
 
             assistant_content = ""
+            reasoning_content = ""
             in_reasoning = False
             for line in response.iter_lines():
                 if not line:
@@ -144,10 +157,12 @@ class Client:
                     print()
                     self.update_banner(
                         model=chunk.get("model", ""),
+                        session=session_id[:8],
                         ctx_used=chunk.get("total_tokens", 0),
                         ctx_total=chunk.get("ctx_total", 0),
                         upload_tokens=chunk.get("prompt_tokens", 0),
                         download_tokens=chunk.get("completion_tokens", 0),
+                        cost=chunk.get("cost", 0),
                     )
                     continue
                 text = chunk["text"]
@@ -162,6 +177,7 @@ class Client:
                     print(
                         Style.DIM + text + Style.RESET_ALL, end="", flush=True
                     )
+                    reasoning_content += text
                 else:
                     if in_reasoning:
                         print()
@@ -179,4 +195,3 @@ class Client:
                         )
                     print(text, end="", flush=True)
                     assistant_content += text
-            messages += [{"role": "assistant", "content": assistant_content}]

@@ -4,6 +4,8 @@ import os
 
 from craftsman.configure import get_config
 
+ROOT_DIR = os.path.expanduser(get_config()["workspace"]["root"])
+
 
 class CraftsmanLogger:
     """Singleton logger factory.
@@ -21,12 +23,11 @@ class CraftsmanLogger:
         if self._initialized:
             return
         config = get_config()
-        root_dir = os.path.expanduser(config["workspace"]["root"])
-        assert os.path.isdir(root_dir), (
-            f"Root directory {root_dir} does not exist."
+        assert os.path.isdir(ROOT_DIR), (
+            f"Root directory {ROOT_DIR} does not exist."
             " Please run `craftsman init` first."
         )
-        log_file = os.path.join(root_dir, "logs", "craftsman-%Y-%m-%d.log")
+        log_file = os.path.join(ROOT_DIR, "logs", "craftsman-%Y-%m-%d.log")
         self.log_file = datetime.datetime.now().strftime(log_file)
         self.log_level = getattr(
             logging, config["logging"]["level"].upper(), logging.INFO
