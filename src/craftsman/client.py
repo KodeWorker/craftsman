@@ -4,8 +4,15 @@ import time
 
 import requests
 from colorama import Fore, Style
+from prompt_toolkit import prompt
+from prompt_toolkit.history import FileHistory
+from prompt_toolkit.input.ansi_escape_sequences import ANSI_SEQUENCES
+from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.keys import Keys
 
 from craftsman.logger import CraftsmanLogger
+
+ANSI_SEQUENCES["\x1b[1;2R"] = Keys.F24
 
 
 class Client:
@@ -66,13 +73,24 @@ class Client:
                 )
                 time.sleep(2)
 
+        bindings = KeyBindings()
+
+        @bindings.add(Keys.F24)  # Alt+Enter = submit
+        def _(event):
+            event.app.exit(result=event.current_buffer.text)
+
+        history = FileHistory(os.path.expanduser("~/.craftsman/.history"))
+
         messages = []
         while True:
             saperator = "=" * os.get_terminal_size().columns
             print(Style.BRIGHT + saperator + Style.RESET_ALL)
             print(Style.BRIGHT + Fore.CYAN + self.banner + Style.RESET_ALL)
-            user_input = input(
-                "Enter your message (or '/help' for commands): "
+            user_input = prompt(
+                "Enter your message (or '/help' for commands): ",
+                multiline=True,
+                key_bindings=bindings,
+                history=history,
             )
             print(Fore.GREEN + "user:" + Style.RESET_ALL)
             if (
