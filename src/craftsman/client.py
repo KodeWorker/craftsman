@@ -75,15 +75,16 @@ class Client:
                 "Enter your message (or '/help' for commands): "
             )
             print(Fore.GREEN + "user:" + Style.RESET_ALL)
-            print(user_input)
             if (
                 user_input.lower().startswith("/")
                 and user_input.lower() in self.SLASH_COMMANDS
             ):
                 if user_input.lower() == "/exit":
+                    print(Fore.RED + user_input + Style.RESET_ALL)
                     self.logger.info("Exiting client.")
                     break
                 elif user_input.lower() == "/help":
+                    print(Fore.RED + user_input + Style.RESET_ALL)
                     print(
                         Style.BRIGHT + "Available commands:" + Style.RESET_ALL
                     )
@@ -103,9 +104,15 @@ class Client:
                         + Style.RESET_ALL
                     )
                 elif user_input.lower() == "/clear":
+                    print(Fore.RED + user_input + Style.RESET_ALL)
                     messages = []
                     self.logger.info("Conversation history cleared.")
+                else:
+                    print(user_input)
                 continue
+            else:
+                print(user_input)
+
             messages += [{"role": "user", "content": user_input}]
             response = requests.post(
                 f"{entry_point}/completion",
