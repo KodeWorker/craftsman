@@ -177,6 +177,7 @@ class Client:
                 kind = chunk["kind"]
                 if kind == "meta":
                     if first_chunk:
+                        print()
                         spinner_stop.set()
                         spinner_thread.join()
                         first_chunk = False
@@ -193,6 +194,7 @@ class Client:
                     continue
                 text = chunk["text"]
                 if first_chunk:
+                    print()
                     spinner_stop.set()
                     spinner_thread.join()
                     first_chunk = False
