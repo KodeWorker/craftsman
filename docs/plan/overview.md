@@ -28,8 +28,8 @@
 3. TTL expiry: stale KG nodes pruned; Session layer discarded
 
 ### Knowledge Graph (Universal)
-- Kuzu (embedded) + LightRAG spans all layers — not session-scoped
-- No daemon required; Kuzu runs in-process like SQLite
+- NetworkX + LightRAG spans all layers — not session-scoped
+- No daemon required; NetworkX runs in-memory, serialized to GML at session end
 - Live: entities and relationships extracted during active sessions
 - Offline: nightly batch — promote, merge, prune via TTL
 
@@ -43,7 +43,7 @@ flowchart TD
         AG -->|scratchpad / state| MEM[(In-process\nDict)]
         AG -->|log messages| MSG[(SQLite\nMessages)]
         AG -->|entity extraction| LR[LightRAG]
-        LR -->|nodes + edges| KZ[(Kuzu\nembedded)]
+        LR -->|nodes + edges| KZ[(NetworkX\nin-memory)]
         LR -->|embeddings| VEC[(sqlite-vec)]
     end
 
@@ -57,11 +57,13 @@ flowchart TD
         PROJ -->|promote keynotes| GF[(SQLite\nGlobal Facts)]
         PROJ -->|promote KG nodes\nlayer = global| KZ
         KZ -->|prune stale nodes via TTL| KZ
+        KZ -->|serialize| GML[(graph.gml)]
     end
 
     subgraph READ["Retrieval"]
         Q([Query]) --> LR2[LightRAG\nhybrid search]
         LR2 <-->|graph traversal| KZ
+        KZ <-->|load/save| GML
         LR2 <-->|semantic search| VEC
         Q <-->|context window| MEM
         Q <-->|session history| MSG
@@ -71,7 +73,7 @@ flowchart TD
 ### Services:
 - SQLite (Structured DB — `~/.craftsman/craftsman.db`)
 - sqlite-vec (Vector DB — SQLite extension, same file as structured DB)
-- Kuzu (Knowledge Graph — embedded, no daemon)
+- NetworkX (Knowledge Graph — in-memory, serialized to GML)
 - LightRAG (KG orchestration: entity extraction, graph+vector hybrid retrieval)
 - Local filesystem (artifact storage — `~/.craftsman/workspace/`)
 
@@ -135,7 +137,7 @@ All write ops create a `.bak` before writing.
 | Tool | Purpose |
 |------|---------|
 | `memory:store` | Write key-value fact to scratchpad; update session KG |
-| `memory:retrieve` | Hybrid fetch: KG traversal (Kuzu) + semantic similarity (sqlite-vec) |
+| `memory:retrieve` | Hybrid fetch: KG traversal (NetworkX) + semantic similarity (sqlite-vec) |
 | `memory:forget` | Remove a fact; triggers KG edge pruning |
 
 ### Plan / Task

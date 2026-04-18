@@ -150,36 +150,43 @@ Collections managed by LightRAG. File-based, no daemon.
 | `relations`   | Relationship embeddings between entities          | `source`, `target`, `description`, `weight`           |
 | `text_chunks` | Source chunk embeddings for retrieval context     | `content`, `session_id`, `project_id`, `layer`        |
 
-## Knowledge Graph (Kuzu)
+## Knowledge Graph (NetworkX)
 
-Embedded graph DB, no daemon. Managed by LightRAG. Nodes and relationships created during live extraction, pruned by the nightly batch job.
+In-memory graph, no daemon. Managed by LightRAG (built-in NetworkX backend). Nodes and relationships created during live extraction, pruned by the nightly batch job. Graph serialized to disk at session end.
 
-```cypher
-// Node types
-(:Entity {
-  id          : STRING,
-  name        : STRING,
-  type        : STRING,   // e.g. person, concept, tool, fact
-  description : STRING,
-  layer       : STRING,   // session | project | global
-  created_at  : TIMESTAMP,
-  expires_at  : TIMESTAMP  // null = no TTL
-})
+File: `~/.craftsman/database/graph.gml`
 
-(:Chunk {
-  id         : STRING,
-  content    : STRING,
-  session_id : STRING,
-  tokens     : INT64,
-  created_at : TIMESTAMP
-})
+```python
+# Entity node attributes
+{
+    "id":          str,   # UUID
+    "name":        str,
+    "type":        str,   # e.g. person, concept, tool, fact
+    "description": str,
+    "layer":       str,   # session | project | global
+    "created_at":  str,   # ISO datetime
+    "expires_at":  str,   # ISO datetime, None = no TTL
+}
 
-// Relationship types
-(:Entity)-[:RELATED_TO {
-  description : STRING,
-  weight      : DOUBLE,
-  created_at  : TIMESTAMP
-}]->(:Entity)
+# Chunk node attributes
+{
+    "id":         str,   # UUID
+    "content":    str,
+    "session_id": str,
+    "tokens":     int,
+    "created_at": str,   # ISO datetime
+}
 
-(:Entity)-[:MENTIONED_IN]->(:Chunk)
+# Edge: RELATED_TO (Entity -> Entity)
+{
+    "type":        "RELATED_TO",
+    "description": str,
+    "weight":      float,
+    "created_at":  str,
+}
+
+# Edge: MENTIONED_IN (Entity -> Chunk)
+{
+    "type": "MENTIONED_IN",
+}
 ```
