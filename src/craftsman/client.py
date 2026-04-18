@@ -14,6 +14,9 @@ from prompt_toolkit.history import FileHistory
 from craftsman.logger import CraftsmanLogger
 
 PROMPT_HISTORY_PATH = Path.home() / ".craftsman" / "database" / "craftsman.db"
+PROJECT_SYSTEM_PROMPT = Path.cwd() / ".craftsman" / "system_prompt.md"
+ROOT_SYSTEM_PROMPT = Path.home() / ".craftsman" / "system_prompt.md"
+SLASH_COMMANDS = ["/exit", "/help", "/clear", "/system"]
 
 
 class InputMode(Enum):
@@ -23,7 +26,6 @@ class InputMode(Enum):
 
 
 class Client:
-    SLASH_COMMANDS = ["/exit", "/help", "/clear", "/system"]
 
     def __init__(self, host: str, port: int):
         self.host = host
@@ -83,20 +85,18 @@ class Client:
         print("\r  \r", end="", flush=True)
 
     def read_system_prompt(self):
-        project_system_prompt = Path.cwd() / ".craftsman" / "system_prompt.md"
-        root_system_prompt = Path.home() / ".craftsman" / "system_prompt.md"
-        if project_system_prompt.exists():
-            with open(project_system_prompt, "r") as f:
+        if PROJECT_SYSTEM_PROMPT.exists():
+            with open(PROJECT_SYSTEM_PROMPT, "r") as f:
                 return f.read().strip()
-        elif root_system_prompt.exists():
-            with open(root_system_prompt, "r") as f:
+        elif ROOT_SYSTEM_PROMPT.exists():
+            with open(ROOT_SYSTEM_PROMPT, "r") as f:
                 return f.read().strip()
         return ""
 
     def handle_slash_command(self, user_input: str) -> InputMode:
         if (
             user_input.lower().startswith("/")
-            and user_input.lower() in self.SLASH_COMMANDS
+            and user_input.lower() in SLASH_COMMANDS
         ):
             if user_input.lower() == "/exit":
                 print(Fore.RED + user_input + Style.RESET_ALL)
