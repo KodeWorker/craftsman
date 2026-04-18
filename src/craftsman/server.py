@@ -34,8 +34,8 @@ class Server:
 
     async def get_system_prompt(self):
         context = self.librarian.get_context(self.session_id)
-        system_prompt = next(
-            (msg for msg in context if msg["role"] == "system"), None
+        system_prompt = "".join(
+            m["content"] for m in context if m.get("role") == "system"
         )
         return {"system_prompt": system_prompt}
 

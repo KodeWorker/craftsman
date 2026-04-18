@@ -138,18 +138,16 @@ class Client:
             elif user_input.lower() == "/system":
                 response = requests.get(f"{self.entry_point}/chat/system")
                 if response.status_code == 200:
-                    system_prompt = (
-                        response.json().get("system_prompt", {}) or {}
-                    )
+                    system_prompt = response.json().get("system_prompt", None)
                     print(
                         Style.BRIGHT
                         + "Current system prompt:"
                         + Style.RESET_ALL
                     )
                     print(
-                        system_prompt.get(
-                            "system_prompt", "No system prompt set."
-                        )
+                        system_prompt
+                        if system_prompt
+                        else "No system prompt set."
                     )
                 else:
                     self.logger.error(
