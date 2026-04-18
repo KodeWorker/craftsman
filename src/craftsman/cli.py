@@ -43,10 +43,20 @@ def server(port: int = 6969):
 @main.command()
 @click.option("--host", default="localhost", help="Server host")
 @click.option("--port", default=6969, help="Server port")
-def client(host: str = "localhost", port: int = 6969):
+def chat(host: str = "localhost", port: int = 6969):
     """Connects to an agent server."""
     client = Client(host=host, port=port)
-    client.connect()
+    client.chat()
+
+
+@main.command()
+@click.argument("prompt")
+@click.option("--host", default="localhost", help="Server host")
+@click.option("--port", default=6969, help="Server port")
+def run(prompt, host: str = "localhost", port: int = 6969):
+    """Runs an independent agent task."""
+    client = Client(host=host, port=port)
+    client.run(prompt)
 
 
 @main.command()
@@ -57,7 +67,7 @@ def dev(port: int = 6969):
     multiprocessing.Process(target=server.start).start()
     time.sleep(1)  # Give the server a moment to start
     client = Client(host="localhost", port=port)
-    client.connect()
+    client.chat()
 
 
 @main.group(context_settings=CONTEXT_SETTINGS)

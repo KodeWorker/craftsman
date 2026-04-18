@@ -12,8 +12,10 @@ Self-hosted autonomous agent framework. Zero daemons.
 ```shell
 uv run craftsman init
 uv run craftsman server [--port]
-uv run craftsman client [--host] [--port]
+uv run craftsman chat [--host] [--port]
+uv run craftsman run <prompt> [--host] [--port]
 uv run craftsman dev
+
 
 uv run craftsman auth list
 uv run craftsman auth set <provider>

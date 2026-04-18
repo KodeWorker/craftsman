@@ -37,3 +37,16 @@ user types messages, server calls the LLM and streams the response back.
 
 - [x] Server returns token usage — wire `ctx_used`, `upload_tokens`, `download_tokens` into banner
 - [x] `craftsman dev` race condition — client retries until server is healthy
+
+### Subagent
+- [x] `POST /subagent/run` — ephemeral session, blocking, returns `{meta, content}`
+- [x] `craftsman run "<goal>"` — CLI → client.run → /subagent/run
+
+### System Prompt
+- [x] Load from `.craftsman/system_prompt.md` → `~/.craftsman/system_prompt.md` (first found wins)
+- [x] `POST /chat/system` — push system prompt into session context
+- [x] `GET /chat/system` — return current system prompt
+- [x] `/system` slash command — print current system prompt in TUI
+
+### Knowledge Graph
+- [x] Swap Kuzu → NetworkX (LightRAG built-in backend, GML serialization)

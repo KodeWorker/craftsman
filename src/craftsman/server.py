@@ -3,16 +3,10 @@ import json
 import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 
 from craftsman.logger import CraftsmanLogger
 from craftsman.memory.librarian import Librarian
 from craftsman.provider import Provider
-
-
-class StoreMessageRequest(BaseModel):
-    session_id: str
-    message: dict
 
 
 class Server:
@@ -26,14 +20,37 @@ class Server:
 
         self.app.get("/health")(self.health_check)
         self.app.get("/chat/session_id")(self.get_session_id)
+        self.app.get("/chat/system")(self.get_system_prompt)
+        self.app.post("/chat/system")(self.set_system_prompt)
         self.app.post("/chat/completion")(self.handle_completion)
         self.app.post("/chat/clear")(self.clear_session)
+        self.app.post("/subagent/run")(self.run_subagent)
 
     async def health_check(self):
         return {"status": "ok"}
 
     async def get_session_id(self):
         return {"session_id": self.session_id}
+
+    async def get_system_prompt(self):
+        context = self.librarian.get_context(self.session_id)
+        system_prompt = next(
+            (msg for msg in context if msg["role"] == "system"), None
+        )
+        return {"system_prompt": system_prompt}
+
+    async def set_system_prompt(self, request: Request):
+        body = await request.json()
+        system_prompt = body.get("system_prompt", "")
+        if not system_prompt:
+            return {"error": "No system prompt provided."}
+        self.librarian.clear_system_prompt(
+            self.session_id
+        )  # remove existing system prompts
+        self.librarian.push_context(
+            self.session_id, {"role": "system", "content": system_prompt}
+        )
+        return {"status": "system prompt set"}
 
     async def handle_completion(self, request: Request):
         body = await request.json()
@@ -94,6 +111,37 @@ class Server:
     async def clear_session(self):
         self.librarian.clear_session(self.session_id)
         return {"status": "session cleared"}
+
+    async def run_subagent(self, request: Request):
+        session_id = self.librarian.structure_db.create_session()
+        body = await request.json()
+        message = body.get("message", dict())
+        if not message:
+            return {"error": "No messages provided."}
+        try:
+            self.librarian.push_context(session_id, message)
+            context = self.librarian.get_context(session_id)
+
+            result = []
+            up_tokens = 0
+            down_tokens = 0
+            async for kind, text in self.provider.completion(context):
+                if kind == "meta":
+                    up_tokens = text.get("prompt_tokens", 0)
+                    down_tokens = text.get("completion_tokens", 0)
+                    cost = text.get("cost", 0.0)
+                elif kind == "content":
+                    result.append(text)
+
+            meta = {
+                "prompt_tokens": up_tokens,
+                "completion_tokens": down_tokens,
+                "cost": cost,
+            }
+            return {"meta": meta, "content": "".join(result)}
+
+        finally:
+            self.librarian.clear_session(session_id)  # discard
 
     def start(self):
         self.logger.info(f"Starting server on port {self.port}...")

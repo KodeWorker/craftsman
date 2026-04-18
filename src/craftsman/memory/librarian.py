@@ -39,6 +39,12 @@ class Librarian:
     def clear_context(self, session_id: str) -> None:
         self.cache[self._key(session_id, "context")] = []
 
+    def clear_system_prompt(self, session_id: str) -> None:
+        key = self._key(session_id, "context")
+        self.cache[key] = [
+            m for m in self.cache.get(key, []) if m.get("role") != "system"
+        ]
+
     def get_tasks(self) -> list:
         return self.cache.setdefault("tasks", [])
 

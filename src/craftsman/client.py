@@ -3,6 +3,7 @@ import json
 import os
 import threading
 import time
+from enum import Enum
 from pathlib import Path
 
 import requests
@@ -15,12 +16,19 @@ from craftsman.logger import CraftsmanLogger
 PROMPT_HISTORY_PATH = Path.home() / ".craftsman" / "database" / "craftsman.db"
 
 
+class InputMode(Enum):
+    MESSAGE = 1
+    COMMAND = 2
+    EXIT = 3
+
+
 class Client:
-    SLASH_COMMANDS = ["/exit", "/help", "/clear"]
+    SLASH_COMMANDS = ["/exit", "/help", "/clear", "/system"]
 
     def __init__(self, host: str, port: int):
         self.host = host
         self.port = port
+        self.entry_point = f"http://{self.host}:{self.port}"
         self.logger = CraftsmanLogger().get_logger(__name__)
         self.banner = "Welcome to Craftsman!"
 
@@ -55,20 +63,126 @@ class Client:
             f"model: {model} | session: {session} "
             f"| ctx: {ctx_used_display}/{ctx_total_display} "
             f"| {upload_tokens_display}↑ {download_tokens_display}↓ "
-            f"({cost:.4f}$) "
+            f"| (${cost:.4f}) "
             f"| sandbox: {sandbox}"
         )
 
-    def connect(self):
-        entry_point = f"http://{self.host}:{self.port}"
-        self.logger.info(f"Connecting to server at {entry_point}...")
+    @staticmethod
+    def _spin(spinner_stop):
+        for frame in itertools.cycle(
+            ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+        ):
+            if spinner_stop.is_set():
+                break
+            print(
+                f"\r{Style.DIM}{frame} Thinking...{Style.RESET_ALL}",
+                end="",
+                flush=True,
+            )
+            time.sleep(0.08)
+        print("\r  \r", end="", flush=True)
 
-        response = requests.get(f"{entry_point}/chat/session_id")
+    def read_system_prompt(self):
+        project_system_prompt = Path.cwd() / ".craftsman" / "system_prompt.md"
+        root_system_prompt = Path.home() / ".craftsman" / "system_prompt.md"
+        if project_system_prompt.exists():
+            with open(project_system_prompt, "r") as f:
+                return f.read().strip()
+        elif root_system_prompt.exists():
+            with open(root_system_prompt, "r") as f:
+                return f.read().strip()
+        return ""
+
+    def handle_slash_command(self, user_input: str) -> InputMode:
+        if (
+            user_input.lower().startswith("/")
+            and user_input.lower() in self.SLASH_COMMANDS
+        ):
+            if user_input.lower() == "/exit":
+                print(Fore.RED + user_input + Style.RESET_ALL)
+                self.logger.info("Exiting client.")
+                return InputMode.EXIT
+            elif user_input.lower() == "/help":
+                print(Fore.RED + user_input + Style.RESET_ALL)
+                print(Style.BRIGHT + "Available commands:" + Style.RESET_ALL)
+                print(
+                    Style.BRIGHT
+                    + "  /help - Show this help message"
+                    + Style.RESET_ALL
+                )
+                print(
+                    Style.BRIGHT
+                    + "  /clear - Clear the session"
+                    + Style.RESET_ALL
+                )
+                print(
+                    Style.BRIGHT
+                    + "  /exit - Exit the client"
+                    + Style.RESET_ALL
+                )
+                print(
+                    Style.BRIGHT
+                    + "  /system - View system prompt"
+                    + Style.RESET_ALL
+                )
+            elif user_input.lower() == "/clear":
+                os.system("cls" if os.name == "nt" else "clear")
+                response = requests.post(f"{self.entry_point}/chat/clear")
+                if response.status_code == 200:
+                    self.logger.info("Session cleared.")
+                else:
+                    self.logger.error(
+                        "Error clearing session: "
+                        f"{response.status_code} - {response.text}"
+                    )
+            elif user_input.lower() == "/system":
+                response = requests.get(f"{self.entry_point}/chat/system")
+                if response.status_code == 200:
+                    system_prompt = (
+                        response.json().get("system_prompt", {}) or {}
+                    )
+                    print(
+                        Style.BRIGHT
+                        + "Current system prompt:"
+                        + Style.RESET_ALL
+                    )
+                    print(
+                        system_prompt.get(
+                            "system_prompt", "No system prompt set."
+                        )
+                    )
+                else:
+                    self.logger.error(
+                        "Error retrieving system prompt: "
+                        f"{response.status_code} - {response.text}"
+                    )
+            else:
+                return InputMode.MESSAGE
+            return InputMode.COMMAND
+        return InputMode.MESSAGE
+
+    def chat(self):
+        self.logger.info(f"Connecting to server at {self.entry_point}...")
+
+        response = requests.get(f"{self.entry_point}/chat/session_id")
         session_id = response.json().get("session_id", "")
+        system_prompt = self.read_system_prompt()
+        if system_prompt:
+            response = requests.post(
+                f"{self.entry_point}/chat/system",
+                json={"system_prompt": system_prompt},
+            )
+            if response.status_code == 200:
+                self.logger.info("System prompt set successfully.")
+            else:
+                self.logger.error(
+                    "Error setting system prompt: "
+                    f"{response.status_code} - {response.text}"
+                )
 
         while True:
             try:
-                response = requests.get(f"{entry_point}/health")
+                response = requests.get(f"{self.entry_point}/health")
                 if response.status_code == 200:
                     self.logger.info("Successfully connected to the server.")
                     break
@@ -90,53 +204,18 @@ class Client:
                 history=history,
             )
             print(Fore.GREEN + "user:" + Style.RESET_ALL)
-            if (
-                user_input.lower().startswith("/")
-                and user_input.lower() in self.SLASH_COMMANDS
-            ):
-                if user_input.lower() == "/exit":
-                    print(Fore.RED + user_input + Style.RESET_ALL)
-                    self.logger.info("Exiting client.")
-                    break
-                elif user_input.lower() == "/help":
-                    print(Fore.RED + user_input + Style.RESET_ALL)
-                    print(
-                        Style.BRIGHT + "Available commands:" + Style.RESET_ALL
-                    )
-                    print(
-                        Style.BRIGHT
-                        + "  /help - Show this help message"
-                        + Style.RESET_ALL
-                    )
-                    print(
-                        Style.BRIGHT
-                        + "  /clear - Clear the session"
-                        + Style.RESET_ALL
-                    )
-                    print(
-                        Style.BRIGHT
-                        + "  /exit - Exit the client"
-                        + Style.RESET_ALL
-                    )
-                elif user_input.lower() == "/clear":
-                    os.system("cls" if os.name == "nt" else "clear")
-                    response = requests.post(f"{entry_point}/chat/clear")
-                    if response.status_code == 200:
-                        self.logger.info("Session cleared.")
-                    else:
-                        self.logger.error(
-                            "Error clearing session: "
-                            f"{response.status_code} - {response.text}"
-                        )
-                else:
-                    print(user_input)
+
+            mode = self.handle_slash_command(user_input)
+            if mode == InputMode.EXIT:
+                break
+            elif mode == InputMode.COMMAND:
                 continue
             else:
                 print(user_input)
 
             message = {"role": "user", "content": user_input}
             response = requests.post(
-                f"{entry_point}/chat/completion",
+                f"{self.entry_point}/chat/completion",
                 json={"message": message},
                 stream=True,
             )
@@ -150,22 +229,9 @@ class Client:
             in_reasoning = False
             first_chunk = True
             spinner_stop = threading.Event()
-
-            def _spin():
-                for frame in itertools.cycle(
-                    ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-                ):
-                    if spinner_stop.is_set():
-                        break
-                    print(
-                        f"\r{Style.DIM}{frame} Thinking...{Style.RESET_ALL}",
-                        end="",
-                        flush=True,
-                    )
-                    time.sleep(0.08)
-                print("\r  \r", end="", flush=True)
-
-            spinner_thread = threading.Thread(target=_spin, daemon=True)
+            spinner_thread = threading.Thread(
+                target=self._spin, args=(spinner_stop,), daemon=True
+            )
             spinner_thread.start()
 
             for line in response.iter_lines():
@@ -217,3 +283,62 @@ class Client:
                             flush=True,
                         )
                     print(text, end="", flush=True)
+
+    def run(self, prompt: str):
+        self.logger.info(f"Connecting to server at {self.entry_point}...")
+        system_prompt = self.read_system_prompt()
+        if system_prompt:
+            response = requests.post(
+                f"{self.entry_point}/chat/system",
+                json={"system_prompt": system_prompt},
+            )
+            if response.status_code == 200:
+                self.logger.info("System prompt set successfully.")
+            else:
+                self.logger.error(
+                    "Error setting system prompt: "
+                    f"{response.status_code} - {response.text}"
+                )
+
+        message = {"role": "user", "content": prompt}
+
+        spinner_stop = threading.Event()
+        spinner_thread = threading.Thread(
+            target=self._spin, args=(spinner_stop,), daemon=True
+        )
+        spinner_thread.start()
+
+        response = requests.post(
+            f"{self.entry_point}/subagent/run",
+            json={"message": message},
+            stream=True,
+        )
+        if response.status_code != 200:
+            self.logger.error(
+                "Error from server: "
+                f"{response.status_code} - {response.text}"
+            )
+            return
+
+        content = []
+        up_tokens = 0
+        down_tokens = 0
+        cost = 0.0
+        content = response.json().get("content", "")
+        up_tokens = response.json().get("meta", {}).get("prompt_tokens", 0)
+        down_tokens = (
+            response.json().get("meta", {}).get("completion_tokens", 0)
+        )
+        cost = response.json().get("meta", {}).get("cost", 0.0)
+        spinner_stop.set()
+        spinner_thread.join()
+        print()
+
+        print(Fore.GREEN + "assistant:" + Style.RESET_ALL)
+        print(content)
+        print(
+            Fore.CYAN
+            + f"Tokens used - Prompt: {up_tokens},"
+            + f" Completion: {down_tokens}, Cost: ${cost:.4f}"
+            + Style.RESET_ALL
+        )
