@@ -25,17 +25,20 @@ SLASH_COMMANDS = ["/exit", "/help", "/clear", "/system"]
 class ChatCompleter(Completer):
 
     def get_completions(self, document, complete_event):
-        text = document.text_before_cursor.lower()
-        # slash command completion
-        for cmd in SLASH_COMMANDS:
-            if cmd.startswith(text):
-                yield Completion(cmd, start_position=-len(text))
-        # project file completion
-        for root, dirs, files in os.walk(Path.cwd()):
-            for file in files:
-                file_path = os.path.relpath(os.path.join(root, file))
-                if file_path.startswith(text):
-                    yield Completion(file_path, start_position=-len(text))
+        full_text = document.text_before_cursor
+        word = document.get_word_before_cursor(WORD=True)
+        # slash command completion — only at start of input
+        if full_text.lstrip() == full_text and full_text.startswith("/"):
+            for cmd in SLASH_COMMANDS:
+                if cmd.startswith(full_text.lower()):
+                    yield Completion(cmd, start_position=-len(full_text))
+        # project file completion — match current word anywhere in input
+        if word:
+            for root, dirs, files in os.walk(Path.cwd()):
+                for file in files:
+                    file_path = os.path.relpath(os.path.join(root, file))
+                    if file_path.startswith(word):
+                        yield Completion(file_path, start_position=-len(word))
 
 
 class InputMode(Enum):
