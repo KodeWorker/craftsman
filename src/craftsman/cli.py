@@ -76,8 +76,8 @@ def auth():
     pass
 
 
-@auth.command()
-def list():
+@auth.command(name="list")
+def auth_list():
     """Lists all authenticated agents."""
     auth = Auth()
     for provider in auth.USERNAME_LIST:
@@ -125,3 +125,38 @@ def clear(provider: str = None):
         for provider in auth.USERNAME_LIST:
             auth.delete_password(provider)
             click.echo(f"Password for {provider} cleared.")
+
+
+@main.group(context_settings=CONTEXT_SETTINGS)
+def sess():
+    """Session management commands."""
+    pass
+
+
+@sess.command(name="list")
+@click.option("--host", default="localhost", help="Server host")
+@click.option("--port", default=6969, help="Server port")
+@click.option(
+    "--project_id", default=None, help="Project ID to filter sessions"
+)
+@click.option("--limit", default=5, help="Limit number of sessions listed")
+def sess_list(
+    host: str = "localhost",
+    port: int = 6969,
+    project_id: str = None,
+    limit: int = 5,
+):
+    """Lists all sessions."""
+    client = Client(host=host, port=port)
+    client.list_sessions(project_id=project_id, limit=limit)
+
+
+@sess.command()
+@click.argument("session")
+@click.option("--host", default="localhost", help="Server host")
+@click.option("--port", default=6969, help="Server port")
+def delete(session: str = None, host: str = "localhost", port: int = 6969):
+    """Deletes session by ID, prefix, or name."""
+    client = Client(host=host, port=port)
+    client.delete_session(session)
+    click.echo(f"Session '{session}' deleted successfully.")

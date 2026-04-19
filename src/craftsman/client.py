@@ -371,3 +371,52 @@ class Client:
             + f" Completion: {down_tokens}, Cost: ${cost:.4f}"
             + Style.RESET_ALL
         )
+
+    def list_sessions(self, project_id: str = None, limit: int = 5):
+        response = requests.get(
+            f"{self.entry_point}/chat/sessions",
+            params={"project_id": project_id, "limit": limit},
+        )
+
+        if response.status_code == 200:
+            sessions = response.json().get("sessions", [])
+
+            terminal_width = os.get_terminal_size().columns
+            for session in sessions:
+                session_id = session.get("session_id", "(Unknown ID)")
+                title = session.get("title", "(Untitled Session)")
+                last_input_at = session.get("last_input_at", "N/A")
+                last_input = session.get("last_input", "(No messages)")
+                display_input = (
+                    last_input[: terminal_width - 3] + "..."
+                    if len(last_input) > terminal_width
+                    else last_input
+                )
+
+                info = (
+                    f"{Fore.CYAN}{session_id[:8]} | "
+                    f"{title} | {last_input_at}{Style.RESET_ALL}\n"
+                    f"{display_input}"
+                )
+                print(info)
+        else:
+            self.logger.error(
+                "Error retrieving sessions: "
+                f"{response.status_code} - {response.text}"
+            )
+
+    def delete_session(self, session: str = None):
+        if not session:
+            self.logger.error("No session ID provided.")
+            return
+        response = requests.post(
+            f"{self.entry_point}/sessions/delete", json={"session": session}
+        )
+        if response.status_code == 200:
+            status = response.json().get("status", "")
+            self.logger.info(status)
+        else:
+            self.logger.error(
+                "Error deleting session: "
+                f"{response.status_code} - {response.text}"
+            )

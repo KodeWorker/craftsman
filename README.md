@@ -21,8 +21,8 @@ uv run craftsman auth set <provider>
 uv run craftsman auth get <provider>
 uv run craftsman auth clear [<provider>]
 
-uv run craftsman sess list
-uv run craftsman sess delete
+uv run craftsman sess list [--host] [--port] [--project_id] [--limit]
+uv run craftsman sess delete <id|prefix|title> [--host] [--port]
 ```
 
 ## Docs

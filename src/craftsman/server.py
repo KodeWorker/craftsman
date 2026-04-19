@@ -21,10 +21,12 @@ class Server:
         self.app.get("/health")(self.health_check)
         self.app.get("/chat/session_id")(self.get_session_id)
         self.app.get("/chat/system")(self.get_system_prompt)
+        self.app.get("/chat/sessions")(self.list_sessions)
         self.app.post("/chat/system")(self.set_system_prompt)
         self.app.post("/chat/completion")(self.handle_completion)
         self.app.post("/chat/clear")(self.clear_session)
         self.app.post("/subagent/run")(self.run_subagent)
+        self.app.post("/sessions/delete")(self.delete_session)
 
     async def health_check(self):
         return {"status": "ok"}
@@ -38,6 +40,40 @@ class Server:
             m["content"] for m in context if m.get("role") == "system"
         )
         return {"system_prompt": system_prompt}
+
+    async def list_sessions(self, project_id: str = None, limit: int = None):
+        sessions = self.librarian.structure_db.list_sessions(project_id, limit)
+        response = []
+        for session in sessions:
+            id = session["id"]
+            title = session["title"] if session["title"] else ""
+            messages = self.librarian.structure_db.get_messages(id)
+            last_input = next(
+                (
+                    m["content"]
+                    for m in reversed(messages)
+                    if m["role"] == "user"
+                ),
+                "",
+            )
+            last_input_at = next(
+                (
+                    m["created_at"]
+                    for m in reversed(messages)
+                    if m["role"] == "user"
+                ),
+                "",
+            )
+
+            response.append(
+                {
+                    "session_id": id,
+                    "title": title,
+                    "last_input": last_input,
+                    "last_input_at": last_input_at,
+                }
+            )
+        return {"sessions": response}
 
     async def set_system_prompt(self, request: Request):
         body = await request.json()
@@ -111,6 +147,25 @@ class Server:
     async def clear_session(self):
         self.librarian.clear_session(self.session_id)
         return {"status": "session cleared"}
+
+    async def delete_session(self, request: Request):
+        body = await request.json()
+        session = body.get("session", None)
+        row = (
+            self.librarian.structure_db.resolve_session(session)
+            if session
+            else None
+        )
+        session_id = row["id"] if row else None
+
+        if not session_id:
+            return {"error": "No session ID provided."}
+        if session_id == self.session_id:
+            self.session_id = (
+                self.librarian.structure_db.create_session()
+            )  # start a new session if current is deleted
+        self.librarian.structure_db.delete_session(session_id)
+        return {"status": f"session '{session_id}' deleted"}
 
     async def run_subagent(self, request: Request):
         session_id = self.librarian.structure_db.create_session()

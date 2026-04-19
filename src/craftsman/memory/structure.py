@@ -199,15 +199,45 @@ class StructureDB:
             "SELECT * FROM sessions WHERE id = ?", (session_id,)
         ).fetchone()
 
-    def list_sessions(self, project_id: str = None) -> list[sqlite3.Row]:
-        if project_id:
-            return self.conn.execute(
-                "SELECT * FROM sessions WHERE project_id = ?"
-                " ORDER BY created_at DESC",
-                (project_id,),
-            ).fetchall()
+    def resolve_session(self, query: str) -> sqlite3.Row | None:
+        """Match session by exact id, id prefix, or title."""
+        row = self.conn.execute(
+            "SELECT * FROM sessions WHERE id = ?", (query,)
+        ).fetchone()
+        if row:
+            return row
+        rows = self.conn.execute(
+            "SELECT * FROM sessions WHERE id LIKE ?", (query + "%",)
+        ).fetchall()
+        if len(rows) == 1:
+            return rows[0]
         return self.conn.execute(
-            "SELECT * FROM sessions ORDER BY created_at DESC"
+            "SELECT * FROM sessions WHERE title = ?", (query,)
+        ).fetchone()
+
+    def list_sessions(
+        self, project_id: str = None, limit: int = None
+    ) -> list[sqlite3.Row]:
+        limit_clause = " LIMIT ?" if limit is not None else ""
+        has_messages = (
+            "EXISTS (SELECT 1 FROM messages WHERE "
+            "messages.session_id = sessions.id)"
+        )
+        if project_id:
+            params = (
+                (project_id, limit) if limit is not None else (project_id,)
+            )
+            return self.conn.execute(
+                f"SELECT * FROM sessions WHERE "
+                f"project_id = ? AND {has_messages}"
+                f" ORDER BY created_at DESC{limit_clause}",
+                params,
+            ).fetchall()
+        params = (limit,) if limit is not None else ()
+        return self.conn.execute(
+            f"SELECT * FROM sessions WHERE {has_messages}"
+            f" ORDER BY created_at DESC{limit_clause}",
+            params,
         ).fetchall()
 
     def end_session(self, session_id: str) -> None:
