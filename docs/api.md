@@ -37,6 +37,22 @@ Query params: `session` — id, prefix, or title
 { "session_id": "<uuid>" }
 ```
 
+## POST /sessions/resume
+
+Request:
+```json
+{ "session_id": "<uuid>" }
+```
+
+Response:
+```json
+{
+  "status": "session '<uuid>' resumed with N messages",
+  "meta": { "ctx_used": 0, "upload_tokens": 0, "download_tokens": 0, "cost": 0.0 },
+  "messages": [{ "role": "...", "content": "..." }]
+}
+```
+
 ## POST /sessions/delete
 
 Request:
