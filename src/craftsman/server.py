@@ -16,6 +16,7 @@ class Server:
         self.app = FastAPI()
         self.provider = Provider()
         self.librarian = Librarian()
+        self.active_sessions = set()
 
         self.app.get("/health")(self.health_check)
         self.app.get("/chat/system")(self.get_system_prompt)
@@ -142,6 +143,9 @@ class Server:
         session_id = body.get("session_id", None)
         if not session_id:
             return {"error": "No session ID provided."}
+        self.active_sessions.discard(
+            session_id
+        )  # remove from active sessions if present
         self.librarian.clear_session(session_id)
         return {"status": "session cleared"}
 
@@ -150,6 +154,9 @@ class Server:
         session_id = body.get("session_id", None)
         if not session_id:
             return {"error": "No session ID provided."}
+        self.active_sessions.discard(
+            session_id
+        )  # remove from active sessions if present
         self.librarian.structure_db.delete_session(session_id)
         return {"status": f"session '{session_id}' deleted"}
 
@@ -185,9 +192,13 @@ class Server:
 
         finally:
             self.librarian.clear_session(session_id)  # discard
+            self.active_sessions.discard(
+                session_id
+            )  # remove from active sessions if present
 
     async def create_session(self):
         session_id = self.librarian.structure_db.create_session()
+        self.active_sessions.add(session_id)  # add to active sessions
         return {"session_id": session_id}
 
     async def resume_session(self, request: Request):
@@ -196,6 +207,10 @@ class Server:
         if not session_id:
             return {"error": "No session ID provided."}
         messages, meta = self.librarian.retrieve_messages(session_id)
+        self.active_sessions.add(session_id)  # add to active sessions
+        meta["cost"] = await self.provider.cost(
+            meta.get("upload_tokens", 0), meta.get("download_tokens", 0)
+        )
         for message in messages:
             self.librarian.push_context(session_id, message)
         return {

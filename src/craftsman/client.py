@@ -12,6 +12,7 @@ from prompt_toolkit import prompt
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.shortcuts import choice
 
 from craftsman.logger import CraftsmanLogger
 
@@ -203,7 +204,11 @@ class Client:
                 )
                 time.sleep(2)
 
-        # get session id
+        ctx_used = 0
+        upload_tokens = 0
+        download_tokens = 0
+        cost = 0.0
+
         if not session_id:
             response = requests.post(f"{self.entry_point}/sessions/create")
             session_id = response.json().get("session_id", "")
@@ -216,9 +221,18 @@ class Client:
                 self.logger.info(f"{response.json().get('status', '')}")
                 messages = response.json().get("messages", [])
                 meta = response.json().get("meta", {})
-                print(meta)
-                print(messages)
-                # TODO: display messages and meta info in the banner
+                ctx_used = meta.get("ctx_used", 0)
+                upload_tokens = meta.get("upload_tokens", 0)
+                download_tokens = meta.get("download_tokens", 0)
+                cost = meta.get("cost", 0.0)
+                # display user and assistant messages in the session history
+                for message in messages:
+                    if message["role"] == "user":
+                        print(Fore.GREEN + "user:" + Style.RESET_ALL)
+                        print(message["content"])
+                    elif message["role"] == "assistant":
+                        print(Fore.MAGENTA + "assistant:" + Style.RESET_ALL)
+                        print(message["content"])
             else:
                 self.logger.error(
                     "Error resuming session: "
@@ -310,11 +324,13 @@ class Client:
                     self.update_banner(
                         model=chunk.get("model", ""),
                         session=session_id[:8],
-                        ctx_used=chunk.get("ctx_used", 0),
+                        ctx_used=ctx_used + chunk.get("ctx_used", 0),
                         ctx_total=chunk.get("ctx_total", 0),
-                        upload_tokens=chunk.get("prompt_tokens", 0),
-                        download_tokens=chunk.get("completion_tokens", 0),
-                        cost=chunk.get("cost", 0),
+                        upload_tokens=upload_tokens
+                        + chunk.get("prompt_tokens", 0),
+                        download_tokens=download_tokens
+                        + chunk.get("completion_tokens", 0),
+                        cost=cost + chunk.get("cost", 0),
                     )
                     continue
                 text = chunk["text"]
@@ -508,11 +524,26 @@ class Client:
                 f"{response.status_code} - {response.text}"
             )
 
-    def pick_session(self) -> str:
-        session_infos = self.list_sessions()
-        if not session_infos:
+    def pick_session(self, project_id: str = None, limit: int = 5) -> str:
+        sessions = self.get_sessions(project_id=project_id, limit=limit)
+        if not sessions:
             self.logger.info(
                 "No existing sessions found. Starting a new session."
             )
             return None
+
         # TODO: implement interactive session picker
+        options = [
+            (
+                session["session_id"],
+                f"{session['session_id'][:8]} | {session['title']} | "
+                f"{session['last_input_at']} - {session['last_input']}",
+            )
+            for session in sessions
+        ]
+        result = choice(
+            message="Please choose a session:",
+            options=options,
+            default=None,
+        )
+        return result

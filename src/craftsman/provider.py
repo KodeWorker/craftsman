@@ -118,3 +118,9 @@ class Provider:
                         yield ("content", content[:start])
                     content = content[start + len(think_start_tag) :]
                     in_think = True
+
+    async def cost(self, prompt_tokens: int, completion_tokens: int) -> float:
+        return (
+            prompt_tokens * self.input_cost_per_token
+            + completion_tokens * self.output_cost_per_token
+        )
