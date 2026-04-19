@@ -7,7 +7,6 @@ import click
 from craftsman.auth import Auth
 from craftsman.client import Client
 from craftsman.configure import get_config
-from craftsman.server import Server
 
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 
@@ -36,6 +35,8 @@ def init():
 @click.option("--port", default=6969, help="Port to listen on")
 def server(port: int = 6969):
     """Starts an agent server."""
+    from craftsman.server import Server
+
     server = Server(port=port)
     server.start()
 
@@ -43,10 +44,25 @@ def server(port: int = 6969):
 @main.command()
 @click.option("--host", default="localhost", help="Server host")
 @click.option("--port", default=6969, help="Server port")
-def chat(host: str = "localhost", port: int = 6969):
+@click.option(
+    "--resume",
+    "session",
+    default=None,
+    is_flag=False,
+    flag_value="",
+    help="Resume a session. Omit value to pick from list.",
+)
+def chat(host: str = "localhost", port: int = 6969, session: str = None):
     """Connects to an agent server."""
     client = Client(host=host, port=port)
-    client.chat()
+    if session is None:
+        client.chat()
+    elif session == "":
+        session_id = client.pick_session()
+        client.chat(session_id=session_id)
+    else:
+        session_id = client.find_session_id(session)
+        client.chat(session_id=session_id)
 
 
 @main.command()
@@ -63,6 +79,8 @@ def run(prompt, host: str = "localhost", port: int = 6969):
 @click.option("--port", default=6969, help="Port to listen on")
 def dev(port: int = 6969):
     """Starts both server and client for development."""
+    from craftsman.server import Server
+
     server = Server(port=port)
     multiprocessing.Process(target=server.start).start()
     time.sleep(1)  # Give the server a moment to start
@@ -148,7 +166,9 @@ def sess_list(
 ):
     """Lists all sessions."""
     client = Client(host=host, port=port)
-    client.list_sessions(project_id=project_id, limit=limit)
+    session_infos = client.list_sessions(project_id=project_id, limit=limit)
+    for session_info in session_infos:
+        click.echo(session_info)
 
 
 @sess.command()
@@ -156,7 +176,7 @@ def sess_list(
 @click.option("--host", default="localhost", help="Server host")
 @click.option("--port", default=6969, help="Server port")
 def delete(session: str = None, host: str = "localhost", port: int = 6969):
-    """Deletes session by ID, prefix, or name."""
+    """Deletes session by ID, prefix, or title."""
     client = Client(host=host, port=port)
     client.delete_session(session)
     click.echo(f"Session '{session}' deleted successfully.")

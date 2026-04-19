@@ -16,26 +16,24 @@ class Server:
         self.app = FastAPI()
         self.provider = Provider()
         self.librarian = Librarian()
-        self.session_id = self.librarian.structure_db.create_session()
 
         self.app.get("/health")(self.health_check)
-        self.app.get("/chat/session_id")(self.get_session_id)
         self.app.get("/chat/system")(self.get_system_prompt)
-        self.app.get("/chat/sessions")(self.list_sessions)
+        self.app.get("/sessions/list")(self.list_sessions)
+        self.app.get("/sessions/id")(self.get_session_id)
         self.app.post("/chat/system")(self.set_system_prompt)
         self.app.post("/chat/completion")(self.handle_completion)
         self.app.post("/chat/clear")(self.clear_session)
         self.app.post("/subagent/run")(self.run_subagent)
+        self.app.post("/sessions/create")(self.create_session)
         self.app.post("/sessions/delete")(self.delete_session)
+        self.app.post("/sessions/resume")(self.resume_session)
 
     async def health_check(self):
         return {"status": "ok"}
 
-    async def get_session_id(self):
-        return {"session_id": self.session_id}
-
-    async def get_system_prompt(self):
-        context = self.librarian.get_context(self.session_id)
+    async def get_system_prompt(self, session_id: str):
+        context = self.librarian.get_context(session_id)
         system_prompt = "".join(
             m["content"] for m in context if m.get("role") == "system"
         )
@@ -45,57 +43,52 @@ class Server:
         sessions = self.librarian.structure_db.list_sessions(project_id, limit)
         response = []
         for session in sessions:
-            id = session["id"]
-            title = session["title"] if session["title"] else ""
-            messages = self.librarian.structure_db.get_messages(id)
-            last_input = next(
-                (
-                    m["content"]
-                    for m in reversed(messages)
-                    if m["role"] == "user"
-                ),
-                "",
-            )
-            last_input_at = next(
-                (
-                    m["created_at"]
-                    for m in reversed(messages)
-                    if m["role"] == "user"
-                ),
-                "",
-            )
-
             response.append(
                 {
-                    "session_id": id,
-                    "title": title,
-                    "last_input": last_input,
-                    "last_input_at": last_input_at,
+                    "session_id": session["id"],
+                    "title": session["title"] or "",
+                    "last_input": session["last_input"] or "",
+                    "last_input_at": session["last_input_at"] or "",
                 }
             )
         return {"sessions": response}
 
+    async def get_session_id(self, session: str = None):
+        row = (
+            self.librarian.structure_db.resolve_session(session)
+            if session
+            else None
+        )
+        session_id = row["id"] if row else None
+        return {"session_id": session_id}
+
     async def set_system_prompt(self, request: Request):
         body = await request.json()
         system_prompt = body.get("system_prompt", "")
+        session_id = body.get("session_id", None)
         if not system_prompt:
             return {"error": "No system prompt provided."}
+        if not session_id:
+            return {"error": "No session ID provided."}
         self.librarian.clear_system_prompt(
-            self.session_id
+            session_id
         )  # remove existing system prompts
         self.librarian.push_context(
-            self.session_id, {"role": "system", "content": system_prompt}
+            session_id, {"role": "system", "content": system_prompt}
         )
         return {"status": "system prompt set"}
 
     async def handle_completion(self, request: Request):
         body = await request.json()
         message = body.get("message", dict())
+        session_id = body.get("session_id", None)
         if not message:
             return {"error": "No messages provided."}
+        if not session_id:
+            return {"error": "No session ID provided."}
 
-        self.librarian.push_context(self.session_id, message)
-        context = self.librarian.get_context(self.session_id)
+        self.librarian.push_context(session_id, message)
+        context = self.librarian.get_context(session_id)
 
         async def stream():
             content = []
@@ -118,14 +111,14 @@ class Server:
             content = "".join(content)
             reasoning = "".join(reasoning)
             self.librarian.push_context(
-                self.session_id, {"role": "assistant", "content": content}
+                session_id, {"role": "assistant", "content": content}
             )
             # Store messages and token usage in the structure DB
             message["tokens"] = up_tokens
-            self.librarian.store_message(self.session_id, message)
+            self.librarian.store_message(session_id, message)
             # Store reasoning and token usage
             self.librarian.store_message(
-                self.session_id,
+                session_id,
                 {
                     "role": "reasoning",
                     "content": reasoning,
@@ -134,7 +127,7 @@ class Server:
             )
             # Store assistant response with token usage
             self.librarian.store_message(
-                self.session_id,
+                session_id,
                 {
                     "role": "assistant",
                     "content": content,
@@ -144,35 +137,30 @@ class Server:
 
         return StreamingResponse(stream(), media_type="application/x-ndjson")
 
-    async def clear_session(self):
-        self.librarian.clear_session(self.session_id)
+    async def clear_session(self, request: Request):
+        body = await request.json()
+        session_id = body.get("session_id", None)
+        if not session_id:
+            return {"error": "No session ID provided."}
+        self.librarian.clear_session(session_id)
         return {"status": "session cleared"}
 
     async def delete_session(self, request: Request):
         body = await request.json()
-        session = body.get("session", None)
-        row = (
-            self.librarian.structure_db.resolve_session(session)
-            if session
-            else None
-        )
-        session_id = row["id"] if row else None
-
+        session_id = body.get("session_id", None)
         if not session_id:
             return {"error": "No session ID provided."}
-        if session_id == self.session_id:
-            self.session_id = (
-                self.librarian.structure_db.create_session()
-            )  # start a new session if current is deleted
         self.librarian.structure_db.delete_session(session_id)
         return {"status": f"session '{session_id}' deleted"}
 
     async def run_subagent(self, request: Request):
-        session_id = self.librarian.structure_db.create_session()
         body = await request.json()
         message = body.get("message", dict())
+        session_id = body.get("session_id", None)
         if not message:
             return {"error": "No messages provided."}
+        if not session_id:
+            return {"error": "No session ID provided."}
         try:
             self.librarian.push_context(session_id, message)
             context = self.librarian.get_context(session_id)
@@ -197,6 +185,27 @@ class Server:
 
         finally:
             self.librarian.clear_session(session_id)  # discard
+
+    async def create_session(self):
+        session_id = self.librarian.structure_db.create_session()
+        return {"session_id": session_id}
+
+    async def resume_session(self, request: Request):
+        body = await request.json()
+        session_id = body.get("session_id", None)
+        if not session_id:
+            return {"error": "No session ID provided."}
+        messages, meta = self.librarian.retrieve_messages(session_id)
+        for message in messages:
+            self.librarian.push_context(session_id, message)
+        return {
+            "status": (
+                f"session '{session_id}' resumed "
+                f"with {len(messages)} messages"
+            ),
+            "meta": meta,
+            "messages": messages,
+        }
 
     def start(self):
         self.logger.info(f"Starting server on port {self.port}...")

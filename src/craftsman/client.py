@@ -111,7 +111,11 @@ class Client:
                 return f.read().strip()
         return ""
 
-    def handle_slash_command(self, user_input: str) -> InputMode:
+    def handle_slash_command(
+        self,
+        session_id: str,
+        user_input: str,
+    ) -> InputMode:
         if (
             user_input.lower().startswith("/")
             and user_input.lower() in SLASH_COMMANDS
@@ -145,7 +149,10 @@ class Client:
                 )
             elif user_input.lower() == "/clear":
                 os.system("cls" if os.name == "nt" else "clear")
-                response = requests.post(f"{self.entry_point}/chat/clear")
+                response = requests.post(
+                    f"{self.entry_point}/chat/clear",
+                    json={"session_id": session_id},
+                )
                 if response.status_code == 200:
                     self.logger.info("Session cleared.")
                 else:
@@ -154,7 +161,10 @@ class Client:
                         f"{response.status_code} - {response.text}"
                     )
             elif user_input.lower() == "/system":
-                response = requests.get(f"{self.entry_point}/chat/system")
+                response = requests.get(
+                    f"{self.entry_point}/chat/system",
+                    params={"session_id": session_id},
+                )
                 if response.status_code == 200:
                     system_prompt = response.json().get("system_prompt", None)
                     print(
@@ -177,7 +187,7 @@ class Client:
             return InputMode.COMMAND
         return InputMode.MESSAGE
 
-    def chat(self):
+    def chat(self, session_id: str = None):
         self.logger.info(f"Connecting to server at {self.entry_point}...")
 
         # health check loop to wait for server to be ready
@@ -194,15 +204,37 @@ class Client:
                 time.sleep(2)
 
         # get session id
-        response = requests.get(f"{self.entry_point}/chat/session_id")
-        session_id = response.json().get("session_id", "")
+        if not session_id:
+            response = requests.post(f"{self.entry_point}/sessions/create")
+            session_id = response.json().get("session_id", "")
+        else:
+            response = requests.post(
+                f"{self.entry_point}/sessions/resume",
+                json={"session_id": session_id},
+            )
+            if response.status_code == 200:
+                self.logger.info(f"{response.json().get('status', '')}")
+                messages = response.json().get("messages", [])
+                meta = response.json().get("meta", {})
+                print(meta)
+                print(messages)
+                # TODO: display messages and meta info in the banner
+            else:
+                self.logger.error(
+                    "Error resuming session: "
+                    f"{response.status_code} - {response.text}"
+                )
+                return
 
         # set system prompt if exists
         system_prompt = self.read_system_prompt()
         if system_prompt:
             response = requests.post(
                 f"{self.entry_point}/chat/system",
-                json={"system_prompt": system_prompt},
+                json={
+                    "system_prompt": system_prompt,
+                    "session_id": session_id,
+                },
             )
             if response.status_code == 200:
                 self.logger.info("System prompt set successfully.")
@@ -234,7 +266,7 @@ class Client:
             )
             print(Fore.GREEN + "user:" + Style.RESET_ALL)
 
-            mode = self.handle_slash_command(user_input)
+            mode = self.handle_slash_command(session_id, user_input)
             if mode == InputMode.EXIT:
                 break
             elif mode == InputMode.COMMAND:
@@ -245,7 +277,7 @@ class Client:
             message = {"role": "user", "content": user_input}
             response = requests.post(
                 f"{self.entry_point}/chat/completion",
-                json={"message": message},
+                json={"message": message, "session_id": session_id},
                 stream=True,
             )
             if response.status_code != 200:
@@ -315,11 +347,38 @@ class Client:
 
     def run(self, prompt: str):
         self.logger.info(f"Connecting to server at {self.entry_point}...")
+
+        # Check server health
+        response = requests.get(f"{self.entry_point}/health")
+        if response.status_code == 200:
+            self.logger.info("Successfully connected to the server.")
+        else:
+            self.logger.error(
+                "Failed to connect to the server: "
+                f"{response.status_code} - {response.text}"
+            )
+            return
+
+        # Create a new session for this subagent task
+        response = requests.post(f"{self.entry_point}/sessions/create")
+        if response.status_code == 200:
+            session_id = response.json().get("session_id", "")
+            self.logger.info(f"Created new session with ID: {session_id}")
+        else:
+            self.logger.error(
+                "Failed to create session: "
+                f"{response.status_code} - {response.text}"
+            )
+            return
+
         system_prompt = self.read_system_prompt()
         if system_prompt:
             response = requests.post(
                 f"{self.entry_point}/chat/system",
-                json={"system_prompt": system_prompt},
+                json={
+                    "system_prompt": system_prompt,
+                    "session_id": session_id,
+                },
             )
             if response.status_code == 200:
                 self.logger.info("System prompt set successfully.")
@@ -339,7 +398,7 @@ class Client:
 
         response = requests.post(
             f"{self.entry_point}/subagent/run",
-            json={"message": message},
+            json={"message": message, "session_id": session_id},
             stream=True,
         )
         if response.status_code != 200:
@@ -372,45 +431,73 @@ class Client:
             + Style.RESET_ALL
         )
 
-    def list_sessions(self, project_id: str = None, limit: int = 5):
+    def get_sessions(self, project_id: str = None, limit: int = 5) -> list:
         response = requests.get(
-            f"{self.entry_point}/chat/sessions",
+            f"{self.entry_point}/sessions/list",
             params={"project_id": project_id, "limit": limit},
         )
-
         if response.status_code == 200:
-            sessions = response.json().get("sessions", [])
-
-            terminal_width = os.get_terminal_size().columns
-            for session in sessions:
-                session_id = session.get("session_id", "(Unknown ID)")
-                title = session.get("title", "(Untitled Session)")
-                last_input_at = session.get("last_input_at", "N/A")
-                last_input = session.get("last_input", "(No messages)")
-                display_input = (
-                    last_input[: terminal_width - 3] + "..."
-                    if len(last_input) > terminal_width
-                    else last_input
-                )
-
-                info = (
-                    f"{Fore.CYAN}{session_id[:8]} | "
-                    f"{title} | {last_input_at}{Style.RESET_ALL}\n"
-                    f"{display_input}"
-                )
-                print(info)
+            return response.json().get("sessions", [])
         else:
             self.logger.error(
                 "Error retrieving sessions: "
                 f"{response.status_code} - {response.text}"
             )
+            return []
+
+    def list_sessions(self, project_id: str = None, limit: int = 5) -> list:
+        sessions = self.get_sessions(project_id=project_id, limit=limit)
+        session_infos = []
+        terminal_width = os.get_terminal_size().columns
+        for session in sessions:
+            session_id = session.get("session_id", "")[:8]
+            title = session.get("title", "")
+            last_input = session.get("last_input", "")
+            last_input_at = session.get("last_input_at", "")
+            display_input = (
+                last_input[: terminal_width - 3] + "..."
+                if len(last_input) > terminal_width
+                else last_input
+            )
+
+            session_info = (
+                f"{Fore.CYAN}{session_id[:8]} | "
+                f"{title} | {last_input_at}{Style.RESET_ALL}\n"
+                f"{display_input}"
+            )
+            session_infos.append(session_info)
+        return session_infos
+
+    def find_session_id(self, session: str) -> str:
+        response = requests.get(
+            f"{self.entry_point}/sessions/id", params={"session": session}
+        )
+        if response.status_code == 200:
+            session_id = response.json().get("session_id", None)
+            if not session_id:
+                self.logger.error(f"Session '{session}' not found.")
+                return None
+            return session_id
+        else:
+            self.logger.error(
+                "Error retrieving session ID: "
+                f"{response.status_code} - {response.text}"
+            )
+            return None
 
     def delete_session(self, session: str = None):
         if not session:
-            self.logger.error("No session ID provided.")
+            self.logger.error("No session ID or prefix or title provided.")
             return
+
+        session_id = self.find_session_id(session)
+        if not session_id:
+            self.logger.error(f"Session '{session}' not found.")
+            return
+
         response = requests.post(
-            f"{self.entry_point}/sessions/delete", json={"session": session}
+            f"{self.entry_point}/sessions/delete",
+            json={"session_id": session_id},
         )
         if response.status_code == 200:
             status = response.json().get("status", "")
@@ -420,3 +507,12 @@ class Client:
                 "Error deleting session: "
                 f"{response.status_code} - {response.text}"
             )
+
+    def pick_session(self) -> str:
+        session_infos = self.list_sessions()
+        if not session_infos:
+            self.logger.info(
+                "No existing sessions found. Starting a new session."
+            )
+            return None
+        # TODO: implement interactive session picker

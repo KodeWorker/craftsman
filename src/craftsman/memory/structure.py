@@ -219,24 +219,22 @@ class StructureDB:
         self, project_id: str = None, limit: int = None
     ) -> list[sqlite3.Row]:
         limit_clause = " LIMIT ?" if limit is not None else ""
-        has_messages = (
-            "EXISTS (SELECT 1 FROM messages WHERE "
-            "messages.session_id = sessions.id)"
-        )
-        if project_id:
-            params = (
-                (project_id, limit) if limit is not None else (project_id,)
-            )
-            return self.conn.execute(
-                f"SELECT * FROM sessions WHERE "
-                f"project_id = ? AND {has_messages}"
-                f" ORDER BY created_at DESC{limit_clause}",
-                params,
-            ).fetchall()
-        params = (limit,) if limit is not None else ()
+        project_clause = " AND s.project_id = ?" if project_id else ""
+        params = tuple(p for p in [project_id, limit] if p is not None)
         return self.conn.execute(
-            f"SELECT * FROM sessions WHERE {has_messages}"
-            f" ORDER BY created_at DESC{limit_clause}",
+            f"""
+            SELECT s.*, m.content AS last_input, m.created_at AS last_input_at
+            FROM sessions s
+            JOIN (
+                SELECT session_id, content, created_at
+                FROM messages
+                WHERE role = 'user'
+                GROUP BY session_id
+                HAVING created_at = MAX(created_at)
+            ) m ON m.session_id = s.id
+            {project_clause}
+            ORDER BY s.created_at DESC{limit_clause}
+            """,
             params,
         ).fetchall()
 

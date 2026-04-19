@@ -82,4 +82,8 @@ class Librarian:
             if m.get("role") == "assistant"
         )
 
-        return messages, (ctx_used, upload_tokens, download_tokens)
+        return messages, {
+            "ctx_used": ctx_used,
+            "upload_tokens": upload_tokens,
+            "download_tokens": download_tokens,
+        }
