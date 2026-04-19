@@ -7,8 +7,10 @@ from enum import Enum
 from pathlib import Path
 
 import requests
-from colorama import Fore, Style
+from colorama import Back, Fore, Style
 from prompt_toolkit import prompt
+from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
 
 from craftsman.logger import CraftsmanLogger
@@ -17,6 +19,22 @@ PROMPT_HISTORY_PATH = Path.home() / ".craftsman" / "database" / "craftsman.db"
 PROJECT_SYSTEM_PROMPT = Path.cwd() / ".craftsman" / "system_prompt.md"
 ROOT_SYSTEM_PROMPT = Path.home() / ".craftsman" / "system_prompt.md"
 SLASH_COMMANDS = ["/exit", "/help", "/clear", "/system"]
+
+
+class ChatCompleter(Completer):
+
+    def get_completions(self, document, complete_event):
+        text = document.text_before_cursor.lower()
+        # slash command completion
+        for cmd in SLASH_COMMANDS:
+            if cmd.startswith(text):
+                yield Completion(cmd, start_position=-len(text))
+        # project file completion
+        for root, dirs, files in os.walk(Path.cwd()):
+            for file in files:
+                file_path = os.path.relpath(os.path.join(root, file))
+                if file_path.startswith(text):
+                    yield Completion(file_path, start_position=-len(text))
 
 
 class InputMode(Enum):
@@ -162,8 +180,24 @@ class Client:
     def chat(self):
         self.logger.info(f"Connecting to server at {self.entry_point}...")
 
+        # health check loop to wait for server to be ready
+        while True:
+            try:
+                response = requests.get(f"{self.entry_point}/health")
+                if response.status_code == 200:
+                    self.logger.info("Successfully connected to the server.")
+                    break
+            except requests.exceptions.ConnectionError:
+                self.logger.warning(
+                    "Connection failed. Retrying in 2 seconds..."
+                )
+                time.sleep(2)
+
+        # get session id
         response = requests.get(f"{self.entry_point}/chat/session_id")
         session_id = response.json().get("session_id", "")
+
+        # set system prompt if exists
         system_prompt = self.read_system_prompt()
         if system_prompt:
             response = requests.post(
@@ -178,28 +212,25 @@ class Client:
                     f"{response.status_code} - {response.text}"
                 )
 
-        while True:
-            try:
-                response = requests.get(f"{self.entry_point}/health")
-                if response.status_code == 200:
-                    self.logger.info("Successfully connected to the server.")
-                    break
-            except requests.exceptions.ConnectionError:
-                self.logger.warning(
-                    "Connection failed. Retrying in 2 seconds..."
-                )
-                time.sleep(2)
-
         history = FileHistory(str(PROMPT_HISTORY_PATH))
+        completer = ChatCompleter()
 
         while True:
-            saperator = "_" * os.get_terminal_size().columns
+            terminal_width = os.get_terminal_size().columns
+
+            hint = "Enter your message (or '/help' for commands)"
+            hint = hint + " " * (terminal_width - len(hint) - 1)
+            hint = f"{Fore.BLACK}{Back.WHITE}{hint}{Style.RESET_ALL}"
+            hint = ANSI(hint)
+
+            saperator = "_" * terminal_width
             print(Style.BRIGHT + saperator + Style.RESET_ALL)
             print(Style.BRIGHT + Fore.CYAN + self.banner + Style.RESET_ALL)
             user_input = prompt(
-                "Enter your message (or '/help' for commands): ",
+                placeholder=hint,
                 multiline=False,
                 history=history,
+                completer=completer,
             )
             print(Fore.GREEN + "user:" + Style.RESET_ALL)
 
