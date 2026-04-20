@@ -449,7 +449,7 @@ class Client:
         system_prompt = self.read_system_prompt()
         if system_prompt:
             response = requests.post(
-                f"{self.entry_point}/chat/system",
+                f"{self.entry_point}/sessions/system",
                 json={
                     "system_prompt": system_prompt,
                     "session_id": session_id,
