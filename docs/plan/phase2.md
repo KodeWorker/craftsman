@@ -43,6 +43,22 @@ Original file stored in `~/.craftsman/workspace/`, referenced by `artifact_id`.
 
 No pre-captioning or STT pipeline — the main model handles vision and audio natively.
 
+### Message Storage
+
+Base64 content is **not** persisted to the `messages` table — storing raw media
+in SQLite would bloat the DB fast (a single image can be several MB as base64).
+
+Instead, the message stored in SQLite replaces the multimodal content part with
+an artifact reference:
+
+```
+[image: artifact_id=<uuid>]
+[audio: artifact_id=<uuid>]
+```
+
+On resume, the client re-fetches and re-encodes the artifact from disk before
+sending the message back into context.
+
 ### Capability Guard
 
 `completion()` rejects messages containing multimodal content parts if the
@@ -56,11 +72,23 @@ corresponding capability flag is not declared in `craftsman.yaml`:
 ### Infrastructure
 - [ ] `POST /artifacts/upload` — multipart upload, save to workspace, return artifact_id
 - [ ] `GET /artifacts/{id}` — retrieve artifact metadata
+- [ ] Strip base64 from message before `store_message`; replace with `[image/audio: artifact_id=<uuid>]`
+- [ ] On `resume_session`: re-encode artifact from disk when restoring messages with artifact refs
 
 ### Provider
 - [ ] `craftsman.yaml` capability flags (`vision`, `audio`)
 - [ ] Guard in `completion()` — raise if multimodal content present but capability not declared
 
 ### Client
-- [ ] `/upload <filepath>` slash command — upload file, base64-encode, inject inline into next message
+- [ ] `@filepath` inline syntax — user types `describe @image.jpg` in chat or
+      `craftsman run "describe @image.jpg"`; client detects `@`-prefixed tokens,
+      uploads the file, and replaces the token with the base64 multimodal content part
+- [ ] Update `ChatCompleter` to trigger file completion only on `@`-prefixed words
+      (current completer completes every word, which is too eager)
 - [ ] Display artifact_id ref in chat alongside the message
+
+#### Why `@` for inline file references
+`@` is visually distinct, not a valid filename-start character on Linux/Mac (so
+parsing is unambiguous), and an established convention in chat UIs (GitHub, Slack)
+for pointing at something. It also allows the completer to trigger selectively
+on `@`-prefixed input rather than every word.
