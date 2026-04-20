@@ -1,0 +1,231 @@
+import uuid
+from pathlib import Path
+
+import pytest
+
+from craftsman.memory.structure import StructureDB
+
+
+@pytest.fixture
+def db():
+    instance = StructureDB(path=Path(":memory:"))
+    yield instance
+    instance.close()
+
+
+@pytest.fixture
+def sid(db):
+    return db.create_session()
+
+
+# --- sessions ---
+
+
+def test_create_session_returns_uuid_string(db):
+    sid = db.create_session()
+    uuid.UUID(sid)  # raises if not valid UUID
+
+
+def test_get_session_returns_row(db, sid):
+    assert db.get_session(sid)["id"] == sid
+
+
+def test_get_session_unknown_returns_none(db):
+    assert db.get_session("nonexistent") is None
+
+
+def test_delete_session_removes_row(db, sid):
+    db.delete_session(sid)
+    assert db.get_session(sid) is None
+
+
+def test_delete_session_cascades_messages(db, sid):
+    db.add_message(sid, "user", "hello")
+    db.delete_session(sid)
+    rows = db.conn.execute(
+        "SELECT * FROM messages WHERE session_id = ?", (sid,)
+    ).fetchall()
+    assert rows == []
+
+
+def test_end_session_sets_ended_at(db, sid):
+    db.end_session(sid)
+    assert db.get_session(sid)["ended_at"] is not None
+
+
+def test_resolve_session_by_exact_id(db, sid):
+    assert db.resolve_session(sid)["id"] == sid
+
+
+def test_resolve_session_by_prefix(db, sid):
+    assert db.resolve_session(sid[:8])["id"] == sid
+
+
+def test_resolve_session_by_title(db):
+    sid = db.create_session(title="mytitle")
+    assert db.resolve_session("mytitle")["id"] == sid
+
+
+def test_resolve_session_ambiguous_prefix_returns_none(db):
+    db.conn.execute(
+        "INSERT INTO sessions (id, created_at) VALUES (?, datetime('now'))",
+        ("abcd1111-0000-0000-0000-000000000001",),
+    )
+    db.conn.execute(
+        "INSERT INTO sessions (id, created_at) VALUES (?, datetime('now'))",
+        ("abcd2222-0000-0000-0000-000000000002",),
+    )
+    db.conn.commit()
+    assert db.resolve_session("abcd") is None
+
+
+def test_list_sessions_empty_without_user_messages(db, sid):
+    assert db.list_sessions() == []
+
+
+def test_list_sessions_returns_sessions_with_user_messages(db):
+    s1 = db.create_session()
+    s2 = db.create_session()
+    db.add_message(s1, "user", "hi")
+    db.add_message(s2, "user", "hey")
+    ids = [r["id"] for r in db.list_sessions()]
+    assert s1 in ids and s2 in ids
+
+
+def test_list_sessions_limit(db):
+    for _ in range(3):
+        s = db.create_session()
+        db.add_message(s, "user", "x")
+    assert len(db.list_sessions(limit=2)) == 2
+
+
+# --- messages ---
+
+
+def test_add_message_returns_uuid(db, sid):
+    mid = db.add_message(sid, "user", "hello")
+    uuid.UUID(mid)
+
+
+def test_get_messages_returns_in_order(db, sid):
+    db.add_message(sid, "user", "one")
+    db.add_message(sid, "assistant", "two")
+    db.add_message(sid, "user", "three")
+    contents = [dict(m)["content"] for m in db.get_messages(sid)]
+    assert contents == ["one", "two", "three"]
+
+
+def test_get_messages_no_summary_returns_all(db, sid):
+    db.add_message(sid, "user", "a")
+    db.add_message(sid, "assistant", "b")
+    assert len(db.get_messages(sid)) == 2
+
+
+def test_get_messages_with_summary_returns_from_checkpoint(db, sid):
+    db.conn.execute(
+        "INSERT INTO messages "
+        "(id, session_id, role, content, tokens, created_at)"
+        " VALUES (?, ?, 'user', 'before', 5, '2020-01-01 00:00:00')",
+        (str(uuid.uuid4()), sid),
+    )
+    db.conn.execute(
+        "INSERT INTO messages "
+        "(id, session_id, role, content, tokens, created_at)"
+        " VALUES (?, ?, 'summary', 'the summary', 10, '2020-01-01 00:00:01')",
+        (str(uuid.uuid4()), sid),
+    )
+    post_id = str(uuid.uuid4())
+    db.conn.execute(
+        "INSERT INTO messages "
+        "(id, session_id, role, content, tokens, created_at)"
+        " VALUES (?, ?, 'user', 'after', 5, '2020-01-01 00:00:02')",
+        (post_id, sid),
+    )
+    db.conn.commit()
+    messages = db.get_messages(sid)
+    contents = [dict(m)["content"] for m in messages]
+    assert "before" not in contents
+    assert "the summary" in contents
+    assert "after" in contents
+
+
+def test_get_messages_summary_itself_included(db, sid):
+    db.conn.execute(
+        "INSERT INTO messages "
+        "(id, session_id, role, content, tokens, created_at)"
+        " VALUES (?, ?, 'summary', 'compact', 10, '2020-01-01 00:00:01')",
+        (str(uuid.uuid4()), sid),
+    )
+    db.conn.commit()
+    contents = [dict(m)["content"] for m in db.get_messages(sid)]
+    assert "compact" in contents
+
+
+# --- projects ---
+
+
+def test_create_and_get_project(db):
+    pid = db.create_project("myproj")
+    assert db.get_project(pid)["name"] == "myproj"
+
+
+def test_delete_project(db):
+    pid = db.create_project("todelete")
+    db.delete_project(pid)
+    assert db.get_project(pid) is None
+
+
+def test_list_projects_count(db):
+    db.create_project("p1")
+    db.create_project("p2")
+    assert len(db.list_projects()) == 2
+
+
+# --- plans and tasks ---
+
+
+def test_create_plan_and_get(db, sid):
+    pid = db.create_plan("my goal", sid)
+    row = db.get_plan(pid)
+    assert row["goal"] == "my goal"
+    assert row["status"] == "active"
+
+
+def test_complete_plan(db, sid):
+    pid = db.create_plan("goal", sid)
+    db.complete_plan(pid)
+    row = db.get_plan(pid)
+    assert row["status"] == "done"
+    assert row["ended_at"] is not None
+
+
+def test_create_task_and_list(db, sid):
+    pid = db.create_plan("goal", sid)
+    db.create_task(pid, "do something")
+    tasks = db.list_tasks(pid)
+    assert len(tasks) == 1
+    assert tasks[0]["description"] == "do something"
+
+
+def test_update_task_status(db, sid):
+    pid = db.create_plan("goal", sid)
+    tid = db.create_task(pid, "task")
+    db.update_task_status(tid, "done", output="ok")
+    row = db.get_task(tid)
+    assert row["status"] == "done"
+    assert row["output"] == "ok"
+
+
+# --- global_facts ---
+
+
+def test_add_and_get_global_facts(db):
+    db.add_global_fact("fact one")
+    facts = db.get_global_facts()
+    assert any(f["content"] == "fact one" for f in facts)
+
+
+def test_delete_global_fact(db):
+    fid = db.add_global_fact("to delete")
+    db.delete_global_fact(fid)
+    assert all(f["content"] != "to delete" for f in db.get_global_facts())
