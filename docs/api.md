@@ -31,6 +31,14 @@ Query params: `session` — id, prefix, or title
 { "session_id": "<uuid>" }
 ```
 
+## GET /sessions/system
+
+Query params: `session_id` (required)
+
+```json
+{ "system_prompt": "..." }
+```
+
 ## POST /sessions/create
 
 ```json
@@ -65,15 +73,19 @@ Response:
 { "status": "session '<uuid>' deleted" }
 ```
 
-## GET /chat/system
+## POST /sessions/clear
 
-Query params: `session_id` (required)
-
+Request:
 ```json
-{ "system_prompt": "..." }
+{ "session_id": "<uuid>" }
 ```
 
-## POST /chat/system
+Response:
+```json
+{ "status": "session cleared" }
+```
+
+## POST /sessions/system
 
 Request:
 ```json
@@ -85,7 +97,7 @@ Response:
 { "status": "system prompt set" }
 ```
 
-## POST /chat/completion
+## POST /sessions/completion
 
 Request:
 ```json
@@ -100,16 +112,19 @@ Response: NDJSON stream.
 { "kind": "meta", "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0 }
 ```
 
-## POST /chat/clear
+## POST /sessions/compact
 
 Request:
 ```json
-{ "session_id": "<uuid>" }
+{ "session_id": "<uuid>", "summary_limit": 1000 , "keep_turns": 5}
 ```
 
 Response:
 ```json
-{ "status": "session cleared" }
+{
+  "status": "session '<uuid>' compacted with summary",
+  "meta": { "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0 }
+}
 ```
 
 ## POST /subagent/run

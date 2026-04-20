@@ -19,16 +19,19 @@ class Server:
         self.active_sessions = set()
 
         self.app.get("/health")(self.health_check)
-        self.app.get("/chat/system")(self.get_system_prompt)
+        self.app.get("/sessions/system")(self.get_system_prompt)
         self.app.get("/sessions/list")(self.list_sessions)
         self.app.get("/sessions/id")(self.get_session_id)
-        self.app.post("/chat/system")(self.set_system_prompt)
-        self.app.post("/chat/completion")(self.handle_completion)
-        self.app.post("/chat/clear")(self.clear_session)
-        self.app.post("/subagent/run")(self.run_subagent)
+
+        self.app.post("/sessions/completion")(self.handle_completion)
+        self.app.post("/sessions/system")(self.set_system_prompt)
         self.app.post("/sessions/create")(self.create_session)
         self.app.post("/sessions/delete")(self.delete_session)
         self.app.post("/sessions/resume")(self.resume_session)
+        self.app.post("/sessions/clear")(self.clear_session)
+        self.app.post("/sessions/compact")(self.compact_session)
+
+        self.app.post("/subagent/run")(self.run_subagent)
 
     async def health_check(self):
         return {"status": "ok"}
@@ -212,7 +215,11 @@ class Server:
             meta.get("upload_tokens", 0), meta.get("download_tokens", 0)
         )
         for message in messages:
-            self.librarian.push_context(session_id, message)
+            msg = dict(message)
+            if msg.get("role") == "summary":
+                msg["role"] = "user"
+                msg["content"] = f"[Conversation summary: {msg['content']}]"
+            self.librarian.push_context(session_id, msg)
         return {
             "status": (
                 f"session '{session_id}' resumed "
@@ -220,6 +227,79 @@ class Server:
             ),
             "meta": meta,
             "messages": messages,
+        }
+
+    async def compact_session(self, request: Request):
+        body = await request.json()
+        session_id = body.get("session_id", None)
+        if not session_id:
+            return {"error": "No session ID provided."}
+        summary_limit = body.get("summary_limit", 1000)
+        keep_turns = body.get("keep_turns", 5)
+
+        context = self.librarian.get_context(session_id)
+        system_msgs = [m for m in context if m.get("role") == "system"]
+        convo = [m for m in context if m.get("role") != "system"]
+
+        if len(convo) <= keep_turns * 2:
+            return {"status": "nothing to compact"}
+
+        head = convo[: -keep_turns * 2]
+        tail = convo[-keep_turns * 2 :]
+
+        message = {
+            "role": "user",
+            "content": (
+                f"Summarize our conversation so far in under "
+                f"{summary_limit} tokens. Capture all key decisions, "
+                "goals, facts, code changes, and context needed to "
+                "continue this work without the original messages. "
+                "Nothing load-bearing should be omitted."
+            ),
+        }
+
+        result = []
+        up_tokens = 0
+        down_tokens = 0
+        cost = 0.0
+        async for kind, text in self.provider.completion(
+            system_msgs + head + [message]
+        ):
+            if kind == "meta":
+                up_tokens = text.get("prompt_tokens", 0)
+                down_tokens = text.get("completion_tokens", 0)
+                cost = text.get("cost", 0.0)
+            elif kind == "content":
+                result.append(text)
+
+        summary = "".join(result)
+
+        self.librarian.clear_context(session_id)
+        for msg in system_msgs:
+            self.librarian.push_context(session_id, msg)
+        self.librarian.push_context(
+            session_id,
+            {"role": "user", "content": f"[Conversation summary: {summary}]"},
+        )
+        for msg in tail:
+            self.librarian.push_context(session_id, msg)
+
+        self.librarian.store_message(
+            session_id,
+            {
+                "role": "summary",
+                "content": summary,
+                "tokens": up_tokens + down_tokens,
+            },
+        )
+
+        return {
+            "status": f"session '{session_id}' compacted with summary",
+            "meta": {
+                "prompt_tokens": up_tokens,
+                "completion_tokens": down_tokens,
+                "cost": cost,
+            },
         }
 
     def start(self):

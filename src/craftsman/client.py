@@ -14,12 +14,15 @@ from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.shortcuts import choice
 
+from craftsman.configure import get_config
 from craftsman.logger import CraftsmanLogger
 
 PROMPT_HISTORY_PATH = Path.home() / ".craftsman" / "database" / "craftsman.db"
 PROJECT_SYSTEM_PROMPT = Path.cwd() / ".craftsman" / "system_prompt.md"
 ROOT_SYSTEM_PROMPT = Path.home() / ".craftsman" / "system_prompt.md"
-SLASH_COMMANDS = ["/exit", "/help", "/clear", "/system"]
+
+CONFIG = get_config()
+SLASH_COMMANDS = [cmd["name"] for cmd in CONFIG.get("commands", [])]
 
 
 class ChatCompleter(Completer):
@@ -55,6 +58,10 @@ class Client:
         self.entry_point = f"http://{self.host}:{self.port}"
         self.logger = CraftsmanLogger().get_logger(__name__)
         self.banner = "Welcome to Craftsman!"
+        self.ctx_used = 0
+        self.upload_tokens = 0
+        self.download_tokens = 0
+        self.cost = 0.0
 
     def update_banner(
         self,
@@ -92,14 +99,14 @@ class Client:
         )
 
     @staticmethod
-    def _spin(spinner_stop):
+    def _spin(spinner_stop, message="Thinking..."):
         for frame in itertools.cycle(
             ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         ):
             if spinner_stop.is_set():
                 break
             print(
-                f"\r{Style.DIM}{frame} Thinking...{Style.RESET_ALL}",
+                f"\r{Style.DIM}{frame} {message} {Style.RESET_ALL}",
                 end="",
                 flush=True,
             )
@@ -124,37 +131,21 @@ class Client:
             user_input.lower().startswith("/")
             and user_input.lower() in SLASH_COMMANDS
         ):
+            print(Fore.RED + user_input + Style.RESET_ALL)
             if user_input.lower() == "/exit":
-                print(Fore.RED + user_input + Style.RESET_ALL)
                 self.logger.info("Exiting client.")
                 return InputMode.EXIT
             elif user_input.lower() == "/help":
-                print(Fore.RED + user_input + Style.RESET_ALL)
-                print(Style.BRIGHT + "Available commands:" + Style.RESET_ALL)
-                print(
-                    Style.BRIGHT
-                    + "  /help - Show this help message"
-                    + Style.RESET_ALL
-                )
-                print(
-                    Style.BRIGHT
-                    + "  /clear - Clear the session"
-                    + Style.RESET_ALL
-                )
-                print(
-                    Style.BRIGHT
-                    + "  /exit - Exit the client"
-                    + Style.RESET_ALL
-                )
-                print(
-                    Style.BRIGHT
-                    + "  /system - View system prompt"
-                    + Style.RESET_ALL
-                )
+                for cmd in CONFIG.get("commands", []):
+                    print(
+                        Style.BRIGHT
+                        + f"  {cmd['name']} - {cmd['description']}"
+                        + Style.RESET_ALL
+                    )
             elif user_input.lower() == "/clear":
                 os.system("cls" if os.name == "nt" else "clear")
                 response = requests.post(
-                    f"{self.entry_point}/chat/clear",
+                    f"{self.entry_point}/sessions/clear",
                     json={"session_id": session_id},
                 )
                 if response.status_code == 200:
@@ -166,7 +157,7 @@ class Client:
                     )
             elif user_input.lower() == "/system":
                 response = requests.get(
-                    f"{self.entry_point}/chat/system",
+                    f"{self.entry_point}/sessions/system",
                     params={"session_id": session_id},
                 )
                 if response.status_code == 200:
@@ -184,6 +175,74 @@ class Client:
                 else:
                     self.logger.error(
                         "Error retrieving system prompt: "
+                        f"{response.status_code} - {response.text}"
+                    )
+            elif user_input.lower() == "/compact":
+                response = requests.post(
+                    f"{self.entry_point}/sessions/compact",
+                    json={
+                        "session_id": session_id,
+                        "summary_limit": (
+                            cmd.get("limit", 1000)
+                            if (
+                                cmd := next(
+                                    (
+                                        c
+                                        for c in CONFIG.get("commands", [])
+                                        if c["name"] == "/compact"
+                                    ),
+                                    None,
+                                )
+                            )
+                            else 1000
+                        ),
+                        "keep_turns": (
+                            cmd.get("keep_turns", 5)
+                            if (
+                                cmd := next(
+                                    (
+                                        c
+                                        for c in CONFIG.get("commands", [])
+                                        if c["name"] == "/compact"
+                                    ),
+                                    None,
+                                )
+                            )
+                            else 5
+                        ),
+                    },
+                )
+                if response.status_code == 200:
+                    status = response.json().get("status", "")
+                    self.logger.info(status)
+                    self.ctx_used = (
+                        response.json()
+                        .get("meta", {})
+                        .get("ctx_used", self.ctx_used)
+                    )
+                    self.upload_tokens += (
+                        response.json()
+                        .get("meta", {})
+                        .get("prompt_tokens", self.upload_tokens)
+                    )
+                    self.download_tokens += (
+                        response.json()
+                        .get("meta", {})
+                        .get("completion_tokens", self.download_tokens)
+                    )
+                    self.cost += (
+                        response.json().get("meta", {}).get("cost", self.cost)
+                    )
+                    self.update_banner(
+                        session=session_id[:8],
+                        ctx_used=self.ctx_used,
+                        upload_tokens=self.upload_tokens,
+                        download_tokens=self.download_tokens,
+                        cost=self.cost,
+                    )
+                else:
+                    self.logger.error(
+                        "Error compacting session: "
                         f"{response.status_code} - {response.text}"
                     )
             else:
@@ -207,11 +266,6 @@ class Client:
                 )
                 time.sleep(2)
 
-        ctx_used = 0
-        upload_tokens = 0
-        download_tokens = 0
-        cost = 0.0
-
         if not session_id:
             response = requests.post(f"{self.entry_point}/sessions/create")
             session_id = response.json().get("session_id", "")
@@ -224,10 +278,10 @@ class Client:
                 self.logger.info(f"{response.json().get('status', '')}")
                 messages = response.json().get("messages", [])
                 meta = response.json().get("meta", {})
-                ctx_used = meta.get("ctx_used", 0)
-                upload_tokens = meta.get("upload_tokens", 0)
-                download_tokens = meta.get("download_tokens", 0)
-                cost = meta.get("cost", 0.0)
+                self.ctx_used = meta.get("ctx_used", 0)
+                self.upload_tokens = meta.get("upload_tokens", 0)
+                self.download_tokens = meta.get("download_tokens", 0)
+                self.cost = meta.get("cost", 0.0)
                 # display user and assistant messages in the session history
                 for message in messages:
                     if message["role"] == "user":
@@ -247,7 +301,7 @@ class Client:
         system_prompt = self.read_system_prompt()
         if system_prompt:
             response = requests.post(
-                f"{self.entry_point}/chat/system",
+                f"{self.entry_point}/sessions/system",
                 json={
                     "system_prompt": system_prompt,
                     "session_id": session_id,
@@ -293,7 +347,7 @@ class Client:
 
             message = {"role": "user", "content": user_input}
             response = requests.post(
-                f"{self.entry_point}/chat/completion",
+                f"{self.entry_point}/sessions/completion",
                 json={"message": message, "session_id": session_id},
                 stream=True,
             )
@@ -308,7 +362,9 @@ class Client:
             first_chunk = True
             spinner_stop = threading.Event()
             spinner_thread = threading.Thread(
-                target=self._spin, args=(spinner_stop,), daemon=True
+                target=self._spin,
+                args=(spinner_stop, "Thinking..."),
+                daemon=True,
             )
             spinner_thread.start()
 
@@ -327,13 +383,13 @@ class Client:
                     self.update_banner(
                         model=chunk.get("model", ""),
                         session=session_id[:8],
-                        ctx_used=ctx_used + chunk.get("ctx_used", 0),
+                        ctx_used=self.ctx_used + chunk.get("ctx_used", 0),
                         ctx_total=chunk.get("ctx_total", 0),
-                        upload_tokens=upload_tokens
+                        upload_tokens=self.upload_tokens
                         + chunk.get("prompt_tokens", 0),
-                        download_tokens=download_tokens
+                        download_tokens=self.download_tokens
                         + chunk.get("completion_tokens", 0),
-                        cost=cost + chunk.get("cost", 0),
+                        cost=self.cost + chunk.get("cost", 0),
                     )
                     continue
                 text = chunk["text"]
@@ -411,7 +467,9 @@ class Client:
 
         spinner_stop = threading.Event()
         spinner_thread = threading.Thread(
-            target=self._spin, args=(spinner_stop,), daemon=True
+            target=self._spin,
+            args=(spinner_stop, "Running subagent..."),
+            daemon=True,
         )
         spinner_thread.start()
 
@@ -535,7 +593,6 @@ class Client:
             )
             return None
 
-        # TODO: implement interactive session picker
         options = [
             (
                 session["session_id"],

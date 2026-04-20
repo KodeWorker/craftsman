@@ -21,3 +21,17 @@ provider:
   capabilities:
     vision: true
     audio: true
+
+commands:
+  - name: /help
+    description: Show this help message.
+  - name: /clear
+    description: Clear the conversation history.
+  - name: /system
+    description: Show system prompts.
+  - name: /exit
+    description: Exit the application.
+  - name: /compact
+    description: Compact the conversation history by summarizing it.
+    limit: 1000 # token limit for the summary when compacting
+    keep_turns: 5 # number of recent messages to keep in full detail when compacting
