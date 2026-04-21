@@ -1,7 +1,7 @@
 import json
 
 import uvicorn
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from craftsman.logger import CraftsmanLogger
@@ -71,9 +71,13 @@ class Server:
         system_prompt = body.get("system_prompt", "")
         session_id = body.get("session_id", None)
         if not system_prompt:
-            return {"error": "No system prompt provided."}
+            raise HTTPException(
+                status_code=400, detail="No system prompt provided."
+            )
         if not session_id:
-            return {"error": "No session ID provided."}
+            raise HTTPException(
+                status_code=400, detail="No session ID provided."
+            )
         self.librarian.clear_system_prompt(
             session_id
         )  # remove existing system prompts
@@ -84,12 +88,16 @@ class Server:
 
     async def handle_completion(self, request: Request):
         body = await request.json()
-        message = body.get("message", dict())
+        message = body.get("message", {})
         session_id = body.get("session_id", None)
         if not message:
-            return {"error": "No messages provided."}
+            raise HTTPException(
+                status_code=400, detail="No messages provided."
+            )
         if not session_id:
-            return {"error": "No session ID provided."}
+            raise HTTPException(
+                status_code=400, detail="No session ID provided."
+            )
 
         self.librarian.push_context(session_id, message)
         context = self.librarian.get_context(session_id)
@@ -100,18 +108,23 @@ class Server:
             up_tokens = 0
             down_tokens = 0
             reason_tokens = 0
-            async for kind, text in self.provider.completion(context):
-                if kind == "meta":
-                    up_tokens = text.get("prompt_tokens", 0)
-                    down_tokens = text.get("completion_tokens", 0)
-                    reason_tokens = text.get("reasoning_tokens", 0)
-                    yield json.dumps({"kind": "meta", **text}) + "\n"
-                else:
-                    if kind == "content":
-                        content.append(text)
-                    elif kind == "reasoning":
-                        reasoning.append(text)
-                    yield json.dumps({"kind": kind, "text": text}) + "\n"
+            try:
+                async for kind, text in self.provider.completion(context):
+                    if kind == "meta":
+                        up_tokens = text.get("prompt_tokens", 0)
+                        down_tokens = text.get("completion_tokens", 0)
+                        reason_tokens = text.get("reasoning_tokens", 0)
+                        yield json.dumps({"kind": "meta", **text}) + "\n"
+                    else:
+                        if kind == "content":
+                            content.append(text)
+                        elif kind == "reasoning":
+                            reasoning.append(text)
+                        yield json.dumps({"kind": kind, "text": text}) + "\n"
+            except Exception as e:
+                self.logger.error(f"Error in streaming response: {e}")
+                yield json.dumps({"kind": "error", "text": str(e)}) + "\n"
+                return
             content = "".join(content)
             reasoning = "".join(reasoning)
             self.librarian.push_context(
@@ -145,7 +158,9 @@ class Server:
         body = await request.json()
         session_id = body.get("session_id", None)
         if not session_id:
-            return {"error": "No session ID provided."}
+            raise HTTPException(
+                status_code=400, detail="No session ID provided."
+            )
         self.active_sessions.discard(
             session_id
         )  # remove from active sessions if present
@@ -156,7 +171,9 @@ class Server:
         body = await request.json()
         session_id = body.get("session_id", None)
         if not session_id:
-            return {"error": "No session ID provided."}
+            raise HTTPException(
+                status_code=400, detail="No session ID provided."
+            )
         self.active_sessions.discard(
             session_id
         )  # remove from active sessions if present
@@ -165,12 +182,16 @@ class Server:
 
     async def run_subagent(self, request: Request):
         body = await request.json()
-        message = body.get("message", dict())
+        message = body.get("message", {})
         session_id = body.get("session_id", None)
         if not message:
-            return {"error": "No messages provided."}
+            raise HTTPException(
+                status_code=400, detail="No messages provided."
+            )
         if not session_id:
-            return {"error": "No session ID provided."}
+            raise HTTPException(
+                status_code=400, detail="No session ID provided."
+            )
         try:
             self.librarian.push_context(session_id, message)
             context = self.librarian.get_context(session_id)
@@ -178,6 +199,7 @@ class Server:
             result = []
             up_tokens = 0
             down_tokens = 0
+            cost = 0.0
             async for kind, text in self.provider.completion(context):
                 if kind == "meta":
                     up_tokens = text.get("prompt_tokens", 0)
@@ -201,6 +223,10 @@ class Server:
 
     async def create_session(self):
         session_id = self.librarian.structure_db.create_session()
+        if session_id in self.active_sessions:
+            self.logger.warning(
+                f"Session ID collision: {session_id} already active. "
+            )
         self.active_sessions.add(session_id)  # add to active sessions
         return {"session_id": session_id}
 
@@ -208,8 +234,14 @@ class Server:
         body = await request.json()
         session_id = body.get("session_id", None)
         if not session_id:
-            return {"error": "No session ID provided."}
+            raise HTTPException(
+                status_code=400, detail="No session ID provided."
+            )
         messages, meta = self.librarian.retrieve_messages(session_id)
+        if session_id in self.active_sessions:
+            self.logger.warning(
+                f"Session ID collision: {session_id} already active. "
+            )
         self.active_sessions.add(session_id)  # add to active sessions
         meta["cost"] = self.provider.cost(
             meta.get("upload_tokens", 0), meta.get("download_tokens", 0)
@@ -226,14 +258,16 @@ class Server:
                 f"with {len(messages)} messages"
             ),
             "meta": meta,
-            "messages": messages,
+            "messages": [dict(m) for m in messages],
         }
 
     async def compact_session(self, request: Request):
         body = await request.json()
         session_id = body.get("session_id", None)
         if not session_id:
-            return {"error": "No session ID provided."}
+            raise HTTPException(
+                status_code=400, detail="No session ID provided."
+            )
         summary_limit = body.get("summary_limit", 1000)
         keep_turns = body.get("keep_turns", 5)
 
@@ -263,7 +297,8 @@ class Server:
         down_tokens = 0
         cost = 0.0
         async for kind, text in self.provider.completion(
-            system_msgs + head + [message]
+            system_msgs + head + [message],
+            max_tokens=summary_limit,
         ):
             if kind == "meta":
                 up_tokens = text.get("prompt_tokens", 0)
@@ -304,4 +339,4 @@ class Server:
 
     def start(self):
         self.logger.info(f"Starting server on port {self.port}...")
-        uvicorn.run(self.app, host="0.0.0.0", port=self.port)
+        uvicorn.run(self.app, host="127.0.0.1", port=self.port)

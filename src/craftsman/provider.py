@@ -30,7 +30,7 @@ class Provider:
             "output_cost_per_token", 0.0
         )
 
-    async def completion(self, messages: list):
+    async def completion(self, messages: list, max_tokens: int = None):
         response = await litellm.acompletion(
             model=self.model,
             api_key=self.api_key,
@@ -39,6 +39,7 @@ class Provider:
             ssl_verify=self.verify,
             stream=True,
             stream_options={"include_usage": True},
+            max_tokens=max_tokens,
         )
 
         usage = None
