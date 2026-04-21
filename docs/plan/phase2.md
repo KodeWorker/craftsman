@@ -51,21 +51,21 @@ New `StructureDB` methods:
 - `create_token(user_id: str) -> str` — sign JWT `{"sub": user_id, "exp": now + 8h}`
 - `decode_token(token: str) -> str` — return `user_id`; raise `HTTPException(401)` on invalid or expired token
 
-### Auth router — `src/craftsman/router/auth.py` (new)
+### User router — `src/craftsman/router/user.py` (new)
 
-Class `AuthRouter`, prefix `/auth`, takes `Librarian` in constructor:
+Class `UserRouter`, prefix `/user`, takes `Librarian` in constructor:
 
 | Endpoint | Body | Response |
 |---|---|---|
-| `POST /auth/register` | `{username, password}` | `{user_id}` |
-| `POST /auth/login` | `{username, password}` | `{token}` |
+| `POST /user/register` | `{username, password}` | `{user_id}` |
+| `POST /user/login` | `{username, password}` | `{token}` |
 
 `register`: hash with `passlib.hash.bcrypt`, call `structure_db.create_user()`.
 `login`: fetch user, `bcrypt.verify()`, return `create_token(user_id)`.
 
 ### Server — `src/craftsman/server.py`
 
-- Include `AuthRouter`
+- Include `UserRouter`
 - Add `get_current_user` FastAPI dependency:
   ```python
   async def get_current_user(request: Request) -> str:
@@ -85,13 +85,27 @@ Add `user_id: str = Depends(get_current_user)` to:
 
 **Auth keyring**: add `CRAFTSMAN_TOKEN` to `Auth.USERNAME_LIST` in `auth.py`.
 
-**`Client.login()` method** — prompts credentials, POSTs to `/auth/login`, stores token:
+**`Client.register()` method** — prompts credentials, POSTs to `/user/register`:
+
+```python
+def register(self):
+    username = click.prompt("Username")
+    password = click.prompt("Password", hide_input=True)
+    click.confirm("Password", hide_input=True)  # confirm
+    resp = requests.post(f"{self.entry_point}/user/register",
+                         json={"username": username, "password": password})
+    if resp.status_code != 200:
+        raise SystemExit(f"Registration failed: {resp.json().get('detail')}")
+    click.echo("User registered.")
+```
+
+**`Client.login()` method** — prompts credentials, POSTs to `/user/login`, stores token:
 
 ```python
 def login(self):
     username = click.prompt("Username")
     password = click.prompt("Password", hide_input=True)
-    resp = requests.post(f"{self.entry_point}/auth/login",
+    resp = requests.post(f"{self.entry_point}/user/login",
                          json={"username": username, "password": password})
     if resp.status_code != 200:
         raise SystemExit("Login failed.")
@@ -99,15 +113,28 @@ def login(self):
     click.echo("Logged in.")
 ```
 
-**New `craftsman auth login` CLI command** in `cli.py` (under existing `auth` group):
+**New CLI commands** in `cli.py` — rename `auth` group to `user`:
 
 ```python
-@auth.command(name="login")
+@main.group(context_settings=CONTEXT_SETTINGS)
+def user():
+    """User management commands."""
+    pass
+
+@user.command(name="register")
 @click.option("--host", default="localhost")
 @click.option("--port", default=6969)
-def auth_login(host, port):
+def user_register(host, port):
+    Client(host=host, port=port).register()
+
+@user.command(name="login")
+@click.option("--host", default="localhost")
+@click.option("--port", default=6969)
+def user_login(host, port):
     Client(host=host, port=port).login()
 ```
+
+Note: existing `auth` group (`list`, `set`, `get`, `clear`) manages LLM keyring credentials — rename it to `key` or keep as-is. Recommend keeping `auth` for LLM keys and adding `user` as a separate group.
 
 **`chat()` and `run()`**: read `CRAFTSMAN_TOKEN` from keyring at start. If missing, exit with `"Run 'craftsman auth login' first."`. If server returns 401, clear token from keyring and exit with same message. Add `headers={"Authorization": f"Bearer {self.token}"}` to all requests.
 
@@ -120,12 +147,12 @@ def auth_login(host, port):
 | `pyproject.toml` | Add `PyJWT`, `passlib[bcrypt]` |
 | `src/craftsman/memory/structure.py` | `users` table, `user_id` on sessions, new methods |
 | `src/craftsman/jwt_utils.py` | New — JWT sign/verify + secret management |
-| `src/craftsman/router/auth.py` | New — register + login endpoints |
+| `src/craftsman/router/user.py` | New — register + login endpoints |
 | `src/craftsman/router/sessions.py` | Add `Depends(get_current_user)` to handlers |
 | `src/craftsman/server.py` | Include `AuthRouter`, define `get_current_user` |
 | `src/craftsman/auth.py` | Add `CRAFTSMAN_TOKEN` to `USERNAME_LIST` |
 | `src/craftsman/client.py` | `login()` method, read token + auth headers in `chat()`/`run()` |
-| `src/craftsman/cli.py` | Add `craftsman auth login` command under `auth` group |
+| `src/craftsman/cli.py` | Add `user` group with `register` and `login` commands |
 | `docs/schema.md` | Document `users` table and `user_id` on sessions |
 
 ---
@@ -139,12 +166,13 @@ rm ~/.craftsman/database/craftsman.db
 # Start server
 uv run craftsman server
 
-# Register
-curl -X POST http://localhost:6969/auth/register \
-  -H "Content-Type: application/json" \
-  -d '{"username": "alice", "password": "secret"}'
+# Register a user
+uv run craftsman user register
 
-# Start client — prompts for login, stores token, then enters chat
+# Login — stores token in keyring
+uv run craftsman user login
+
+# Start client
 uv run craftsman chat
 
 # Verify session scoping: different user sees empty session list
