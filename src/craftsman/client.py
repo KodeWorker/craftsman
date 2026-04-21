@@ -1,6 +1,7 @@
 import itertools
 import json
 import os
+import shutil
 import threading
 import time
 from enum import Enum
@@ -17,22 +18,24 @@ from prompt_toolkit.shortcuts import choice
 from craftsman.configure import get_config
 from craftsman.logger import CraftsmanLogger
 
-PROMPT_HISTORY_PATH = Path.home() / ".craftsman" / "database" / "craftsman.db"
+PROMPT_HISTORY_PATH = (
+    Path.home() / ".craftsman" / "database" / "prompt_history.txt"
+)
 PROJECT_SYSTEM_PROMPT = Path.cwd() / ".craftsman" / "system_prompt.md"
 ROOT_SYSTEM_PROMPT = Path.home() / ".craftsman" / "system_prompt.md"
 
-CONFIG = get_config()
-SLASH_COMMANDS = [cmd["name"] for cmd in CONFIG.get("commands", [])]
-
 
 class ChatCompleter(Completer):
+
+    def __init__(self, slash_commands: list = None):
+        self.slash_commands = slash_commands or []
 
     def get_completions(self, document, complete_event):
         full_text = document.text_before_cursor
         word = document.get_word_before_cursor(WORD=True)
         # slash command completion — only at start of input
         if full_text.lstrip() == full_text and full_text.startswith("/"):
-            for cmd in SLASH_COMMANDS:
+            for cmd in self.slash_commands:
                 if cmd.startswith(full_text.lower()):
                     yield Completion(cmd, start_position=-len(full_text))
         # project file completion — match current word anywhere in input
@@ -57,6 +60,10 @@ class Client:
         self.port = port
         self.entry_point = f"http://{self.host}:{self.port}"
         self.logger = CraftsmanLogger().get_logger(__name__)
+        self.config = get_config()
+        self.slash_commands = [
+            cmd["name"] for cmd in self.config.get("commands", [])
+        ]
         self.banner = "Welcome to Craftsman!"
         self.ctx_used = 0
         self.upload_tokens = 0
@@ -129,14 +136,14 @@ class Client:
     ) -> InputMode:
         if (
             user_input.lower().startswith("/")
-            and user_input.lower() in SLASH_COMMANDS
+            and user_input.lower() in self.slash_commands
         ):
             print(Fore.RED + user_input + Style.RESET_ALL)
             if user_input.lower() == "/exit":
                 self.logger.info("Exiting client.")
                 return InputMode.EXIT
             elif user_input.lower() == "/help":
-                for cmd in CONFIG.get("commands", []):
+                for cmd in self.config.get("commands", []):
                     print(
                         Style.BRIGHT
                         + f"  {cmd['name']} - {cmd['description']}"
@@ -178,61 +185,35 @@ class Client:
                         f"{response.status_code} - {response.text}"
                     )
             elif user_input.lower() == "/compact":
+                limit, keep_turns = next(
+                    (
+                        (cmd.get("limit", 1000), cmd.get("keep_turns", 5))
+                        for cmd in self.config.get("commands", [])
+                        if cmd["name"] == "/compact"
+                    ),
+                    (1000, 5),
+                )
                 response = requests.post(
                     f"{self.entry_point}/sessions/compact",
                     json={
                         "session_id": session_id,
-                        "summary_limit": (
-                            cmd.get("limit", 1000)
-                            if (
-                                cmd := next(
-                                    (
-                                        c
-                                        for c in CONFIG.get("commands", [])
-                                        if c["name"] == "/compact"
-                                    ),
-                                    None,
-                                )
-                            )
-                            else 1000
-                        ),
-                        "keep_turns": (
-                            cmd.get("keep_turns", 5)
-                            if (
-                                cmd := next(
-                                    (
-                                        c
-                                        for c in CONFIG.get("commands", [])
-                                        if c["name"] == "/compact"
-                                    ),
-                                    None,
-                                )
-                            )
-                            else 5
-                        ),
+                        "summary_limit": limit,
+                        "keep_turns": keep_turns,
                     },
                 )
                 if response.status_code == 200:
-                    status = response.json().get("status", "")
+                    data = response.json()
+                    status = data.get("status", "")
+                    print(Fore.RED + status + Style.RESET_ALL)
                     self.logger.info(status)
-                    self.ctx_used = (
-                        response.json()
-                        .get("meta", {})
-                        .get("ctx_used", self.ctx_used)
+                    self.ctx_used = data.get("meta", {}).get("ctx_used", 0)
+                    self.upload_tokens += data.get("meta", {}).get(
+                        "prompt_tokens", 0
                     )
-                    self.upload_tokens += (
-                        response.json()
-                        .get("meta", {})
-                        .get("prompt_tokens", self.upload_tokens)
+                    self.download_tokens += data.get("meta", {}).get(
+                        "completion_tokens", 0
                     )
-                    self.download_tokens += (
-                        response.json()
-                        .get("meta", {})
-                        .get("completion_tokens", self.download_tokens)
-                    )
-                    self.cost += (
-                        response.json().get("meta", {}).get("cost", self.cost)
-                    )
+                    self.cost += data.get("meta", {}).get("cost", 0.0)
                     self.update_banner(
                         session=session_id[:8],
                         ctx_used=self.ctx_used,
@@ -275,9 +256,11 @@ class Client:
                 json={"session_id": session_id},
             )
             if response.status_code == 200:
-                self.logger.info(f"{response.json().get('status', '')}")
-                messages = response.json().get("messages", [])
-                meta = response.json().get("meta", {})
+                data = response.json()
+                status = data.get("status", "")
+                messages = data.get("messages", [])
+                meta = data.get("meta", {})
+                self.logger.info(f"{status}")
                 self.ctx_used = meta.get("ctx_used", 0)
                 self.upload_tokens = meta.get("upload_tokens", 0)
                 self.download_tokens = meta.get("download_tokens", 0)
@@ -316,18 +299,20 @@ class Client:
                 )
 
         history = FileHistory(str(PROMPT_HISTORY_PATH))
-        completer = ChatCompleter()
+        completer = ChatCompleter(slash_commands=self.slash_commands)
 
         while True:
-            terminal_width = os.get_terminal_size().columns
+            terminal_width = shutil.get_terminal_size(
+                fallback=(80, 24)
+            ).columns
 
             hint = "Enter your message (or '/help' for commands)"
             hint = hint + " " * (terminal_width - len(hint) - 1)
             hint = f"{Fore.BLACK}{Back.WHITE}{hint}{Style.RESET_ALL}"
             hint = ANSI(hint)
 
-            saperator = "_" * terminal_width
-            print(Style.BRIGHT + saperator + Style.RESET_ALL)
+            separator = "_" * terminal_width
+            print(Style.BRIGHT + separator + Style.RESET_ALL)
             print(Style.BRIGHT + Fore.CYAN + self.banner + Style.RESET_ALL)
             user_input = prompt(
                 placeholder=hint,
@@ -419,6 +404,10 @@ class Client:
                             flush=True,
                         )
                     print(text, end="", flush=True)
+            # force stop spinner in case no chunks received
+            if not spinner_stop.is_set():
+                spinner_stop.set()
+                spinner_thread.join()
 
     def run(self, prompt: str):
         self.logger.info(f"Connecting to server at {self.entry_point}...")
@@ -476,25 +465,21 @@ class Client:
         response = requests.post(
             f"{self.entry_point}/subagent/run",
             json={"message": message, "session_id": session_id},
-            stream=True,
         )
         if response.status_code != 200:
             self.logger.error(
                 "Error from server: "
                 f"{response.status_code} - {response.text}"
             )
+            spinner_stop.set()
+            spinner_thread.join()
             return
 
-        content = []
-        up_tokens = 0
-        down_tokens = 0
-        cost = 0.0
-        content = response.json().get("content", "")
-        up_tokens = response.json().get("meta", {}).get("prompt_tokens", 0)
-        down_tokens = (
-            response.json().get("meta", {}).get("completion_tokens", 0)
-        )
-        cost = response.json().get("meta", {}).get("cost", 0.0)
+        data = response.json()
+        content = data.get("content", "")
+        up_tokens = data.get("meta", {}).get("prompt_tokens", 0)
+        down_tokens = data.get("meta", {}).get("completion_tokens", 0)
+        cost = data.get("meta", {}).get("cost", 0.0)
         spinner_stop.set()
         spinner_thread.join()
         print()
@@ -525,7 +510,7 @@ class Client:
     def list_sessions(self, project_id: str = None, limit: int = 5) -> list:
         sessions = self.get_sessions(project_id=project_id, limit=limit)
         session_infos = []
-        terminal_width = os.get_terminal_size().columns
+        terminal_width = shutil.get_terminal_size(fallback=(80, 24)).columns
         for session in sessions:
             session_id = session.get("session_id", "")[:8]
             title = session.get("title", "")

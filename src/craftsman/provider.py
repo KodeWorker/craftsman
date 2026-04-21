@@ -81,7 +81,7 @@ class Provider:
 
     async def model_response_parser(
         self,
-        response: litellm.ACompletionResponse,
+        response: litellm.utils.CustomStreamWrapper,
         think_tag: str = "reasoning_content",
         think_start_tag: str = "<think>",
         think_end_tag: str = "</think>",

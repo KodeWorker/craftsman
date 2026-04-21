@@ -28,7 +28,8 @@ class CraftsmanLogger:
                 " Please run `craftsman init` first."
             )
         log_file = os.path.join(
-            config["workspace"]["logs"], "craftsman-%Y-%m-%d.log"
+            os.path.expanduser(config["workspace"]["logs"]),
+            "craftsman-%Y-%m-%d.log",
         )
         self.log_file = datetime.datetime.now().strftime(log_file)
         self.log_level = getattr(
