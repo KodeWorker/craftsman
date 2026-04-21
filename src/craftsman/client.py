@@ -75,6 +75,7 @@ class Client:
         self.upload_tokens = 0
         self.download_tokens = 0
         self.cost = 0.0
+        self.request_session = requests.Session()
 
     def __jwt_token(self) -> str | None:
         username = Auth.get_password("USERNAME")
@@ -88,8 +89,9 @@ class Client:
             )
             self.logger.error("Username or password not set in secrets.")
             return None
-        response = requests.post(
-            f"{self.entry_point}/user/login",
+
+        response = self.request_session.post(
+            f"{self.entry_point}/users/login",
             json={"username": username, "password": password},
         )
         if response.status_code == 200:
@@ -103,6 +105,20 @@ class Client:
             )
             self.logger.error("Failed to obtain JWT token.")
             return None
+
+    # wire requests through this method to handle 401
+    # and retry with JWT token if needed
+    def __request(self, method: str, url: str, **kwargs) -> requests.Response:
+        resp = getattr(self.request_session, method)(url, **kwargs)
+        if resp.status_code == 401:
+            token = self.__jwt_token()
+            if not token:
+                return resp
+            self.request_session.headers.update(
+                {"Authorization": f"Bearer {token}"}
+            )
+            resp = getattr(self.request_session, method)(url, **kwargs)
+        return resp
 
     def __update_banner(
         self,
@@ -185,7 +201,8 @@ class Client:
                     )
             elif user_input.lower() == "/clear":
                 os.system("cls" if os.name == "nt" else "clear")
-                response = requests.post(
+                response = self.__request(
+                    "post",
                     f"{self.entry_point}/sessions/clear",
                     json={"session_id": session_id},
                 )
@@ -202,7 +219,8 @@ class Client:
                         f"{response.status_code} - {response.text}"
                     )
             elif user_input.lower() == "/system":
-                response = requests.get(
+                response = self.__request(
+                    "get",
                     f"{self.entry_point}/sessions/system",
                     params={"session_id": session_id},
                 )
@@ -237,7 +255,8 @@ class Client:
                     ),
                     (1000, 5),
                 )
-                response = requests.post(
+                response = self.__request(
+                    "post",
                     f"{self.entry_point}/sessions/compact",
                     json={
                         "session_id": session_id,
@@ -286,7 +305,7 @@ class Client:
         # health check loop to wait for server to be ready
         while True:
             try:
-                response = requests.get(f"{self.entry_point}/health")
+                response = self.__request("get", f"{self.entry_point}/health")
                 if response.status_code == 200:
                     self.logger.info("Successfully connected to the server.")
                     break
@@ -303,7 +322,7 @@ class Client:
         token = self.__jwt_token()
         if token:
             self.logger.info("Setting JWT token for authentication.")
-            requests.Session().headers.update(
+            self.request_session.headers.update(
                 {"Authorization": f"Bearer {token}"}
             )
         else:
@@ -316,10 +335,13 @@ class Client:
             return
 
         if not session_id:
-            response = requests.post(f"{self.entry_point}/sessions/create")
+            response = self.__request(
+                "post", f"{self.entry_point}/sessions/create"
+            )
             session_id = response.json().get("session_id", "")
         else:
-            response = requests.post(
+            response = self.__request(
+                "post",
                 f"{self.entry_point}/sessions/resume",
                 json={"session_id": session_id},
             )
@@ -356,7 +378,8 @@ class Client:
         # set system prompt if exists
         system_prompt = self.__read_system_prompt()
         if system_prompt:
-            response = requests.post(
+            response = self.__request(
+                "post",
                 f"{self.entry_point}/sessions/system",
                 json={
                     "system_prompt": system_prompt,
@@ -409,7 +432,8 @@ class Client:
                 print(user_input)
 
             message = {"role": "user", "content": user_input}
-            response = requests.post(
+            response = self.__request(
+                "post",
                 f"{self.entry_point}/sessions/completion",
                 json={"message": message, "session_id": session_id},
                 stream=True,
@@ -498,7 +522,7 @@ class Client:
         # health check loop to wait for server to be ready
         while True:
             try:
-                response = requests.get(f"{self.entry_point}/health")
+                response = self.__request("get", f"{self.entry_point}/health")
                 if response.status_code == 200:
                     self.logger.info("Successfully connected to the server.")
                     break
@@ -515,7 +539,7 @@ class Client:
         token = self.__jwt_token()
         if token:
             self.logger.info("Setting JWT token for authentication.")
-            requests.Session().headers.update(
+            self.request_session.headers.update(
                 {"Authorization": f"Bearer {token}"}
             )
         else:
@@ -528,7 +552,9 @@ class Client:
             return
 
         # Create a new session for this subagent task
-        response = requests.post(f"{self.entry_point}/sessions/create")
+        response = self.__request(
+            "post", f"{self.entry_point}/sessions/create"
+        )
         if response.status_code == 200:
             session_id = response.json().get("session_id", "")
             self.logger.info(f"Created new session with ID: {session_id}")
@@ -546,7 +572,8 @@ class Client:
 
         system_prompt = self.__read_system_prompt()
         if system_prompt:
-            response = requests.post(
+            response = self.__request(
+                "post",
                 f"{self.entry_point}/sessions/system",
                 json={
                     "system_prompt": system_prompt,
@@ -576,7 +603,8 @@ class Client:
         )
         spinner_thread.start()
 
-        response = requests.post(
+        response = self.__request(
+            "post",
             f"{self.entry_point}/subagent/run",
             json={"message": message, "session_id": session_id},
         )
@@ -613,7 +641,8 @@ class Client:
         )
 
     def get_sessions(self, project_id: str = None, limit: int = 5) -> list:
-        response = requests.get(
+        response = self.__request(
+            "get",
             f"{self.entry_point}/sessions/list",
             params={"project_id": project_id, "limit": limit},
         )
@@ -655,8 +684,10 @@ class Client:
         return session_infos
 
     def find_session_id(self, session: str) -> str:
-        response = requests.get(
-            f"{self.entry_point}/sessions/id", params={"session": session}
+        response = self.__request(
+            "get",
+            f"{self.entry_point}/sessions/id",
+            params={"session": session},
         )
         if response.status_code == 200:
             session_id = response.json().get("session_id", None)
@@ -700,7 +731,8 @@ class Client:
             self.logger.error(f"Session '{session}' not found.")
             return
 
-        response = requests.post(
+        response = self.__request(
+            "post",
             f"{self.entry_point}/sessions/delete",
             json={"session_id": session_id},
         )
