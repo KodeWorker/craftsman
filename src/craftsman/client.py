@@ -15,6 +15,7 @@ from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.shortcuts import choice
 
+from craftsman.auth import Auth
 from craftsman.configure import get_config
 from craftsman.logger import CraftsmanLogger
 
@@ -75,7 +76,35 @@ class Client:
         self.download_tokens = 0
         self.cost = 0.0
 
-    def update_banner(
+    def __jwt_token(self) -> str | None:
+        username = Auth.get_password("USERNAME")
+        password = Auth.get_password("PASSWORD")
+        if not username or not password:
+            print(
+                Fore.RED
+                + "Username or password not set in secrets. "
+                + "Proceeding without authentication token."
+                + Style.RESET_ALL
+            )
+            self.logger.error("Username or password not set in secrets.")
+            return None
+        response = requests.post(
+            f"{self.entry_point}/user/login",
+            json={"username": username, "password": password},
+        )
+        if response.status_code == 200:
+            self.logger.info("Successfully obtained JWT token.")
+            return response.json().get("token")
+        else:
+            print(
+                Fore.RED
+                + "Failed to obtain authentication token. Please check logs."
+                + Style.RESET_ALL
+            )
+            self.logger.error("Failed to obtain JWT token.")
+            return None
+
+    def __update_banner(
         self,
         model: str = "",
         session: str = "",
@@ -111,7 +140,7 @@ class Client:
         )
 
     @staticmethod
-    def _spin(spinner_stop, message="Thinking..."):
+    def __spin(spinner_stop, message="Thinking..."):
         for frame in itertools.cycle(
             ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
         ):
@@ -125,7 +154,7 @@ class Client:
             time.sleep(0.08)
         print("\r  \r", end="", flush=True)
 
-    def read_system_prompt(self):
+    def __read_system_prompt(self):
         if self.project_system_prompt.exists():
             with open(self.project_system_prompt, "r") as f:
                 return f.read().strip()
@@ -134,7 +163,7 @@ class Client:
                 return f.read().strip()
         return ""
 
-    def handle_slash_command(
+    def __handle_slash_command(
         self,
         session_id: str,
         user_input: str,
@@ -143,7 +172,7 @@ class Client:
             user_input.lower().startswith("/")
             and user_input.lower() in self.slash_commands
         ):
-            print(Fore.RED + user_input + Style.RESET_ALL)
+            print(Fore.CYAN + user_input + Style.RESET_ALL)
             if user_input.lower() == "/exit":
                 self.logger.info("Exiting client.")
                 return InputMode.EXIT
@@ -163,6 +192,11 @@ class Client:
                 if response.status_code == 200:
                     self.logger.info("Session cleared.")
                 else:
+                    print(
+                        Fore.RED
+                        + "Error clearing session. Please check logs."
+                        + Style.RESET_ALL
+                    )
                     self.logger.error(
                         "Error clearing session: "
                         f"{response.status_code} - {response.text}"
@@ -185,6 +219,11 @@ class Client:
                         else "No system prompt set."
                     )
                 else:
+                    print(
+                        Fore.RED
+                        + "Error retrieving system prompt. Please check logs."
+                        + Style.RESET_ALL
+                    )
                     self.logger.error(
                         "Error retrieving system prompt: "
                         f"{response.status_code} - {response.text}"
@@ -209,7 +248,7 @@ class Client:
                 if response.status_code == 200:
                     data = response.json()
                     status = data.get("status", "")
-                    print(Fore.RED + status + Style.RESET_ALL)
+                    print(Fore.CYAN + status + Style.RESET_ALL)
                     self.logger.info(status)
                     self.ctx_used = data.get("meta", {}).get("ctx_used", 0)
                     self.upload_tokens += data.get("meta", {}).get(
@@ -219,7 +258,7 @@ class Client:
                         "completion_tokens", 0
                     )
                     self.cost += data.get("meta", {}).get("cost", 0.0)
-                    self.update_banner(
+                    self.__update_banner(
                         session=session_id[:8],
                         ctx_used=self.ctx_used,
                         upload_tokens=self.upload_tokens,
@@ -227,6 +266,11 @@ class Client:
                         cost=self.cost,
                     )
                 else:
+                    print(
+                        Fore.RED
+                        + "Error compacting session. Please check logs."
+                        + Style.RESET_ALL
+                    )
                     self.logger.error(
                         "Error compacting session: "
                         f"{response.status_code} - {response.text}"
@@ -247,10 +291,29 @@ class Client:
                     self.logger.info("Successfully connected to the server.")
                     break
             except requests.exceptions.ConnectionError:
-                self.logger.warning(
-                    "Connection failed. Retrying in 2 seconds..."
+                print(
+                    Fore.YELLOW + "Server not ready yet..." + Style.RESET_ALL
                 )
-                time.sleep(2)
+                self.logger.warning(
+                    "Connection failed. Retrying in 3 seconds..."
+                )
+                time.sleep(3)
+
+        # fetch JWT token and set in header for subsequent requests
+        token = self.__jwt_token()
+        if token:
+            self.logger.info("Setting JWT token for authentication.")
+            requests.Session().headers.update(
+                {"Authorization": f"Bearer {token}"}
+            )
+        else:
+            print(
+                Fore.RED
+                + "Failed to obtain authentication token. Please check logs."
+                + Style.RESET_ALL
+            )
+            self.logger.error("Failed to obtain authentication token.")
+            return
 
         if not session_id:
             response = requests.post(f"{self.entry_point}/sessions/create")
@@ -279,6 +342,11 @@ class Client:
                         print(Fore.MAGENTA + "assistant:" + Style.RESET_ALL)
                         print(message["content"])
             else:
+                print(
+                    Fore.RED
+                    + "Failed to resume session. Please check logs."
+                    + Style.RESET_ALL
+                )
                 self.logger.error(
                     "Error resuming session: "
                     f"{response.status_code} - {response.text}"
@@ -286,7 +354,7 @@ class Client:
                 return
 
         # set system prompt if exists
-        system_prompt = self.read_system_prompt()
+        system_prompt = self.__read_system_prompt()
         if system_prompt:
             response = requests.post(
                 f"{self.entry_point}/sessions/system",
@@ -298,6 +366,11 @@ class Client:
             if response.status_code == 200:
                 self.logger.info("System prompt set successfully.")
             else:
+                print(
+                    Fore.RED
+                    + "Error setting system prompt. Please check logs."
+                    + Style.RESET_ALL
+                )
                 self.logger.error(
                     "Error setting system prompt: "
                     f"{response.status_code} - {response.text}"
@@ -325,14 +398,14 @@ class Client:
                 history=history,
                 completer=completer,
             )
-            print(Fore.GREEN + "user:" + Style.RESET_ALL)
 
-            mode = self.handle_slash_command(session_id, user_input)
+            print(Fore.GREEN + "user:" + Style.RESET_ALL)
+            mode = self.__handle_slash_command(session_id, user_input)
             if mode == InputMode.EXIT:
                 break
             elif mode == InputMode.COMMAND:
                 continue
-            else:
+            elif mode == InputMode.MESSAGE:
                 print(user_input)
 
             message = {"role": "user", "content": user_input}
@@ -342,6 +415,11 @@ class Client:
                 stream=True,
             )
             if response.status_code != 200:
+                print(
+                    Fore.RED
+                    + "Error from server. Please check logs."
+                    + Style.RESET_ALL
+                )
                 self.logger.error(
                     "Error from server: "
                     f"{response.status_code} - {response.text}"
@@ -352,7 +430,7 @@ class Client:
             first_chunk = True
             spinner_stop = threading.Event()
             spinner_thread = threading.Thread(
-                target=self._spin,
+                target=self.__spin,
                 args=(spinner_stop, "Thinking..."),
                 daemon=True,
             )
@@ -370,7 +448,7 @@ class Client:
                         spinner_thread.join()
                         first_chunk = False
                     print()
-                    self.update_banner(
+                    self.__update_banner(
                         model=chunk.get("model", ""),
                         session=session_id[:8],
                         ctx_used=self.ctx_used + chunk.get("ctx_used", 0),
@@ -417,15 +495,36 @@ class Client:
     def run(self, prompt: str):
         self.logger.info(f"Connecting to server at {self.entry_point}...")
 
-        # Check server health
-        response = requests.get(f"{self.entry_point}/health")
-        if response.status_code == 200:
-            self.logger.info("Successfully connected to the server.")
-        else:
-            self.logger.error(
-                "Failed to connect to the server: "
-                f"{response.status_code} - {response.text}"
+        # health check loop to wait for server to be ready
+        while True:
+            try:
+                response = requests.get(f"{self.entry_point}/health")
+                if response.status_code == 200:
+                    self.logger.info("Successfully connected to the server.")
+                    break
+            except requests.exceptions.ConnectionError:
+                print(
+                    Fore.YELLOW + "Server not ready yet..." + Style.RESET_ALL
+                )
+                self.logger.warning(
+                    "Connection failed. Retrying in 3 seconds..."
+                )
+                time.sleep(3)
+
+        # fetch JWT token and set in header for subsequent requests
+        token = self.__jwt_token()
+        if token:
+            self.logger.info("Setting JWT token for authentication.")
+            requests.Session().headers.update(
+                {"Authorization": f"Bearer {token}"}
             )
+        else:
+            print(
+                Fore.RED
+                + "Failed to obtain authentication token. Please check logs."
+                + Style.RESET_ALL
+            )
+            self.logger.error("Failed to obtain authentication token.")
             return
 
         # Create a new session for this subagent task
@@ -434,13 +533,18 @@ class Client:
             session_id = response.json().get("session_id", "")
             self.logger.info(f"Created new session with ID: {session_id}")
         else:
+            print(
+                Fore.RED
+                + "Failed to create session. Please check logs."
+                + Style.RESET_ALL
+            )
             self.logger.error(
                 "Failed to create session: "
                 f"{response.status_code} - {response.text}"
             )
             return
 
-        system_prompt = self.read_system_prompt()
+        system_prompt = self.__read_system_prompt()
         if system_prompt:
             response = requests.post(
                 f"{self.entry_point}/sessions/system",
@@ -452,6 +556,11 @@ class Client:
             if response.status_code == 200:
                 self.logger.info("System prompt set successfully.")
             else:
+                print(
+                    Fore.RED
+                    + "Failed to set system prompt. Please check logs."
+                    + Style.RESET_ALL
+                )
                 self.logger.error(
                     "Error setting system prompt: "
                     f"{response.status_code} - {response.text}"
@@ -461,7 +570,7 @@ class Client:
 
         spinner_stop = threading.Event()
         spinner_thread = threading.Thread(
-            target=self._spin,
+            target=self.__spin,
             args=(spinner_stop, "Running subagent..."),
             daemon=True,
         )
@@ -472,6 +581,11 @@ class Client:
             json={"message": message, "session_id": session_id},
         )
         if response.status_code != 200:
+            print(
+                Fore.RED
+                + "Error from server. Please check logs."
+                + Style.RESET_ALL
+            )
             self.logger.error(
                 "Error from server: "
                 f"{response.status_code} - {response.text}"
@@ -506,6 +620,11 @@ class Client:
         if response.status_code == 200:
             return response.json().get("sessions", [])
         else:
+            print(
+                Fore.RED
+                + "Error retrieving sessions. Please check logs."
+                + Style.RESET_ALL
+            )
             self.logger.error(
                 "Error retrieving sessions: "
                 f"{response.status_code} - {response.text}"
@@ -542,10 +661,21 @@ class Client:
         if response.status_code == 200:
             session_id = response.json().get("session_id", None)
             if not session_id:
+                print(
+                    Fore.RED
+                    + f"Session '{session}' not found."
+                    + Style.RESET_ALL
+                )
                 self.logger.error(f"Session '{session}' not found.")
                 return None
             return session_id
         else:
+            print(
+                Fore.RED
+                + f"Error retrieving session ID for '{session}'. "
+                + "Please check logs."
+                + Style.RESET_ALL
+            )
             self.logger.error(
                 "Error retrieving session ID: "
                 f"{response.status_code} - {response.text}"
@@ -554,11 +684,19 @@ class Client:
 
     def delete_session(self, session: str = None):
         if not session:
+            print(
+                Fore.RED
+                + "No session ID or prefix or title provided."
+                + Style.RESET_ALL
+            )
             self.logger.error("No session ID or prefix or title provided.")
             return
 
         session_id = self.find_session_id(session)
         if not session_id:
+            print(
+                Fore.RED + f"Session '{session}' not found." + Style.RESET_ALL
+            )
             self.logger.error(f"Session '{session}' not found.")
             return
 
@@ -570,6 +708,11 @@ class Client:
             status = response.json().get("status", "")
             self.logger.info(status)
         else:
+            print(
+                Fore.RED
+                + f"Error deleting session '{session}'. Please check logs."
+                + Style.RESET_ALL
+            )
             self.logger.error(
                 "Error deleting session: "
                 f"{response.status_code} - {response.text}"
