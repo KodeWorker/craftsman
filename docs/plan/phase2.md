@@ -17,8 +17,12 @@ Declare capabilities explicitly in `craftsman.yaml`:
 ```yaml
 provider:
   capabilities:
-    vision: false
-    audio: false
+    vision:
+      enabled: false
+      formats: [image/jpeg, image/png, image/webp, image/gif]
+    audio:
+      enabled: false
+      formats: [wav, mp3]
 ```
 
 ### Upload Flow
@@ -64,8 +68,17 @@ sending the message back into context.
 `completion()` rejects messages containing multimodal content parts if the
 corresponding capability flag is not declared in `craftsman.yaml`:
 
-- Image content → requires `capabilities.vision: true`
-- Audio content → requires `capabilities.audio: true`
+- Image content → requires `capabilities.vision.enabled: true`; MIME type must be in `capabilities.vision.formats`
+- Audio content → requires `capabilities.audio.enabled: true`; format must be in `capabilities.audio.formats`
+
+## Dependencies
+
+| Package | Side | Purpose |
+|---------|------|---------|
+| `python-multipart` | server | FastAPI requires this to parse `multipart/form-data`; add to `pyproject.toml` |
+| `base64` | client | stdlib — encodes file bytes for inline content parts |
+| `mimetypes` | client | stdlib — resolves MIME type from file extension |
+| `requests` | client | already in use; sends multipart upload via `files=` param |
 
 ## Checklist
 
@@ -86,6 +99,38 @@ corresponding capability flag is not declared in `craftsman.yaml`:
 - [ ] Update `ChatCompleter` to trigger file completion only on `@`-prefixed words
       (current completer completes every word, which is too eager)
 - [ ] Display artifact_id ref in chat alongside the message
+- [ ] *(low priority)* Drag-and-drop support — hook `Buffer.on_text_insert`,
+      detect bracketed-paste paths (`file://`, `/`, `~/`), normalise and
+      convert to `@filepath` syntax automatically
+
+#### Drag-and-drop file input (low priority)
+
+Terminal emulators paste the file path as text (via bracketed paste) when a
+file is dragged into the window. prompt_toolkit has no native drop API, but we
+can intercept the paste via `Buffer.on_text_insert` and auto-convert a detected
+path to `@filepath` syntax.
+
+Normalisation needed before converting:
+- Strip `file://` prefix (some terminals use `file:///path`)
+- Strip surrounding quotes (paths with spaces are often quoted)
+- Strip trailing newline that some emulators append
+
+Works on all modern terminals (xterm, iTerm2, Kitty, GNOME Terminal) that
+support bracketed paste. No new packages required.
+
+```python
+from prompt_toolkit.filters import is_done
+from prompt_toolkit.buffer import Buffer
+
+def _on_text_inserted(buf):
+text = buf.text
+# detect pasted file path (absolute, ~/, or file:// prefix)
+if text.startswith(("file://", "/", "~/")):
+      path = text.replace("file://", "")
+      buf.set_document(
+            buf.document.insert_after(f"@{path.strip()}")
+      )
+```
 
 #### Why `@` for inline file references
 `@` is visually distinct, not a valid filename-start character on Linux/Mac (so

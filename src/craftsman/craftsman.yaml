@@ -19,8 +19,12 @@ provider:
   input_cost_per_token: 0.000000
   output_cost_per_token: 0.000000
   capabilities:
-    vision: true
-    audio: true
+    vision:
+      enabled: true
+      formats: [image/jpeg, image/png, image/webp, image/gif]
+    audio:
+      enabled: true
+      formats: [wav, mp3]
 
 commands:
   - name: /help
