@@ -80,7 +80,29 @@ corresponding capability flag is not declared in `craftsman.yaml`:
 | `mimetypes` | client | stdlib — resolves MIME type from file extension |
 | `requests` | client | already in use; sends multipart upload via `files=` param |
 
+## Server Architecture
+
+`server.py` currently registers all routes directly on `self.app`. Adding
+`/artifacts/*` introduces a third domain; split into router classes at that
+boundary rather than growing `Server` further.
+
+Each router takes `librarian` and `provider` in `__init__` and registers its
+own routes:
+
+```
+Server
+├── SessionsRouter   → /sessions/*  (existing handlers, moved)
+└── ArtifactsRouter  → /artifacts/* (new)
+```
+
+`/health` and `/subagent/run` remain on `Server` directly — too small to
+warrant their own routers.
+
 ## Checklist
+
+### Server
+- [ ] Extract `SessionRouter` — move existing `/sessions/*` handlers out of `Server`
+- [ ] Add `ArtifactRouter` — new `/artifacts/*` handlers
 
 ### Infrastructure
 - [ ] `POST /artifacts/upload` — multipart upload, save to workspace, return artifact_id
