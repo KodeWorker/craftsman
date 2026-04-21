@@ -18,16 +18,6 @@ from prompt_toolkit.shortcuts import choice
 from craftsman.configure import get_config
 from craftsman.logger import CraftsmanLogger
 
-PROMPT_HISTORY_PATH = (
-    Path(os.path.expanduser(get_config()["workspace"]["root"]))
-    / "prompt_history.txt"
-)
-PROJECT_SYSTEM_PROMPT = Path.cwd() / ".craftsman" / "system_prompt.md"
-ROOT_SYSTEM_PROMPT = (
-    Path(os.path.expanduser(get_config()["workspace"]["root"]))
-    / "system_prompt.md"
-)
-
 
 class ChatCompleter(Completer):
 
@@ -68,6 +58,17 @@ class Client:
         self.slash_commands = [
             cmd["name"] for cmd in self.config.get("commands", [])
         ]
+        self.prompt_history_path = (
+            Path(os.path.expanduser(get_config()["workspace"]["root"]))
+            / "prompt_history.txt"
+        )
+        self.project_system_prompt = (
+            Path.cwd() / ".craftsman" / "system_prompt.md"
+        )
+        self.root_system_prompt = (
+            Path(os.path.expanduser(get_config()["workspace"]["root"]))
+            / "system_prompt.md"
+        )
         self.banner = "Welcome to Craftsman!"
         self.ctx_used = 0
         self.upload_tokens = 0
@@ -125,11 +126,11 @@ class Client:
         print("\r  \r", end="", flush=True)
 
     def read_system_prompt(self):
-        if PROJECT_SYSTEM_PROMPT.exists():
-            with open(PROJECT_SYSTEM_PROMPT, "r") as f:
+        if self.project_system_prompt.exists():
+            with open(self.project_system_prompt, "r") as f:
                 return f.read().strip()
-        elif ROOT_SYSTEM_PROMPT.exists():
-            with open(ROOT_SYSTEM_PROMPT, "r") as f:
+        elif self.root_system_prompt.exists():
+            with open(self.root_system_prompt, "r") as f:
                 return f.read().strip()
         return ""
 
@@ -302,7 +303,7 @@ class Client:
                     f"{response.status_code} - {response.text}"
                 )
 
-        history = FileHistory(str(PROMPT_HISTORY_PATH))
+        history = FileHistory(str(self.prompt_history_path))
         completer = ChatCompleter(slash_commands=self.slash_commands)
 
         while True:

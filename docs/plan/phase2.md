@@ -98,7 +98,9 @@ Add `user_id: str = Depends(get_current_user)` to:
 
 ### CLI — `src/craftsman/cli.py` + `src/craftsman/client.py`
 
-**Auth keyring**: add `CRAFTSMAN_USER` and `CRAFTSMAN_PASSWORD` to `Auth.USERNAME_LIST` in `auth.py`.
+* Implementation note: `USERNAME`, `PASSWORD` added to `auth.py` for client
+
+**Auth keyring**: drop `USERNAME_LIST` whitelist from `auth.py` — validation is redundant since the DB owns the user registry. Use `Auth` directly for any keyring key.
 
 **Server-side commands** (direct DB, no server running required) — in `cli.py` `user` group, use `StructureDB` + `passlib` directly:
 
@@ -170,7 +172,8 @@ def _fetch_token(self) -> str:
 | `src/craftsman/router/user.py` | New — login endpoint only |
 | `src/craftsman/router/sessions.py` | Add `Depends(get_current_user)` to handlers |
 | `src/craftsman/server.py` | Include `AuthRouter`, define `get_current_user` |
-| `src/craftsman/auth.py` | Add `CRAFTSMAN_USER`, `CRAFTSMAN_PASSWORD` to `USERNAME_LIST` |
+| `src/craftsman/auth.py` | Renamed `USERNAME_LIST` → `KEY_LIST`, `__validate_username` → `__validate_key` ✓ done |
+| `src/craftsman/cli.py` | Updated to use `KEY_LIST`, `key` arg naming ✓ done |
 | `src/craftsman/client.py` | `_fetch_token()`, in-memory `self.token`, auth headers + 401 retry in `chat()`/`run()` |
 | `src/craftsman/cli.py` | Add `user` group: `register`, `list`, `delete` (direct DB); `login` (client HTTP) |
 | `docs/schema.md` | Document `users` table and `user_id` on sessions |

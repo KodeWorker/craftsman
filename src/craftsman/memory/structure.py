@@ -1,8 +1,9 @@
+import os
 import sqlite3
 import uuid
 from pathlib import Path
 
-DB_PATH = Path.home() / ".craftsman" / "database" / "craftsman.db"
+from craftsman.configure import get_config
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -129,7 +130,12 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
 
 
 class StructureDB:
-    def __init__(self, path: Path = DB_PATH):
+    def __init__(self):
+        self.config = get_config()
+        path = (
+            Path(os.path.expanduser(self.config["workspace"]["database"]))
+            / "craftsman.db"
+        )
         path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row

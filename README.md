@@ -21,15 +21,15 @@ uv run craftsman auth set <provider>
 uv run craftsman auth get <provider>
 uv run craftsman auth delete [<provider>]
 
-uv run craftsman sess list [--host] [--port] [--project-id] [--limit]
-uv run craftsman sess delete <id|prefix|title> [--host] [--port]
-
-# TODO:
 uv run craftsman user list
 uv run craftsman user register
 uv run craftsman user delete <usernam>
 uv run craftsman user login
 
+uv run craftsman sess list [--host] [--port] [--project-id] [--limit]
+uv run craftsman sess delete <id|prefix|title> [--host] [--port]
+
+# TODO:
 uv run craftsman artifacts list [--host] [--port]
 uv run craftsman artifacts delete <id|prefix> [--host] [--port]
 ```
