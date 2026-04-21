@@ -23,6 +23,9 @@ uv run craftsman auth clear [<provider>]
 
 uv run craftsman sess list [--host] [--port] [--project-id] [--limit]
 uv run craftsman sess delete <id|prefix|title> [--host] [--port]
+
+uv run craftsman artifacts list [--host] [--port]
+uv run craftsman artifacts delete <id|prefix> [--host] [--port]
 ```
 
 ## Docs

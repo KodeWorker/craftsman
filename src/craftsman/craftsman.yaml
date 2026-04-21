@@ -41,6 +41,8 @@ commands:
     description: Show system prompts.
   - name: /exit
     description: Exit the application.
+  - name: /artifacts
+    description: List artifacts uploaded in the current session.
   - name: /compact
     description: Compact the conversation history by summarizing it.
     limit: 1000 # token limit for the summary when compacting

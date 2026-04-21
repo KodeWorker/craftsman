@@ -127,6 +127,11 @@ warrant their own routers.
 - [ ] Guard in `completion()` — raise if multimodal content present but capability not declared
 
 ### Client
+- [ ] `/artifacts` slash command — lists artifacts uploaded in the current session
+      (artifact_id, filename, mime type, size); session-scoped only
+- [ ] `craftsman artifacts list` CLI — lists all artifacts across sessions
+- [ ] `craftsman artifacts delete <id>` CLI — deletes artifact and removes file
+      from `~/.craftsman/workspace/`
 - [ ] `@filepath` inline syntax — user types `describe @image.jpg` in chat or
       `craftsman run "describe @image.jpg"`; client detects `@`-prefixed tokens,
       uploads the file, and replaces the token with the base64 multimodal content part
@@ -186,3 +191,33 @@ Dependencies (both wrap PortAudio — a C system library):
 
 Deferred until `@filepath` audio input is proven out. At that point the upload
 infrastructure is already in place and voice capture is just another input path.
+
+## Future Phase: Telegram Bot Integration
+
+Wire a Telegram bot into `client.chat` as an alternative input channel.
+
+### Media format considerations
+
+Telegram delivers media in fixed formats regardless of what the sender uploaded:
+
+| Telegram type | Format | Supported |
+|---------------|--------|-----------|
+| `photo` | JPEG (re-compressed by Telegram) | yes |
+| `document` (image) | original format preserved | yes (PNG, WebP, GIF) |
+| `audio` | MP3 or M4A | MP3 yes; M4A needs transcoding |
+| `voice` | OGG/OPUS | no — llama.cpp rejects OGG |
+| `video_note` | MP4 | out of scope |
+
+`voice` is the most common audio input in Telegram and always arrives as
+OGG/OPUS. llama.cpp does not accept OGG, so server-side transcoding is required
+before storing the artifact.
+
+### Transcoding
+
+```
+Telegram voice (OGG/OPUS) → pydub → WAV → artifact upload flow
+```
+
+- `pydub` shells out to `ffmpeg`; both must be installed
+- Transcoding happens in the artifact ingest path before `store_message`
+- No change to the model-facing pipeline — WAV is already a supported format
