@@ -22,11 +22,14 @@ class CraftsmanLogger:
             return
         config = get_config()
         root_dir = os.path.expanduser(config["workspace"]["root"])
-        assert os.path.isdir(root_dir), (
-            f"Root directory {root_dir} does not exist."
-            " Please run `craftsman init` first."
+        if not os.path.isdir(root_dir):
+            raise FileNotFoundError(
+                f"Root directory {root_dir} does not exist."
+                " Please run `craftsman init` first."
+            )
+        log_file = os.path.join(
+            config["workspace"]["logs"], "craftsman-%Y-%m-%d.log"
         )
-        log_file = os.path.join(root_dir, "logs", "craftsman-%Y-%m-%d.log")
         self.log_file = datetime.datetime.now().strftime(log_file)
         self.log_level = getattr(
             logging, config["logging"]["level"].upper(), logging.INFO
@@ -37,8 +40,8 @@ class CraftsmanLogger:
 
     def get_logger(self, name: str) -> logging.Logger:
         logger = logging.getLogger(name)
-        logger.setLevel(self.log_level)
-        if not getattr(logger, "_custom_handlers_set", False):
+        if not logger.hasHandlers():
+            logger.setLevel(self.log_level)
             f_handler = logging.FileHandler(self.log_file)
             f_handler.setFormatter(logging.Formatter(self._fmt))
             logger.addHandler(f_handler)
@@ -46,5 +49,4 @@ class CraftsmanLogger:
                 c_handler = logging.StreamHandler()
                 c_handler.setFormatter(logging.Formatter(self._fmt))
                 logger.addHandler(c_handler)
-            logger._custom_handlers_set = True
         return logger
