@@ -129,24 +129,24 @@ def auth_get(provider: str):
         click.echo(f"{provider}: Not set")
 
 
-@auth.command(name="clear")
+@auth.command(name="delete")
 @click.argument("provider", required=False)
-def auth_clear(provider: str = None):
+def auth_delete(provider: str = None):
     """
-    Clears authentication details for a specific provider, or all providers
+    Deletes authentication details for a specific provider, or all providers
     if none is specified.
     """
     if provider:
         if Auth.get_password(provider) is not None:
             Auth.delete_password(provider)
-            click.echo(f"Password for {provider} cleared.")
+            click.echo(f"Password for {provider} deleted.")
         else:
             click.echo(f"Password for {provider} is not set.")
     else:
         for cred in Auth.USERNAME_LIST:
             if Auth.get_password(cred) is not None:
                 Auth.delete_password(cred)
-                click.echo(f"Password for {cred} cleared.")
+                click.echo(f"Password for {cred} deleted.")
             else:
                 click.echo(f"Password for {cred} is not set.")
 
