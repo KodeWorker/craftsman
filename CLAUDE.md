@@ -43,7 +43,7 @@ Early-stage autonomous agent framework. CLI + server functional; client/vector/g
 | `memory/librarian.py` | Done | Unified memory interface; in-process cache + SQLite |
 | `memory/vector.py` | Stub | sqlite-vec embeddings via LightRAG |
 | `memory/graph.py` | Stub | Kuzu knowledge graph via LightRAG |
-| `client.py` | Stub | Will connect to server, mount workspace |
+| `client.py` | Done | Terminal chat client; streaming display, session resume, slash commands |
 
 ### Infrastructure
 
