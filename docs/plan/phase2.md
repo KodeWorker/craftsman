@@ -42,6 +42,8 @@ user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
 New `StructureDB` methods:
 - `create_user(username, password_hash) -> dict`
 - `get_user_by_username(username) -> dict | None`
+- `list_users() -> list`
+- `delete_user(username) -> None`
 - `create_session(project_id, user_id=None)` — update signature
 - `list_sessions(project_id, limit, user_id=None)` — filter by `user_id`
 
@@ -53,15 +55,15 @@ New `StructureDB` methods:
 
 ### User router — `src/craftsman/router/user.py` (new)
 
-Class `UserRouter`, prefix `/user`, takes `Librarian` in constructor:
+Class `UserRouter`, prefix `/user`, takes `Librarian` in constructor.
+
+Only login goes through HTTP — register/list/delete are direct DB operations from the CLI:
 
 | Endpoint | Body | Response |
 |---|---|---|
-| `POST /user/register` | `{username, password}` | `{user_id}` |
 | `POST /user/login` | `{username, password}` | `{token}` |
 
-`register`: hash with `passlib.hash.bcrypt`, call `structure_db.create_user()`.
-`login`: fetch user, `bcrypt.verify()`, return `create_token(user_id)`.
+`login`: fetch user via `get_user_by_username()`, `bcrypt.verify()`, return `create_token(user_id)`.
 
 ### Server — `src/craftsman/server.py`
 
@@ -81,62 +83,66 @@ Add `user_id: str = Depends(get_current_user)` to:
 - `list_sessions` — pass `user_id` to `structure_db.list_sessions()`
 - All other handlers — `Depends` for auth enforcement, value unused
 
-### Client — `src/craftsman/client.py` + `src/craftsman/cli.py`
+### CLI — `src/craftsman/cli.py` + `src/craftsman/client.py`
 
-**Auth keyring**: add `CRAFTSMAN_TOKEN` to `Auth.USERNAME_LIST` in `auth.py`.
+**Auth keyring**: add `CRAFTSMAN_USER` and `CRAFTSMAN_PASSWORD` to `Auth.USERNAME_LIST` in `auth.py`.
 
-**`Client.register()` method** — prompts credentials, POSTs to `/user/register`:
+**Server-side commands** (direct DB, no server running required) — in `cli.py` `user` group, use `StructureDB` + `passlib` directly:
 
 ```python
-def register(self):
+@user.command(name="register")
+def user_register():
     username = click.prompt("Username")
     password = click.prompt("Password", hide_input=True)
-    click.confirm("Password", hide_input=True)  # confirm
-    resp = requests.post(f"{self.entry_point}/user/register",
-                         json={"username": username, "password": password})
-    if resp.status_code != 200:
-        raise SystemExit(f"Registration failed: {resp.json().get('detail')}")
+    click.prompt("Confirm password", hide_input=True)
+    db = StructureDB()
+    if db.get_user_by_username(username):
+        raise SystemExit("User already exists.")
+    db.create_user(username, bcrypt.hash(password))
     click.echo("User registered.")
+
+@user.command(name="list")
+def user_list():
+    for u in StructureDB().list_users():
+        click.echo(f"{u['id'][:8]}  {u['username']}  {u['created_at']}")
+
+@user.command(name="delete")
+@click.argument("username")
+def user_delete(username):
+    StructureDB().delete_user(username)
+    click.echo(f"User '{username}' deleted.")
 ```
 
-**`Client.login()` method** — prompts credentials, POSTs to `/user/login`, stores token:
+**Client-side command** — `user login` stores credentials in keyring (no server needed):
 
 ```python
-def login(self):
+@user.command(name="login")
+def user_login():
     username = click.prompt("Username")
     password = click.prompt("Password", hide_input=True)
+    Auth.set_password("CRAFTSMAN_USER", username)
+    Auth.set_password("CRAFTSMAN_PASSWORD", password)
+    click.echo("Credentials saved.")
+```
+
+**`Client` token flow** — `self.token` held in memory, never persisted:
+
+```python
+def _fetch_token(self) -> str:
+    username = Auth.get_password("CRAFTSMAN_USER")
+    password = Auth.get_password("CRAFTSMAN_PASSWORD")
+    if not username or not password:
+        raise SystemExit("Run 'craftsman user login' first.")
     resp = requests.post(f"{self.entry_point}/user/login",
                          json={"username": username, "password": password})
     if resp.status_code != 200:
-        raise SystemExit("Login failed.")
-    Auth.set_password("CRAFTSMAN_TOKEN", resp.json()["token"])
-    click.echo("Logged in.")
+        raise SystemExit("Login failed. Check credentials with 'craftsman user login'.")
+    return resp.json()["token"]
 ```
 
-**New CLI commands** in `cli.py` — rename `auth` group to `user`:
-
-```python
-@main.group(context_settings=CONTEXT_SETTINGS)
-def user():
-    """User management commands."""
-    pass
-
-@user.command(name="register")
-@click.option("--host", default="localhost")
-@click.option("--port", default=6969)
-def user_register(host, port):
-    Client(host=host, port=port).register()
-
-@user.command(name="login")
-@click.option("--host", default="localhost")
-@click.option("--port", default=6969)
-def user_login(host, port):
-    Client(host=host, port=port).login()
-```
-
-Note: existing `auth` group (`list`, `set`, `get`, `clear`) manages LLM keyring credentials — rename it to `key` or keep as-is. Recommend keeping `auth` for LLM keys and adding `user` as a separate group.
-
-**`chat()` and `run()`**: read `CRAFTSMAN_TOKEN` from keyring at start. If missing, exit with `"Run 'craftsman auth login' first."`. If server returns 401, clear token from keyring and exit with same message. Add `headers={"Authorization": f"Bearer {self.token}"}` to all requests.
+- `chat()` and `run()`: call `self.token = self._fetch_token()` after health check
+- All requests use `headers={"Authorization": f"Bearer {self.token}"}`
+- On any 401 response: call `self.token = self._fetch_token()` and retry once
 
 ---
 
@@ -147,12 +153,12 @@ Note: existing `auth` group (`list`, `set`, `get`, `clear`) manages LLM keyring 
 | `pyproject.toml` | Add `PyJWT`, `passlib[bcrypt]` |
 | `src/craftsman/memory/structure.py` | `users` table, `user_id` on sessions, new methods |
 | `src/craftsman/jwt_utils.py` | New — JWT sign/verify + secret management |
-| `src/craftsman/router/user.py` | New — register + login endpoints |
+| `src/craftsman/router/user.py` | New — login endpoint only |
 | `src/craftsman/router/sessions.py` | Add `Depends(get_current_user)` to handlers |
 | `src/craftsman/server.py` | Include `AuthRouter`, define `get_current_user` |
-| `src/craftsman/auth.py` | Add `CRAFTSMAN_TOKEN` to `USERNAME_LIST` |
-| `src/craftsman/client.py` | `login()` method, read token + auth headers in `chat()`/`run()` |
-| `src/craftsman/cli.py` | Add `user` group with `register` and `login` commands |
+| `src/craftsman/auth.py` | Add `CRAFTSMAN_USER`, `CRAFTSMAN_PASSWORD` to `USERNAME_LIST` |
+| `src/craftsman/client.py` | `_fetch_token()`, in-memory `self.token`, auth headers + 401 retry in `chat()`/`run()` |
+| `src/craftsman/cli.py` | Add `user` group: `register`, `list`, `delete` (direct DB); `login` (client HTTP) |
 | `docs/schema.md` | Document `users` table and `user_id` on sessions |
 
 ---
@@ -166,10 +172,10 @@ rm ~/.craftsman/database/craftsman.db
 # Start server
 uv run craftsman server
 
-# Register a user
+# Register a user (no server needed)
 uv run craftsman user register
 
-# Login — stores token in keyring
+# Save credentials to keyring (no server needed)
 uv run craftsman user login
 
 # Start client

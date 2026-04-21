@@ -27,7 +27,7 @@ uv run craftsman sess delete <id|prefix|title> [--host] [--port]
 # TODO:
 uv run craftsman user list
 uv run craftsman user register
-uv run craftsman user delete
+uv run craftsman user delete <usernam>
 uv run craftsman user login
 
 uv run craftsman artifacts list [--host] [--port]

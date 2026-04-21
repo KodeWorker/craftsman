@@ -37,6 +37,31 @@ uv run craftsman auth set LLM_API_KEY
 uv run craftsman auth set LLM_SSL_CRT   # optional, for self-signed certs
 ```
 
+## Session Management
+
+```bash
+uv run craftsman sess list   [--host] [--port] [--project-id] [--limit]
+uv run craftsman sess delete <id|prefix|title> [--host] [--port]
+```
+
+## User Management
+
+Manage users directly (no server required):
+
+```bash
+uv run craftsman user register
+uv run craftsman user list
+uv run craftsman user delete <username>
+```
+
+Save credentials to keyring (no server required):
+
+```bash
+uv run craftsman user login
+```
+
+Credentials are stored in the system keyring. `craftsman chat` and `craftsman run` fetch a JWT token automatically on start and refresh it transparently on expiry.
+
 ## Auth Credentials
 
 Credentials are stored in the system keyring (not in config files).
