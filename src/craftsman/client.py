@@ -95,8 +95,8 @@ class Client:
             / "system_prompt.md"
         )
         self.banner = "Welcome to Craftsman!"
-        self.footer = "Press Enter to send message. Alt+Enter for newline."
         self.footer_pool = self.config.get("chat", {}).get("footer", [])
+        self.footer = self.footer_pool[0] if self.footer_pool else ""
         self.ctx_used = 0
         self.upload_tokens = 0
         self.download_tokens = 0
