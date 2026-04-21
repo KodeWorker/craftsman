@@ -47,7 +47,7 @@ New `StructureDB` methods:
 - `create_session(project_id, user_id=None)` — update signature
 - `list_sessions(project_id, limit, user_id=None)` — filter by `user_id`
 
-### JWT utilities — `src/craftsman/jwt_utils.py` (new)
+### JWT utilities — `src/craftsman/crypto.py` (new)
 
 - `get_secret() -> str` — read `~/.craftsman/database/server_secret.key`; generate and write random 32-byte hex on first call
 - `create_token(user_id: str) -> str` — sign JWT `{"sub": user_id, "exp": now + 8h}`
@@ -68,13 +68,19 @@ Only login goes through HTTP — register/list/delete are direct DB operations f
 ### Server — `src/craftsman/server.py`
 
 - Include `UserRouter`
-- Add `get_current_user` FastAPI dependency:
-  ```python
-  async def get_current_user(request: Request) -> str:
-      token = request.headers.get("Authorization", "").removeprefix("Bearer ")
-      return decode_token(token)  # raises 401 if invalid
-  ```
-- Import and use in `SessionsRouter` handlers via `Depends`
+
+### Router dependencies — `src/craftsman/router/deps.py` (new)
+
+```python
+from fastapi import Request
+from craftsman.jwt_utils import decode_token
+
+async def get_current_user(request: Request) -> str:
+    token = request.headers.get("Authorization", "").removeprefix("Bearer ")
+    return decode_token(token)
+```
+
+Imported by `sessions.py` and `user.py` via `from craftsman.router.deps import get_current_user`.
 
 ### Sessions router — `src/craftsman/router/sessions.py`
 
@@ -152,7 +158,8 @@ def _fetch_token(self) -> str:
 |---|---|
 | `pyproject.toml` | Add `PyJWT`, `passlib[bcrypt]` |
 | `src/craftsman/memory/structure.py` | `users` table, `user_id` on sessions, new methods |
-| `src/craftsman/jwt_utils.py` | New — JWT sign/verify + secret management |
+| `src/craftsman/crypto.py` | New — JWT sign/verify + secret management |
+| `src/craftsman/router/deps.py` | New — `get_current_user` FastAPI dependency |
 | `src/craftsman/router/user.py` | New — login endpoint only |
 | `src/craftsman/router/sessions.py` | Add `Depends(get_current_user)` to handlers |
 | `src/craftsman/server.py` | Include `AuthRouter`, define `get_current_user` |
