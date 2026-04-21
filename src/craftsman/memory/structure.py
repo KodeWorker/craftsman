@@ -13,10 +13,18 @@ CREATE TABLE IF NOT EXISTS projects (
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id            TEXT PRIMARY KEY,
+  username      TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
     id         TEXT PRIMARY KEY,
     project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
     title      TEXT,
+    user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
     metadata   TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     ended_at   TEXT
@@ -177,19 +185,52 @@ class StructureDB:
         self.conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
         self.conn.commit()
 
+    # --- users ---
+    def create_user(self, username: str, password_hash: str) -> dict:
+        uid = str(uuid.uuid4())
+        self.conn.execute(
+            "INSERT INTO users (id, username, password_hash)"
+            " VALUES (?, ?, ?)",
+            (uid, username, password_hash),
+        )
+        self.conn.commit()
+        return {"id": uid, "username": username}
+
+    def get_user(self, username: str) -> dict | None:
+        row = self.conn.execute(
+            "SELECT * FROM users WHERE username = ?", (username,)
+        ).fetchone()
+        if row:
+            return {
+                "id": row["id"],
+                "username": row["username"],
+                "password_hash": row["password_hash"],
+            }
+        return None
+
+    def list_users(self) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT * FROM users ORDER BY username"
+        ).fetchall()
+
+    def delete_user(self, username: str) -> None:
+        self.conn.execute("DELETE FROM users WHERE username = ?", (username,))
+        self.conn.commit()
+
     # --- sessions ---
 
     def create_session(
         self,
         project_id: str = None,
         title: str = None,
+        user_id: str = None,
         metadata: str = None,
     ) -> str:
         sid = str(uuid.uuid4())
         self.conn.execute(
-            "INSERT INTO sessions (id, project_id, title, metadata)"
-            " VALUES (?, ?, ?, ?)",
-            (sid, project_id, title, metadata),
+            "INSERT INTO sessions (id, project_id, title, user_id, metadata)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (sid, project_id, title, user_id, metadata),
         )
         self.conn.commit()
         return sid
@@ -216,11 +257,20 @@ class StructureDB:
         ).fetchone()
 
     def list_sessions(
-        self, project_id: str = None, limit: int = None
+        self, project_id: str = None, user_id: str = None, limit: int = None
     ) -> list[sqlite3.Row]:
+        clauses = []
+        params = []
+        if project_id:
+            clauses.append("s.project_id = ?")
+            params.append(project_id)
+        if user_id:
+            clauses.append("s.user_id = ?")
+            params.append(user_id)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         limit_clause = " LIMIT ?" if limit is not None else ""
-        project_clause = " AND s.project_id = ?" if project_id else ""
-        params = tuple(p for p in [project_id, limit] if p is not None)
+        if limit is not None:
+            params.append(limit)
         return self.conn.execute(
             f"""
             SELECT s.*, m.content AS last_input, m.created_at AS last_input_at
@@ -232,7 +282,7 @@ class StructureDB:
                 GROUP BY session_id
                 HAVING created_at = MAX(created_at)
             ) m ON m.session_id = s.id
-            {project_clause}
+            {where}
             ORDER BY s.created_at DESC{limit_clause}
             """,
             params,
