@@ -3,20 +3,23 @@ import keyring
 
 class Auth:
     SERVICE_NAME = "craftsman"
-    KEY_LIST = [
+    LLM_KEY_LIST = [
         "LLM_BASE_URL",
         "LLM_API_KEY",
         "LLM_SSL_CRT",
+    ]  # Extend this list as needed
+    USER_KEY_LIST = [
         "USERNAME",
         "PASSWORD",
     ]  # Extend this list as needed
 
     @staticmethod
     def __validate_key(key: str):
-        if key not in Auth.KEY_LIST:
+        if key not in Auth.LLM_KEY_LIST + Auth.USER_KEY_LIST:
             raise ValueError(
                 f"Key {key} is not recognized."
-                f" Valid keys are: {', '.join(Auth.KEY_LIST)}"
+                f" Valid keys are: "
+                f"{', '.join(Auth.LLM_KEY_LIST + Auth.USER_KEY_LIST)}"
             )
 
     @staticmethod
