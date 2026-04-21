@@ -1,6 +1,7 @@
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 
+from craftsman.crypto import Crypto
 from craftsman.logger import CraftsmanLogger
 from craftsman.memory.librarian import Librarian
 from craftsman.provider import Provider
@@ -13,11 +14,13 @@ class Server:
         self.logger = CraftsmanLogger().get_logger(__name__)
         self.provider = Provider()
         self.librarian = Librarian()
+        self.crypto = Crypto()
         self.active_sessions = set()
 
         self.app = FastAPI()
         self.app.get("/health")(self.health_check)
         self.app.post("/subagent/run")(self.run_subagent)
+        self.app.post("/users/login")(self.login_user)
 
         self.sessions_router = SessionsRouter(
             self.provider, self.librarian, self.active_sessions
@@ -67,6 +70,40 @@ class Server:
             self.active_sessions.discard(
                 session_id
             )  # remove from active sessions if present
+
+    async def login_user(self, request: Request):
+        body = await request.json()
+        username = body.get("username")
+        password = body.get("password")
+        if not username or not password:
+            raise HTTPException(
+                status_code=400, detail="Username and password are required."
+            )
+        user = self.librarian.structure_db.get_user(username)
+        if user:
+            user = dict(user)
+            username = user["username"]
+            password_hash = user["password_hash"]
+
+            if self.crypto.verify_password(password, password_hash):
+                token = self.crypto.create_token(username)
+                self.logger.info(f"User '{username}' logged in successfully.")
+                return {"token": token}
+            else:
+                self.logger.warning(
+                    f"Failed login attempt for user '{username}': "
+                    f"Incorrect password."
+                )
+                raise HTTPException(
+                    status_code=401, detail="Invalid username or password."
+                )
+        else:
+            self.logger.warning(
+                f"Failed login attempt: User '{username}' not found."
+            )
+            raise HTTPException(
+                status_code=401, detail="Invalid username or password."
+            )
 
     def start(self):
         self.logger.info(f"Starting server on port {self.port}...")

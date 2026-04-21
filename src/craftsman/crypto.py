@@ -3,6 +3,7 @@ import secrets
 from datetime import datetime, timedelta, timezone
 
 import jwt
+from passlib.hash import bcrypt
 
 from craftsman.configure import get_config
 from craftsman.logger import CraftsmanLogger
@@ -19,6 +20,12 @@ class Crypto:
         self.size = config["crypto"]["size"]
         self.algorithm = config["crypto"]["algorithm"]
         self.duration_hr = config["crypto"]["duration_hr"]
+
+    def hash_password(self, password: str) -> str:
+        return bcrypt.hash(password)
+
+    def verify_password(self, password: str, hashed: str) -> bool:
+        return bcrypt.verify(password, hashed)
 
     def get_secret(self) -> str:
         if not os.path.exists(self.secret_key):

@@ -196,16 +196,12 @@ class StructureDB:
         self.conn.commit()
         return {"id": uid, "username": username}
 
-    def get_user(self, username: str) -> dict | None:
+    def get_user(self, username: str) -> sqlite3.Row | None:
         row = self.conn.execute(
             "SELECT * FROM users WHERE username = ?", (username,)
         ).fetchone()
         if row:
-            return {
-                "id": row["id"],
-                "username": row["username"],
-                "password_hash": row["password_hash"],
-            }
+            return row
         return None
 
     def list_users(self) -> list[sqlite3.Row]:

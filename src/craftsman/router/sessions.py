@@ -1,11 +1,12 @@
 import json
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
 from craftsman.logger import CraftsmanLogger
 from craftsman.memory.librarian import Librarian
 from craftsman.provider import Provider
+from craftsman.router.deps import get_current_user
 
 
 class SessionsRouter:
@@ -29,15 +30,24 @@ class SessionsRouter:
         self.router.post("/clear")(self.clear_session)
         self.router.post("/compact")(self.compact_session)
 
-    async def get_system_prompt(self, session_id: str):
+    async def get_system_prompt(
+        self, session_id: str, _: str = Depends(get_current_user)
+    ):
         context = self.librarian.get_context(session_id)
         system_prompt = "".join(
             m["content"] for m in context if m.get("role") == "system"
         )
         return {"system_prompt": system_prompt}
 
-    async def list_sessions(self, project_id: str = None, limit: int = None):
-        sessions = self.librarian.structure_db.list_sessions(project_id, limit)
+    async def list_sessions(
+        self,
+        project_id: str = None,
+        user_id: str = Depends(get_current_user),
+        limit: int = None,
+    ):
+        sessions = self.librarian.structure_db.list_sessions(
+            project_id, user_id, limit
+        )
         response = []
         for session in sessions:
             response.append(
@@ -50,7 +60,9 @@ class SessionsRouter:
             )
         return {"sessions": response}
 
-    async def get_session_id(self, session: str = None):
+    async def get_session_id(
+        self, session: str = None, _: str = Depends(get_current_user)
+    ):
         row = (
             self.librarian.structure_db.resolve_session(session)
             if session
@@ -59,7 +71,9 @@ class SessionsRouter:
         session_id = row["id"] if row else None
         return {"session_id": session_id}
 
-    async def handle_completion(self, request: Request):
+    async def handle_completion(
+        self, request: Request, _: str = Depends(get_current_user)
+    ):
         body = await request.json()
         message = body.get("message", {})
         session_id = body.get("session_id", None)
@@ -127,7 +141,9 @@ class SessionsRouter:
 
         return StreamingResponse(stream(), media_type="application/x-ndjson")
 
-    async def set_system_prompt(self, request: Request):
+    async def set_system_prompt(
+        self, request: Request, _: str = Depends(get_current_user)
+    ):
         body = await request.json()
         system_prompt = body.get("system_prompt", "")
         session_id = body.get("session_id", None)
@@ -147,8 +163,10 @@ class SessionsRouter:
         )
         return {"status": "system prompt set"}
 
-    async def create_session(self):
-        session_id = self.librarian.structure_db.create_session()
+    async def create_session(self, user_id: str = Depends(get_current_user)):
+        session_id = self.librarian.structure_db.create_session(
+            user_id=user_id
+        )
         if session_id in self.active_sessions:
             self.logger.warning(
                 f"Session ID collision: {session_id} already active. "
@@ -156,7 +174,9 @@ class SessionsRouter:
         self.active_sessions.add(session_id)  # add to active sessions
         return {"session_id": session_id}
 
-    async def clear_session(self, request: Request):
+    async def clear_session(
+        self, request: Request, _: str = Depends(get_current_user)
+    ):
         body = await request.json()
         session_id = body.get("session_id", None)
         if not session_id:
@@ -169,7 +189,9 @@ class SessionsRouter:
         self.librarian.clear_session(session_id)
         return {"status": "session cleared"}
 
-    async def delete_session(self, request: Request):
+    async def delete_session(
+        self, request: Request, _: str = Depends(get_current_user)
+    ):
         body = await request.json()
         session_id = body.get("session_id", None)
         if not session_id:
@@ -182,7 +204,9 @@ class SessionsRouter:
         self.librarian.structure_db.delete_session(session_id)
         return {"status": f"session '{session_id}' deleted"}
 
-    async def resume_session(self, request: Request):
+    async def resume_session(
+        self, request: Request, _: str = Depends(get_current_user)
+    ):
         body = await request.json()
         session_id = body.get("session_id", None)
         if not session_id:
@@ -213,7 +237,9 @@ class SessionsRouter:
             "messages": [dict(m) for m in messages],
         }
 
-    async def compact_session(self, request: Request):
+    async def compact_session(
+        self, request: Request, _: str = Depends(get_current_user)
+    ):
         body = await request.json()
         session_id = body.get("session_id", None)
         if not session_id:

@@ -49,19 +49,24 @@ New `StructureDB` methods:
 
 ### JWT utilities — `src/craftsman/crypto.py` (new)
 
+* Implementation note: add secrets directory in worksapce and crypto configs
+
 - `get_secret() -> str` — read `~/.craftsman/database/server_secret.key`; generate and write random 32-byte hex on first call
 - `create_token(user_id: str) -> str` — sign JWT `{"sub": user_id, "exp": now + 8h}`
 - `decode_token(token: str) -> str` — return `user_id`; raise `HTTPException(401)` on invalid or expired token
 
-### User router — `src/craftsman/router/user.py` (new)
+### User router — `src/craftsman/router/users.py` (new)
 
-Class `UserRouter`, prefix `/user`, takes `Librarian` in constructor.
+* Implementation note: only one endpoint -> no need for new router
+* Add hash_password and verify_password in crypto.py
+
+Class `UserRouter`, prefix `/users`, takes `Librarian` in constructor.
 
 Only login goes through HTTP — register/list/delete are direct DB operations from the CLI:
 
 | Endpoint | Body | Response |
 |---|---|---|
-| `POST /user/login` | `{username, password}` | `{token}` |
+| `POST /users/login` | `{username, password}` | `{token}` |
 
 `login`: fetch user via `get_user_by_username()`, `bcrypt.verify()`, return `create_token(user_id)`.
 
@@ -80,7 +85,9 @@ async def get_current_user(request: Request) -> str:
     return decode_token(token)
 ```
 
-Imported by `sessions.py` and `user.py` via `from craftsman.router.deps import get_current_user`.
+Imported by `sessions.py` and ~~`user.py`~~ `server.py` via `from craftsman.router.deps import get_current_user`.
+
+* Implementation note: `verify_token` raises `jwt.PyJWTError` on failure — `deps.py` catches it and raises `HTTPException(401)`. Import is `from craftsman.crypto import Crypto`, not `jwt_utils`.
 
 ### Sessions router — `src/craftsman/router/sessions.py`
 
