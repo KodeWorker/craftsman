@@ -1,223 +1,151 @@
-# Phase 2: Multimodal Input
+# Phase 2: User Registry + Auth
 
 ## Goals
 
-Add image and audio input support. Inject media inline as base64 into the message
-content so the model sees the actual file. Original files retained as artifacts.
+Add a user registry to the server and JWT-based login to the client. Sessions are
+scoped to the authenticated user.
+
+Dev mode: drop old DB (`rm ~/.craftsman/database/craftsman.db`), no migration.
+
+---
+
+## New dependencies
+
+```toml
+PyJWT>=2.8
+passlib[bcrypt]>=1.7
+```
+
+---
 
 ## Design
 
-### Capability Declaration
+### DB changes — `src/craftsman/memory/structure.py`
 
-LiteLLM's `supports_vision` / `supports_audio_input` does not work for self-hosted
-models (llama.cpp, etc.) — registry-based, unaware of loaded weights.
+New `users` table in DDL:
 
-Declare capabilities explicitly in `craftsman.yaml`:
-
-```yaml
-provider:
-  capabilities:
-    vision:
-      enabled: false
-      formats: [image/jpeg, image/png, image/webp, image/gif]
-      # SigLIP encoder: token cost is resolution-based, not file-size-based
-      # 10MB covers all phone photos (3-8MB); RAW/TIFF should be exported first
-      max_size_mb: 10
-    audio:
-      enabled: false
-      formats: [wav, mp3]
-      # Gemma 4 audio encoder: 10MB MP3 → ~1085 tokens (duration-based, not
-      # file-size-based); 25MB → ~2710 tokens (~2% of 131K context)
-      max_size_mb: 25
+```sql
+CREATE TABLE IF NOT EXISTS users (
+  id            TEXT PRIMARY KEY,
+  username      TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
 ```
 
-### Upload Flow
+`sessions` table gets a new column:
 
-```
-client → POST /artifacts/upload (multipart)
-       → server saves file to ~/.craftsman/workspace/
-       → server records artifact in SQLite (filepath, mime_type, session_id, size_bytes)
-       → returns { artifact_id }
-client → POST /sessions/completion with [image: artifact_id=<uuid>]
-                                      | [audio: artifact_id=<uuid>]
-       → server resolves artifact_id, reads file from disk, base64-encodes inline
-       → server sends assembled multimodal message to model
+```sql
+user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
 ```
 
-The completion request carries only a small text token — base64 encoding stays
-server-side, keeping client→server traffic minimal.
+New `StructureDB` methods:
+- `create_user(username, password_hash) -> dict`
+- `get_user_by_username(username) -> dict | None`
+- `create_session(project_id, user_id=None)` — update signature
+- `list_sessions(project_id, limit, user_id=None)` — filter by `user_id`
 
-### Context Strategy
+### JWT utilities — `src/craftsman/jwt_utils.py` (new)
 
-Media is base64-encoded and injected inline into the message as a multimodal
-content part. The model receives the actual image or audio directly.
+- `get_secret() -> str` — read `~/.craftsman/database/server_secret.key`; generate and write random 32-byte hex on first call
+- `create_token(user_id: str) -> str` — sign JWT `{"sub": user_id, "exp": now + 8h}`
+- `decode_token(token: str) -> str` — return `user_id`; raise `HTTPException(401)` on invalid or expired token
 
-- Image → `{ type: "image_url", image_url: { url: "data:<mime>;base64,<data>" } }`
-- Audio → `{ type: "input_audio", input_audio: { data: "<base64>", format: "<fmt>" } }`
+### Auth router — `src/craftsman/router/auth.py` (new)
 
-Original file stored in `~/.craftsman/workspace/`, referenced by `artifact_id`.
+Class `AuthRouter`, prefix `/auth`, takes `Librarian` in constructor:
 
-No pre-captioning or STT pipeline — the main model handles vision and audio natively.
+| Endpoint | Body | Response |
+|---|---|---|
+| `POST /auth/register` | `{username, password}` | `{user_id}` |
+| `POST /auth/login` | `{username, password}` | `{token}` |
 
-### Message Storage
+`register`: hash with `passlib.hash.bcrypt`, call `structure_db.create_user()`.
+`login`: fetch user, `bcrypt.verify()`, return `create_token(user_id)`.
 
-Base64 content is **not** persisted to the `messages` table — storing raw media
-in SQLite would bloat the DB fast (a single image can be several MB as base64).
+### Server — `src/craftsman/server.py`
 
-Instead, the message stored in SQLite replaces the multimodal content part with
-an artifact reference:
+- Include `AuthRouter`
+- Add `get_current_user` FastAPI dependency:
+  ```python
+  async def get_current_user(request: Request) -> str:
+      token = request.headers.get("Authorization", "").removeprefix("Bearer ")
+      return decode_token(token)  # raises 401 if invalid
+  ```
+- Import and use in `SessionsRouter` handlers via `Depends`
 
-```
-[image: artifact_id=<uuid>]
-[audio: artifact_id=<uuid>]
-```
+### Sessions router — `src/craftsman/router/sessions.py`
 
-On resume, the client re-fetches and re-encodes the artifact from disk before
-sending the message back into context.
+Add `user_id: str = Depends(get_current_user)` to:
+- `create_session` — pass `user_id` to `structure_db.create_session()`
+- `list_sessions` — pass `user_id` to `structure_db.list_sessions()`
+- All other handlers — `Depends` for auth enforcement, value unused
 
-### Capability Guard
+### Client — `src/craftsman/client.py` + `src/craftsman/cli.py`
 
-`completion()` rejects messages containing multimodal content parts if the
-corresponding capability flag is not declared in `craftsman.yaml`:
+**Auth keyring**: add `CRAFTSMAN_TOKEN` to `Auth.USERNAME_LIST` in `auth.py`.
 
-- Image content → requires `capabilities.vision.enabled: true`; MIME type must be in `capabilities.vision.formats`
-- Audio content → requires `capabilities.audio.enabled: true`; format must be in `capabilities.audio.formats`
-
-## Dependencies
-
-| Package | Side | Purpose |
-|---------|------|---------|
-| `python-multipart` | server | FastAPI requires this to parse `multipart/form-data`; add to `pyproject.toml` |
-| `base64` | server | stdlib — encodes file bytes into inline content parts |
-| `mimetypes` | server | stdlib — resolves MIME type from file extension |
-| `requests` | client | already in use; sends multipart upload via `files=` param |
-
-## Server Architecture
-
-`server.py` currently registers all routes directly on `self.app`. Adding
-`/artifacts/*` introduces a third domain; split into router classes at that
-boundary rather than growing `Server` further.
-
-Each router takes `librarian` and `provider` in `__init__` and registers its
-own routes:
-
-```
-Server
-├── SessionsRouter   → /sessions/*  (existing handlers, moved)
-└── ArtifactsRouter  → /artifacts/* (new)
-```
-
-`/health` and `/subagent/run` remain on `Server` directly — too small to
-warrant their own routers.
-
-## Checklist
-
-### Server
-- [ ] Extract `SessionRouter` — move existing `/sessions/*` handlers out of `Server`
-- [ ] Add `ArtifactRouter` — new `/artifacts/*` handlers
-
-### Infrastructure
-- [ ] `POST /artifacts/upload` — multipart upload, save to workspace, return artifact_id
-- [ ] `GET /artifacts/{id}` — retrieve artifact metadata
-- [ ] Strip base64 from message before `store_message`; replace with `[image/audio: artifact_id=<uuid>]`
-- [ ] On `resume_session`: re-encode artifact from disk when restoring messages with artifact refs
-
-### Provider
-- [ ] `craftsman.yaml` capability flags (`vision`, `audio`)
-- [ ] Guard in `completion()` — raise if multimodal content present but capability not declared
-
-### Client
-- [ ] `/artifacts` slash command — lists artifacts uploaded in the current session
-      (artifact_id, filename, mime type, size); session-scoped only
-- [ ] `craftsman artifacts list` CLI — lists all artifacts across sessions
-- [ ] `craftsman artifacts delete <id>` CLI — deletes artifact and removes file
-      from `~/.craftsman/workspace/`
-- [ ] `@filepath` inline syntax — user types `describe @image.jpg` in chat or
-      `craftsman run "describe @image.jpg"`; client detects `@`-prefixed tokens,
-      uploads the file, and replaces the token with the base64 multimodal content part
-- [ ] Update `ChatCompleter` to trigger file completion only on `@`-prefixed words
-      (current completer completes every word, which is too eager)
-- [ ] Display artifact_id ref in chat alongside the message
-- [ ] *(low priority)* Drag-and-drop support — hook `Buffer.on_text_insert`,
-      detect bracketed-paste paths (`file://`, `/`, `~/`), normalise and
-      convert to `@filepath` syntax automatically
-- [ ] *(low priority)* Voice input keybinding — push-to-talk key records audio
-      and feeds it into the prompt via the existing audio artifact upload flow
-
-#### Why `@` for inline file references
-`@` is visually distinct, not a valid filename-start character on Linux/Mac (so
-parsing is unambiguous), and an established convention in chat UIs (GitHub, Slack)
-for pointing at something. It also allows the completer to trigger selectively
-on `@`-prefixed input rather than every word.
-
-#### Drag-and-drop file input (low priority)
-
-Terminal emulators paste the file path as text (via bracketed paste) when a
-file is dragged into the window. prompt_toolkit has no native drop API, but we
-can intercept the paste via `Buffer.on_text_insert` and auto-convert a detected
-path to `@filepath` syntax.
-
-Normalisation needed before converting:
-- Strip `file://` prefix (some terminals use `file:///path`)
-- Strip surrounding quotes (paths with spaces are often quoted)
-- Strip trailing newline that some emulators append
-
-Works on all modern terminals (xterm, iTerm2, Kitty, GNOME Terminal) that
-support bracketed paste. No new packages required.
+**`Client.login()` method** — prompts credentials, POSTs to `/auth/login`, stores token:
 
 ```python
-from prompt_toolkit.filters import is_done
-from prompt_toolkit.buffer import Buffer
-
-def _on_text_inserted(buf):
-text = buf.text
-# detect pasted file path (absolute, ~/, or file:// prefix)
-if text.startswith(("file://", "/", "~/")):
-      path = text.replace("file://", "")
-      buf.set_document(
-            buf.document.insert_after(f"@{path.strip()}")
-      )
+def login(self):
+    username = click.prompt("Username")
+    password = click.prompt("Password", hide_input=True)
+    resp = requests.post(f"{self.entry_point}/auth/login",
+                         json={"username": username, "password": password})
+    if resp.status_code != 200:
+        raise SystemExit("Login failed.")
+    Auth.set_password("CRAFTSMAN_TOKEN", resp.json()["token"])
+    click.echo("Logged in.")
 ```
 
-#### Voice input keybinding (low priority)
+**New `craftsman auth login` CLI command** in `cli.py` (under existing `auth` group):
 
-A push-to-talk key binding records audio and injects it into the prompt via the
-same audio artifact upload flow. Requires `capabilities.audio.enabled: true` —
-no STT fallback; the model handles audio natively.
-
-Dependencies (both wrap PortAudio — a C system library):
-- `sounddevice` — preferred; cleaner API, NumPy-based
-- `pyaudio` — alternative if `sounddevice` is unavailable
-
-Deferred until `@filepath` audio input is proven out. At that point the upload
-infrastructure is already in place and voice capture is just another input path.
-
-## Future Phase: Telegram Bot Integration
-
-Wire a Telegram bot into `client.chat` as an alternative input channel.
-
-### Media format considerations
-
-Telegram delivers media in fixed formats regardless of what the sender uploaded:
-
-| Telegram type | Format | Supported |
-|---------------|--------|-----------|
-| `photo` | JPEG (re-compressed by Telegram) | yes |
-| `document` (image) | original format preserved | yes (PNG, WebP, GIF) |
-| `audio` | MP3 or M4A | MP3 yes; M4A needs transcoding |
-| `voice` | OGG/OPUS | no — llama.cpp rejects OGG |
-| `video_note` | MP4 | out of scope |
-
-`voice` is the most common audio input in Telegram and always arrives as
-OGG/OPUS. llama.cpp does not accept OGG, so server-side transcoding is required
-before storing the artifact.
-
-### Transcoding
-
-```
-Telegram voice (OGG/OPUS) → pydub → WAV → artifact upload flow
+```python
+@auth.command(name="login")
+@click.option("--host", default="localhost")
+@click.option("--port", default=6969)
+def auth_login(host, port):
+    Client(host=host, port=port).login()
 ```
 
-- `pydub` shells out to `ffmpeg`; both must be installed
-- Transcoding happens in the artifact ingest path before `store_message`
-- No change to the model-facing pipeline — WAV is already a supported format
+**`chat()` and `run()`**: read `CRAFTSMAN_TOKEN` from keyring at start. If missing, exit with `"Run 'craftsman auth login' first."`. If server returns 401, clear token from keyring and exit with same message. Add `headers={"Authorization": f"Bearer {self.token}"}` to all requests.
+
+---
+
+## Files to change
+
+| File | Change |
+|---|---|
+| `pyproject.toml` | Add `PyJWT`, `passlib[bcrypt]` |
+| `src/craftsman/memory/structure.py` | `users` table, `user_id` on sessions, new methods |
+| `src/craftsman/jwt_utils.py` | New — JWT sign/verify + secret management |
+| `src/craftsman/router/auth.py` | New — register + login endpoints |
+| `src/craftsman/router/sessions.py` | Add `Depends(get_current_user)` to handlers |
+| `src/craftsman/server.py` | Include `AuthRouter`, define `get_current_user` |
+| `src/craftsman/auth.py` | Add `CRAFTSMAN_TOKEN` to `USERNAME_LIST` |
+| `src/craftsman/client.py` | `login()` method, read token + auth headers in `chat()`/`run()` |
+| `src/craftsman/cli.py` | Add `craftsman auth login` command under `auth` group |
+| `docs/schema.md` | Document `users` table and `user_id` on sessions |
+
+---
+
+## Verification
+
+```bash
+# Reset DB
+rm ~/.craftsman/database/craftsman.db
+
+# Start server
+uv run craftsman server
+
+# Register
+curl -X POST http://localhost:6969/auth/register \
+  -H "Content-Type: application/json" \
+  -d '{"username": "alice", "password": "secret"}'
+
+# Start client — prompts for login, stores token, then enters chat
+uv run craftsman chat
+
+# Verify session scoping: different user sees empty session list
+```
