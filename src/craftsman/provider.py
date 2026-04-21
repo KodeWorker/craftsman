@@ -8,25 +8,19 @@ from craftsman.logger import CraftsmanLogger
 
 
 class Provider:
-    def __init__(self, model: str = None, embedding_model: str = None):
+    def __init__(self, model: str = None):
         self.config = get_config()
         self.logger = CraftsmanLogger().get_logger(__name__)
         self.debug = self.config["provider"].get("debug", False)
         self.model = model or self.config["provider"]["model"]
-        self.think = (
-            self.config["provider"].get("think", {}).get("enabled", False)
-        )
-        self.budget = (
-            self.config["provider"].get("think", {}).get("budget", None)
-        )
 
-        self.auth = Auth()
-        self.cert = self.auth.get_password("LLM_SSL_CRT")
-        self.verify = True if self.cert else False
-        os.environ["SSL_CERT_FILE"] = self.cert
-        api_key = self.auth.get_password("LLM_API_KEY")
+        self.cert = Auth.get_password("LLM_SSL_CRT")
+        self.verify = bool(self.cert)
+        if self.cert:
+            os.environ["SSL_CERT_FILE"] = self.cert
+        api_key = Auth.get_password("LLM_API_KEY")
         self.api_key = api_key if api_key else "dummy_api_key"
-        self.api_base = self.auth.get_password("LLM_BASE_URL")
+        self.api_base = Auth.get_password("LLM_BASE_URL")
 
         self.max_tokens = self.config["provider"].get("max_tokens", 4096)
         self.input_cost_per_token = self.config["provider"].get(
@@ -37,7 +31,6 @@ class Provider:
         )
 
     async def completion(self, messages: list):
-
         response = await litellm.acompletion(
             model=self.model,
             api_key=self.api_key,
@@ -58,9 +51,12 @@ class Provider:
             yield (kind, text)
 
         cost = (
-            getattr(usage, "prompt_tokens", 0) * self.input_cost_per_token
-            + getattr(usage, "completion_tokens", 0)
-            * self.output_cost_per_token
+            self.cost(
+                getattr(usage, "prompt_tokens", 0),
+                getattr(usage, "completion_tokens", 0) or 0,
+            )
+            if usage
+            else 0.0
         )
 
         completion_details = getattr(usage, "completion_tokens_details", None)
@@ -84,7 +80,7 @@ class Provider:
 
     async def model_response_parser(
         self,
-        response: str,
+        response: litellm.ACompletionResponse,
         think_tag: str = "reasoning_content",
         think_start_tag: str = "<think>",
         think_end_tag: str = "</think>",
@@ -93,6 +89,10 @@ class Provider:
         async for chunk in response:
             if getattr(chunk, "usage", None):
                 yield ("__usage__", chunk.usage)
+
+            if not chunk.choices:
+                continue
+
             delta = chunk.choices[0].delta
             if getattr(delta, think_tag, None):
                 yield ("reasoning", getattr(delta, think_tag))
@@ -119,7 +119,7 @@ class Provider:
                     content = content[start + len(think_start_tag) :]
                     in_think = True
 
-    async def cost(self, prompt_tokens: int, completion_tokens: int) -> float:
+    def cost(self, prompt_tokens: int, completion_tokens: int) -> float:
         return (
             prompt_tokens * self.input_cost_per_token
             + completion_tokens * self.output_cost_per_token

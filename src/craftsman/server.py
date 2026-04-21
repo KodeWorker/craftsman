@@ -211,7 +211,7 @@ class Server:
             return {"error": "No session ID provided."}
         messages, meta = self.librarian.retrieve_messages(session_id)
         self.active_sessions.add(session_id)  # add to active sessions
-        meta["cost"] = await self.provider.cost(
+        meta["cost"] = self.provider.cost(
             meta.get("upload_tokens", 0), meta.get("download_tokens", 0)
         )
         for message in messages:
