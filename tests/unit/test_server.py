@@ -1,5 +1,5 @@
 import json
-from unittest.mock import AsyncMock, MagicMock, call
+from unittest.mock import MagicMock, call
 
 import pytest
 from fastapi.testclient import TestClient
@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 @pytest.fixture
 def app(mocker):
     mock_provider = MagicMock()
-    mock_provider.cost = AsyncMock(return_value=0.0)
+    mock_provider.cost = MagicMock(return_value=0.0)
     mock_librarian = MagicMock()
     mocker.patch("craftsman.server.Provider", return_value=mock_provider)
     mocker.patch("craftsman.server.Librarian", return_value=mock_librarian)
@@ -94,13 +94,13 @@ def test_create_session_returns_id(app):
 def test_set_system_prompt_missing_session_id(app):
     client, *_ = app
     resp = client.post("/sessions/system", json={"system_prompt": "hi"})
-    assert "error" in resp.json()
+    assert resp.status_code == 400
 
 
 def test_set_system_prompt_missing_prompt(app):
     client, *_ = app
     resp = client.post("/sessions/system", json={"session_id": "s1"})
-    assert "error" in resp.json()
+    assert resp.status_code == 400
 
 
 def test_set_system_prompt_clears_then_pushes(app):
@@ -118,7 +118,7 @@ def test_set_system_prompt_clears_then_pushes(app):
 def test_completion_missing_message(app):
     client, *_ = app
     resp = client.post("/sessions/completion", json={"session_id": "s1"})
-    assert "error" in resp.json()
+    assert resp.status_code == 400
 
 
 def test_completion_missing_session_id(app):
@@ -127,7 +127,7 @@ def test_completion_missing_session_id(app):
         "/sessions/completion",
         json={"message": {"role": "user", "content": "hi"}},
     )
-    assert "error" in resp.json()
+    assert resp.status_code == 400
 
 
 def test_clear_session_success(app):
@@ -150,7 +150,7 @@ def test_delete_session_success(app):
 
 
 def _make_fake_completion(*yields):
-    async def fake_completion(ctx):
+    async def fake_completion(ctx, max_tokens=None):
         for item in yields:
             yield item
 
@@ -262,7 +262,7 @@ def test_resume_session_converts_summary_to_user(app):
         [{"role": "summary", "content": "we discussed X", "tokens": 10}],
         {"ctx_used": 10, "upload_tokens": 0, "download_tokens": 10},
     )
-    mock_provider.cost = AsyncMock(return_value=0.0)
+    mock_provider.cost = MagicMock(return_value=0.0)
     client.post("/sessions/resume", json={"session_id": "s1"})
     mock_librarian.push_context.assert_called_once_with(
         "s1",
@@ -280,7 +280,7 @@ def test_resume_session_adds_to_active_sessions(app):
         [],
         {"ctx_used": 0, "upload_tokens": 0, "download_tokens": 0},
     )
-    mock_provider.cost = AsyncMock(return_value=0.0)
+    mock_provider.cost = MagicMock(return_value=0.0)
     client.post("/sessions/resume", json={"session_id": "s-new"})
     assert "s-new" in server.active_sessions
 
@@ -291,7 +291,7 @@ def test_resume_session_meta_includes_cost(app):
         [],
         {"ctx_used": 0, "upload_tokens": 5, "download_tokens": 10},
     )
-    mock_provider.cost = AsyncMock(return_value=1.23)
+    mock_provider.cost = MagicMock(return_value=1.23)
     resp = client.post("/sessions/resume", json={"session_id": "s1"})
     assert resp.json()["meta"]["cost"] == 1.23
 

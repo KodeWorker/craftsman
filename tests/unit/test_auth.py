@@ -33,9 +33,9 @@ def test_get_password_returns_value(mock_keyring):
     assert Auth.get_password("LLM_API_KEY") == "abc"
 
 
-def test_get_password_returns_empty_string_when_none(mock_keyring):
+def test_get_password_returns_none_when_not_set(mock_keyring):
     mock_keyring.get_password.return_value = None
-    assert Auth.get_password("LLM_API_KEY") == ""
+    assert Auth.get_password("LLM_API_KEY") is None
 
 
 def test_get_password_rejects_unknown_username():

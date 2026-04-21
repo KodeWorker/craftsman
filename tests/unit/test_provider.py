@@ -18,7 +18,7 @@ def provider(mocker):
         },
     )
     mock_auth = mocker.patch("craftsman.provider.Auth")
-    mock_auth.return_value.get_password.return_value = ""
+    mock_auth.get_password.return_value = None
     mocker.patch(
         "craftsman.provider.CraftsmanLogger"
     ).return_value.get_logger.return_value = MagicMock()
@@ -42,7 +42,7 @@ def provider_debug(mocker):
         },
     )
     mock_auth = mocker.patch("craftsman.provider.Auth")
-    mock_auth.return_value.get_password.return_value = ""
+    mock_auth.get_password.return_value = None
     mocker.patch(
         "craftsman.provider.CraftsmanLogger"
     ).return_value.get_logger.return_value = MagicMock()
@@ -128,13 +128,12 @@ async def test_parser_empty_stream(provider):
 # --- cost ---
 
 
-async def test_cost_calculation(provider):
-    result = await provider.cost(100, 50)
-    assert abs(result - 0.2) < 1e-9
+def test_cost_calculation(provider):
+    assert abs(provider.cost(100, 50) - 0.2) < 1e-9
 
 
-async def test_cost_zero_tokens(provider):
-    assert await provider.cost(0, 0) == 0.0
+def test_cost_zero_tokens(provider):
+    assert provider.cost(0, 0) == 0.0
 
 
 # --- completion ---
@@ -213,7 +212,7 @@ async def test_completion_meta_cost(mocker, make_chunk, make_usage):
         },
     )
     mock_auth = mocker.patch("craftsman.provider.Auth")
-    mock_auth.return_value.get_password.return_value = ""
+    mock_auth.get_password.return_value = None
     mocker.patch(
         "craftsman.provider.CraftsmanLogger"
     ).return_value.get_logger.return_value = MagicMock()
