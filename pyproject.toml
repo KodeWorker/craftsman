@@ -14,7 +14,7 @@ dependencies = [
     "prompt_toolkit>=3.0.0",
     "python-multipart>=0.0.26",
     "pyjwt>=2.12.1",
-    "passlib[bcrypt]>=1.7.4",
+    "bcrypt>=5.0.0",
 ]
 
 [project.scripts]

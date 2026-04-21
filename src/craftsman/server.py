@@ -82,11 +82,12 @@ class Server:
         user = self.librarian.structure_db.get_user(username)
         if user:
             user = dict(user)
+            user_id = user["id"]
             username = user["username"]
             password_hash = user["password_hash"]
 
             if self.crypto.verify_password(password, password_hash):
-                token = self.crypto.create_token(username)
+                token = self.crypto.create_token(user_id)
                 self.logger.info(f"User '{username}' logged in successfully.")
                 return {"token": token}
             else:

@@ -8,7 +8,7 @@ import click
 from craftsman.auth import Auth
 from craftsman.client import Client
 from craftsman.configure import get_config
-from craftsman.crypto import bcrypt
+from craftsman.crypto import Crypto
 from craftsman.memory.structure import StructureDB
 
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
@@ -186,7 +186,7 @@ def user_register():
     if db.get_user(username):
         click.echo(f"User '{username}' already exists.")
         return
-    db.create_user(username, bcrypt.hash(password))
+    db.create_user(username, Crypto().hash_password(password))
     click.echo(f"User '{username}' registered successfully.")
 
 

@@ -1,9 +1,10 @@
+import hashlib
 import os
 import secrets
 from datetime import datetime, timedelta, timezone
 
+import bcrypt
 import jwt
-from passlib.hash import bcrypt
 
 from craftsman.configure import get_config
 from craftsman.logger import CraftsmanLogger
@@ -21,11 +22,18 @@ class Crypto:
         self.algorithm = config["crypto"]["algorithm"]
         self.duration_hr = config["crypto"]["duration_hr"]
 
+    def __prehash(self, password: str) -> str:
+        return hashlib.sha256(password.encode()).hexdigest()
+
     def hash_password(self, password: str) -> str:
-        return bcrypt.hash(password)
+        return bcrypt.hashpw(
+            self.__prehash(password).encode(), bcrypt.gensalt()
+        ).decode()
 
     def verify_password(self, password: str, hashed: str) -> bool:
-        return bcrypt.verify(password, hashed)
+        return bcrypt.checkpw(
+            self.__prehash(password).encode(), hashed.encode()
+        )
 
     def get_secret(self) -> str:
         if not os.path.exists(self.secret_key):
