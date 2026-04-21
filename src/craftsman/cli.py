@@ -28,6 +28,9 @@ def init():
         os.path.expanduser(config["workspace"]["database"]), exist_ok=True
     )
     os.makedirs(os.path.expanduser(config["workspace"]["logs"]), exist_ok=True)
+    os.makedirs(
+        os.path.expanduser(config["workspace"]["secrets"]), exist_ok=True
+    )
     user_config = os.path.join(root_dir, "craftsman.yaml")
     if not os.path.exists(user_config):
         shutil.copy(

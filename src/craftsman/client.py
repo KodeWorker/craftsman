@@ -19,10 +19,14 @@ from craftsman.configure import get_config
 from craftsman.logger import CraftsmanLogger
 
 PROMPT_HISTORY_PATH = (
-    Path.home() / ".craftsman" / "database" / "prompt_history.txt"
+    Path(os.path.expanduser(get_config()["workspace"]["root"]))
+    / "prompt_history.txt"
 )
 PROJECT_SYSTEM_PROMPT = Path.cwd() / ".craftsman" / "system_prompt.md"
-ROOT_SYSTEM_PROMPT = Path.home() / ".craftsman" / "system_prompt.md"
+ROOT_SYSTEM_PROMPT = (
+    Path(os.path.expanduser(get_config()["workspace"]["root"]))
+    / "system_prompt.md"
+)
 
 
 class ChatCompleter(Completer):
