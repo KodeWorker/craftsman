@@ -24,8 +24,8 @@ build-backend = "setuptools.build_meta"
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.data-files]
-"craftsman" = ["craftsman.yaml"]
+[tool.setuptools.package-data]
+craftsman = ["craftsman.yaml"]
 
 [dependency-groups]
 dev = [

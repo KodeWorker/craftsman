@@ -1,5 +1,7 @@
 import multiprocessing
 import os
+import shutil
+from importlib.resources import files
 
 import click
 
@@ -19,7 +21,6 @@ def main():
 @main.command()
 def init():
     """Initializes the craftsman environment."""
-    # Create necessary directories
     config = get_config()
     root_dir = os.path.expanduser(config["workspace"]["root"])
     os.makedirs(root_dir, exist_ok=True)
@@ -27,6 +28,11 @@ def init():
         os.path.expanduser(config["workspace"]["database"]), exist_ok=True
     )
     os.makedirs(os.path.expanduser(config["workspace"]["logs"]), exist_ok=True)
+    user_config = os.path.join(root_dir, "craftsman.yaml")
+    if not os.path.exists(user_config):
+        shutil.copy(
+            str(files("craftsman").joinpath("craftsman.yaml")), user_config
+        )
     click.echo(f"Craftsman environment initialized at {root_dir}")
 
 
