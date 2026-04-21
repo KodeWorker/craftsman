@@ -11,6 +11,8 @@ Dev mode: drop old DB (`rm ~/.craftsman/database/craftsman.db`), no migration.
 
 ## New dependencies
 
+* Implementation note: passlib[bcrypt] -> bcrypt due to passlib bug
+
 ```toml
 PyJWT>=2.8
 passlib[bcrypt]>=1.7

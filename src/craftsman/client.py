@@ -1,6 +1,7 @@
 import itertools
 import json
 import os
+import random
 import shutil
 import threading
 import time
@@ -11,9 +12,12 @@ import requests
 from colorama import Back, Fore, Style
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import Completer, Completion
+from prompt_toolkit.filters import is_done
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
+from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.shortcuts import choice
+from prompt_toolkit.styles import Style as PTStyle
 
 from craftsman.auth import Auth
 from craftsman.configure import get_config
@@ -22,8 +26,24 @@ from craftsman.logger import CraftsmanLogger
 
 class ChatCompleter(Completer):
 
-    def __init__(self, slash_commands: list = None):
+    def __init__(
+        self, slash_commands: list = None, rebuild_interval_sec: int = 15
+    ):
         self.slash_commands = slash_commands or []
+        self._file_cache: list[str] = []
+        self._cache_time: float = 0
+        self._rebuild_interval_sec = rebuild_interval_sec
+
+    def _get_files(self) -> list[str]:
+        now = time.monotonic()
+        if now - self._cache_time > self._rebuild_interval_sec:
+            self._file_cache = [
+                os.path.relpath(os.path.join(root, file))
+                for root, _, files in os.walk(Path.cwd())
+                for file in files
+            ]
+            self._cache_time = now
+        return self._file_cache
 
     def get_completions(self, document, complete_event):
         full_text = document.text_before_cursor
@@ -35,11 +55,9 @@ class ChatCompleter(Completer):
                     yield Completion(cmd, start_position=-len(full_text))
         # project file completion — match current word anywhere in input
         if word:
-            for root, dirs, files in os.walk(Path.cwd()):
-                for file in files:
-                    file_path = os.path.relpath(os.path.join(root, file))
-                    if file_path.startswith(word):
-                        yield Completion(file_path, start_position=-len(word))
+            for file_path in self._get_files():
+                if file_path.startswith(word):
+                    yield Completion(file_path, start_position=-len(word))
 
 
 class InputMode(Enum):
@@ -59,6 +77,12 @@ class Client:
         self.slash_commands = [
             cmd["name"] for cmd in self.config.get("commands", [])
         ]
+        self.rebuild_interval_sec = self.config.get("chat", {}).get(
+            "rebuild_completer_interval_sec", 15
+        )
+        self.retry_interval_sec = self.config.get("chat", {}).get(
+            "retry_interval_sec", 3
+        )
         self.prompt_history_path = (
             Path(os.path.expanduser(get_config()["workspace"]["root"]))
             / "prompt_history.txt"
@@ -71,11 +95,19 @@ class Client:
             / "system_prompt.md"
         )
         self.banner = "Welcome to Craftsman!"
+        self.footer = "Press Enter to send message. Alt+Enter for newline."
+        self.footer_pool = self.config.get("chat", {}).get("footer", [])
         self.ctx_used = 0
         self.upload_tokens = 0
         self.download_tokens = 0
         self.cost = 0.0
         self.request_session = requests.Session()
+
+        self.input_style = PTStyle.from_dict(
+            {
+                "prompt": "fg:ansigreen bold",  # prompt label color
+            }
+        )
 
     def __jwt_token(self) -> str | None:
         username = Auth.get_password("USERNAME")
@@ -188,14 +220,14 @@ class Client:
             user_input.lower().startswith("/")
             and user_input.lower() in self.slash_commands
         ):
-            print(Fore.CYAN + user_input + Style.RESET_ALL)
+            print(Fore.LIGHTMAGENTA_EX + user_input + Style.RESET_ALL)
             if user_input.lower() == "/exit":
                 self.logger.info("Exiting client.")
                 return InputMode.EXIT
             elif user_input.lower() == "/help":
                 for cmd in self.config.get("commands", []):
                     print(
-                        Style.BRIGHT
+                        Fore.LIGHTMAGENTA_EX
                         + f"  {cmd['name']} - {cmd['description']}"
                         + Style.RESET_ALL
                     )
@@ -227,15 +259,16 @@ class Client:
                 if response.status_code == 200:
                     system_prompt = response.json().get("system_prompt", None)
                     print(
-                        Style.BRIGHT
-                        + "Current system prompt:"
+                        Fore.LIGHTMAGENTA_EX
+                        + "System prompt:"
                         + Style.RESET_ALL
                     )
-                    print(
+                    msg = (
                         system_prompt
                         if system_prompt
-                        else "No system prompt set."
+                        else "(No system prompt set.)"
                     )
+                    print(Back.MAGENTA + Fore.WHITE + msg + Style.RESET_ALL)
                 else:
                     print(
                         Fore.RED
@@ -267,7 +300,7 @@ class Client:
                 if response.status_code == 200:
                     data = response.json()
                     status = data.get("status", "")
-                    print(Fore.CYAN + status + Style.RESET_ALL)
+                    print(Fore.LIGHTMAGENTA_EX + status + Style.RESET_ALL)
                     self.logger.info(status)
                     self.ctx_used = data.get("meta", {}).get("ctx_used", 0)
                     self.upload_tokens += data.get("meta", {}).get(
@@ -314,9 +347,10 @@ class Client:
                     Fore.YELLOW + "Server not ready yet..." + Style.RESET_ALL
                 )
                 self.logger.warning(
-                    "Connection failed. Retrying in 3 seconds..."
+                    f"Connection failed. "
+                    f"Retrying in {self.retry_interval_sec} seconds..."
                 )
-                time.sleep(3)
+                time.sleep(self.retry_interval_sec)
 
         # fetch JWT token and set in header for subsequent requests
         token = self.__jwt_token()
@@ -400,7 +434,20 @@ class Client:
                 )
 
         history = FileHistory(str(self.prompt_history_path))
-        completer = ChatCompleter(slash_commands=self.slash_commands)
+        completer = ChatCompleter(
+            slash_commands=self.slash_commands,
+            rebuild_interval_sec=self.rebuild_interval_sec,
+        )
+
+        kb = KeyBindings()
+
+        @kb.add("enter")
+        def _(event):
+            event.current_buffer.validate_and_handle()
+
+        @kb.add("escape", "enter")
+        def _(event):
+            event.current_buffer.insert_text("\n")
 
         while True:
             terminal_width = shutil.get_terminal_size(
@@ -408,28 +455,33 @@ class Client:
             ).columns
 
             hint = "Enter your message (or '/help' for commands)"
-            hint = hint + " " * (terminal_width - len(hint) - 1)
-            hint = f"{Fore.BLACK}{Back.WHITE}{hint}{Style.RESET_ALL}"
+            hint = hint
+            hint = f"{Style.DIM}{hint}{Style.RESET_ALL}"
             hint = ANSI(hint)
 
             separator = "_" * terminal_width
-            print(Style.BRIGHT + separator + Style.RESET_ALL)
+            print(Style.BRIGHT + Fore.CYAN + separator + Style.RESET_ALL)
             print(Style.BRIGHT + Fore.CYAN + self.banner + Style.RESET_ALL)
+
             user_input = prompt(
+                message=[("class:prompt", "user: ")],
                 placeholder=hint,
-                multiline=False,
+                multiline=True,
                 history=history,
                 completer=completer,
+                style=self.input_style,
+                key_bindings=kb,
+                show_frame=~is_done,
+                bottom_toolbar=self.footer,
             )
 
-            print(Fore.GREEN + "user:" + Style.RESET_ALL)
+            if self.footer_pool:
+                self.footer = random.choice(self.footer_pool)
             mode = self.__handle_slash_command(session_id, user_input)
             if mode == InputMode.EXIT:
                 break
             elif mode == InputMode.COMMAND:
                 continue
-            elif mode == InputMode.MESSAGE:
-                print(user_input)
 
             message = {"role": "user", "content": user_input}
             response = self.__request(
@@ -452,6 +504,7 @@ class Client:
 
             in_reasoning = False
             first_chunk = True
+            printed_label = False
             spinner_stop = threading.Event()
             spinner_thread = threading.Thread(
                 target=self.__spin,
@@ -505,11 +558,13 @@ class Client:
                     if in_reasoning:
                         print()
                         in_reasoning = False
+                    if not printed_label:
                         print(
                             Fore.MAGENTA + "assistant:\n" + Style.RESET_ALL,
                             end="",
                             flush=True,
                         )
+                        printed_label = True
                     print(text, end="", flush=True)
             # force stop spinner in case no chunks received
             if not spinner_stop.is_set():

@@ -6,6 +6,15 @@ logging:
   debug: true # show logs on the console
   level: DEBUG
 
+chat:
+  retry_interval_sec: 3
+  rebuild_completer_interval_sec: 15
+  footer:
+    - "/compact to summarize and reduce conversation history size."
+    - "Do not outsource the thinking to external tools."
+    - "Press Enter to send message. Alt+Enter for newline."
+    - "Life is like a box of chocolates, you never know what you're gonna get."
+
 workspace:
   root: ~/.craftsman
   database: ~/.craftsman/database
