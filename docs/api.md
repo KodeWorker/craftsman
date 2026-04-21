@@ -109,7 +109,17 @@ Response: NDJSON stream.
 ```json
 { "kind": "content", "text": "..." }
 { "kind": "reasoning", "text": "..." }
-{ "kind": "meta", "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0 }
+{ "kind": "error", "text": "..." }
+{
+  "kind": "meta",
+  "model": "...",
+  "ctx_total": 0,
+  "ctx_used": 0,
+  "prompt_tokens": 0,
+  "completion_tokens": 0,
+  "reasoning_tokens": 0,
+  "cost": 0.0
+}
 ```
 
 ## POST /sessions/compact

@@ -1,19 +1,48 @@
 # Configuration
 
 ## Python Environment
+
 ### Runtime Environment
+
+Requires Python 3.12+. Install dependencies with:
+
+```bash
+uv sync
+```
+
 ### Development Environment
+
+```bash
+uv sync
+uv run pre-commit install
+```
 
 ## Craftsman Configuration
 
-`uv run craftsman init`
+Run once to create `~/.craftsman/` and copy the default `craftsman.yaml`:
 
-`uv run craftsman auth`
+```bash
+uv run craftsman init
+```
+
+This copies `craftsman.yaml` to `~/.craftsman/craftsman.yaml`. Edit that file
+to configure the provider, logging, and workspace paths. Re-running `init` will
+not overwrite an existing config.
+
+Set credentials before starting the server:
+
+```bash
+uv run craftsman auth set LLM_BASE_URL
+uv run craftsman auth set LLM_API_KEY
+uv run craftsman auth set LLM_SSL_CRT   # optional, for self-signed certs
+```
 
 ## Auth Credentials
 
+Credentials are stored in the system keyring (not in config files).
+
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `LLM_BASE_URL` | Base URL of the OpenAI-compatible server | `https://localhost:443` |
+| `LLM_BASE_URL` | Base URL of the OpenAI-compatible server | _(empty)_ |
 | `LLM_API_KEY` | API key | _(empty)_ |
-| `LLM_SSL_CRT` | SSL certificate path | _(empty)_ |
+| `LLM_SSL_CRT` | Path to SSL certificate for self-signed servers | _(empty)_ |
