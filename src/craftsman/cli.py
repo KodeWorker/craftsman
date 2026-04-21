@@ -1,6 +1,5 @@
 import multiprocessing
 import os
-import time
 
 import click
 
@@ -37,8 +36,8 @@ def server(port: int = 6969):
     """Starts an agent server."""
     from craftsman.server import Server
 
-    server = Server(port=port)
-    server.start()
+    _server = Server(port=port)
+    _server.start()
 
 
 @main.command()
@@ -81,9 +80,8 @@ def dev(port: int = 6969):
     """Starts both server and client for development."""
     from craftsman.server import Server
 
-    server = Server(port=port)
-    multiprocessing.Process(target=server.start).start()
-    time.sleep(1)  # Give the server a moment to start
+    _server = Server(port=port)
+    multiprocessing.Process(target=_server.start).start()
     client = Client(host="localhost", port=port)
     client.chat()
 
@@ -97,52 +95,54 @@ def auth():
 @auth.command(name="list")
 def auth_list():
     """Lists all authenticated agents."""
-    auth = Auth()
-    for provider in auth.USERNAME_LIST:
-        password = auth.get_password(provider)
-        if password:
-            click.echo(f"{provider}: {password}")
+    for provider in Auth.USERNAME_LIST:
+        password = Auth.get_password(provider)
+        if password is not None:
+            click.echo(f"{provider}: {len(password) * '*'}")
         else:
             click.echo(f"{provider}: Not set")
 
 
-@auth.command()
+@auth.command(name="set")
 @click.argument("provider")
-def set(provider: str):
+def auth_set(provider: str):
     """Sets authentication details for a specific provider."""
-    auth = Auth()
     password = click.prompt(f"Enter password for {provider}", hide_input=True)
-    auth.set_password(provider, password)
+    Auth.set_password(provider, password)
     click.echo(f"Password for {provider} set successfully.")
 
 
-@auth.command()
+@auth.command(name="get")
 @click.argument("provider")
-def get(provider: str):
+def auth_get(provider: str):
     """Gets authentication details for a specific provider."""
-    auth = Auth()
-    password = auth.get_password(provider)
-    if password:
-        click.echo(f"{provider}: {password}")
+    password = Auth.get_password(provider)
+    if password is not None:
+        click.echo(f"{provider}: {len(password) * '*'}")
     else:
         click.echo(f"{provider}: Not set")
 
 
-@auth.command()
+@auth.command(name="clear")
 @click.argument("provider", required=False)
-def clear(provider: str = None):
+def auth_clear(provider: str = None):
     """
     Clears authentication details for a specific provider, or all providers
     if none is specified.
     """
-    auth = Auth()
     if provider:
-        auth.delete_password(provider)
-        click.echo(f"Password for {provider} cleared.")
-    else:
-        for provider in auth.USERNAME_LIST:
-            auth.delete_password(provider)
+        if Auth.get_password(provider) is not None:
+            Auth.delete_password(provider)
             click.echo(f"Password for {provider} cleared.")
+        else:
+            click.echo(f"Password for {provider} is not set.")
+    else:
+        for cred in Auth.USERNAME_LIST:
+            if Auth.get_password(cred) is not None:
+                Auth.delete_password(cred)
+                click.echo(f"Password for {cred} cleared.")
+            else:
+                click.echo(f"Password for {cred} is not set.")
 
 
 @main.group(context_settings=CONTEXT_SETTINGS)
@@ -155,7 +155,7 @@ def sess():
 @click.option("--host", default="localhost", help="Server host")
 @click.option("--port", default=6969, help="Server port")
 @click.option(
-    "--project_id", default=None, help="Project ID to filter sessions"
+    "--project-id", default=None, help="Project ID to filter sessions"
 )
 @click.option("--limit", default=5, help="Limit number of sessions listed")
 def sess_list(
@@ -171,11 +171,13 @@ def sess_list(
         click.echo(session_info)
 
 
-@sess.command()
+@sess.command(name="delete")
 @click.argument("session")
 @click.option("--host", default="localhost", help="Server host")
 @click.option("--port", default=6969, help="Server port")
-def delete(session: str = None, host: str = "localhost", port: int = 6969):
+def sess_delete(
+    session: str = None, host: str = "localhost", port: int = 6969
+):
     """Deletes session by ID, prefix, or title."""
     client = Client(host=host, port=port)
     client.delete_session(session)
