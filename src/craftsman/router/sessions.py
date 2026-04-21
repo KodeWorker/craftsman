@@ -59,26 +59,6 @@ class SessionsRouter:
         session_id = row["id"] if row else None
         return {"session_id": session_id}
 
-    async def set_system_prompt(self, request: Request):
-        body = await request.json()
-        system_prompt = body.get("system_prompt", "")
-        session_id = body.get("session_id", None)
-        if not system_prompt:
-            raise HTTPException(
-                status_code=400, detail="No system prompt provided."
-            )
-        if not session_id:
-            raise HTTPException(
-                status_code=400, detail="No session ID provided."
-            )
-        self.librarian.clear_system_prompt(
-            session_id
-        )  # remove existing system prompts
-        self.librarian.push_context(
-            session_id, {"role": "system", "content": system_prompt}
-        )
-        return {"status": "system prompt set"}
-
     async def handle_completion(self, request: Request):
         body = await request.json()
         message = body.get("message", {})
@@ -147,6 +127,35 @@ class SessionsRouter:
 
         return StreamingResponse(stream(), media_type="application/x-ndjson")
 
+    async def set_system_prompt(self, request: Request):
+        body = await request.json()
+        system_prompt = body.get("system_prompt", "")
+        session_id = body.get("session_id", None)
+        if not system_prompt:
+            raise HTTPException(
+                status_code=400, detail="No system prompt provided."
+            )
+        if not session_id:
+            raise HTTPException(
+                status_code=400, detail="No session ID provided."
+            )
+        self.librarian.clear_system_prompt(
+            session_id
+        )  # remove existing system prompts
+        self.librarian.push_context(
+            session_id, {"role": "system", "content": system_prompt}
+        )
+        return {"status": "system prompt set"}
+
+    async def create_session(self):
+        session_id = self.librarian.structure_db.create_session()
+        if session_id in self.active_sessions:
+            self.logger.warning(
+                f"Session ID collision: {session_id} already active. "
+            )
+        self.active_sessions.add(session_id)  # add to active sessions
+        return {"session_id": session_id}
+
     async def clear_session(self, request: Request):
         body = await request.json()
         session_id = body.get("session_id", None)
@@ -172,15 +181,6 @@ class SessionsRouter:
         )  # remove from active sessions if present
         self.librarian.structure_db.delete_session(session_id)
         return {"status": f"session '{session_id}' deleted"}
-
-    async def create_session(self):
-        session_id = self.librarian.structure_db.create_session()
-        if session_id in self.active_sessions:
-            self.logger.warning(
-                f"Session ID collision: {session_id} already active. "
-            )
-        self.active_sessions.add(session_id)  # add to active sessions
-        return {"session_id": session_id}
 
     async def resume_session(self, request: Request):
         body = await request.json()

@@ -20,9 +20,15 @@ provider:
     vision:
       enabled: false
       formats: [image/jpeg, image/png, image/webp, image/gif]
+      # SigLIP encoder: token cost is resolution-based, not file-size-based
+      # 10MB covers all phone photos (3-8MB); RAW/TIFF should be exported first
+      max_size_mb: 10
     audio:
       enabled: false
       formats: [wav, mp3]
+      # Gemma 4 audio encoder: 10MB MP3 → ~1085 tokens (duration-based, not
+      # file-size-based); 25MB → ~2710 tokens (~2% of 131K context)
+      max_size_mb: 25
 ```
 
 ### Upload Flow
@@ -32,8 +38,14 @@ client → POST /artifacts/upload (multipart)
        → server saves file to ~/.craftsman/workspace/
        → server records artifact in SQLite (filepath, mime_type, session_id, size_bytes)
        → returns { artifact_id }
-client → POST /sessions/completion with base64-encoded media inline in message content
+client → POST /sessions/completion with [image: artifact_id=<uuid>]
+                                      | [audio: artifact_id=<uuid>]
+       → server resolves artifact_id, reads file from disk, base64-encodes inline
+       → server sends assembled multimodal message to model
 ```
+
+The completion request carries only a small text token — base64 encoding stays
+server-side, keeping client→server traffic minimal.
 
 ### Context Strategy
 
@@ -76,8 +88,8 @@ corresponding capability flag is not declared in `craftsman.yaml`:
 | Package | Side | Purpose |
 |---------|------|---------|
 | `python-multipart` | server | FastAPI requires this to parse `multipart/form-data`; add to `pyproject.toml` |
-| `base64` | client | stdlib — encodes file bytes for inline content parts |
-| `mimetypes` | client | stdlib — resolves MIME type from file extension |
+| `base64` | server | stdlib — encodes file bytes into inline content parts |
+| `mimetypes` | server | stdlib — resolves MIME type from file extension |
 | `requests` | client | already in use; sends multipart upload via `files=` param |
 
 ## Server Architecture

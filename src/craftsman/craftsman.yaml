@@ -22,9 +22,15 @@ provider:
     vision:
       enabled: true
       formats: [image/jpeg, image/png, image/webp, image/gif]
+      # SigLIP encoder: token cost is resolution-based, not file-size-based
+      # 10MB covers all phone photos (3-8MB); RAW/TIFF should be exported first
+      max_size_mb: 10
     audio:
       enabled: true
       formats: [wav, mp3]
+      # Gemma 4 audio encoder: 10MB MP3 → ~1085 tokens (duration-based, not
+      # file-size-based); 25MB → ~2710 tokens (~2% of 131K context)
+      max_size_mb: 25
 
 commands:
   - name: /help

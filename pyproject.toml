@@ -12,6 +12,7 @@ dependencies = [
     "litellm>=1.83.0",
     "uvicorn>=0.44.0",
     "prompt_toolkit>=3.0.0",
+    "python-multipart>=0.0.26",
 ]
 
 [project.scripts]
