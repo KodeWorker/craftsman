@@ -102,6 +102,14 @@ corresponding capability flag is not declared in `craftsman.yaml`:
 - [ ] *(low priority)* Drag-and-drop support — hook `Buffer.on_text_insert`,
       detect bracketed-paste paths (`file://`, `/`, `~/`), normalise and
       convert to `@filepath` syntax automatically
+- [ ] *(low priority)* Voice input keybinding — push-to-talk key records audio
+      and feeds it into the prompt via the existing audio artifact upload flow
+
+#### Why `@` for inline file references
+`@` is visually distinct, not a valid filename-start character on Linux/Mac (so
+parsing is unambiguous), and an established convention in chat UIs (GitHub, Slack)
+for pointing at something. It also allows the completer to trigger selectively
+on `@`-prefixed input rather than every word.
 
 #### Drag-and-drop file input (low priority)
 
@@ -132,8 +140,15 @@ if text.startswith(("file://", "/", "~/")):
       )
 ```
 
-#### Why `@` for inline file references
-`@` is visually distinct, not a valid filename-start character on Linux/Mac (so
-parsing is unambiguous), and an established convention in chat UIs (GitHub, Slack)
-for pointing at something. It also allows the completer to trigger selectively
-on `@`-prefixed input rather than every word.
+#### Voice input keybinding (low priority)
+
+A push-to-talk key binding records audio and injects it into the prompt via the
+same audio artifact upload flow. Requires `capabilities.audio.enabled: true` —
+no STT fallback; the model handles audio natively.
+
+Dependencies (both wrap PortAudio — a C system library):
+- `sounddevice` — preferred; cleaner API, NumPy-based
+- `pyaudio` — alternative if `sounddevice` is unavailable
+
+Deferred until `@filepath` audio input is proven out. At that point the upload
+infrastructure is already in place and voice capture is just another input path.
