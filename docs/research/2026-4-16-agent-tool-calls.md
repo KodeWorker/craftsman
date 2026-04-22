@@ -108,7 +108,7 @@ Tools for structured file editing — safer than `bash:cat` + `bash_run` write f
 
 ### Observer (read-only)
 
-1. `web:search` — returns titles, URLs, and snippets; agent decides which URLs to fetch
+1. `web:search` — returns titles, URLs, and snippets; agent decides which URLs to fetch (self-hosted searxng endpoint)
 2. `web:fetch_url` — fetches a URL and returns **Markdown**, not HTML; strip tags server-side with BeautifulSoup or Readability.js before the agent ever sees the content; enforce `max_chars`
 
 ### Actor (browser automation)
