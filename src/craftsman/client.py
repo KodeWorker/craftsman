@@ -512,60 +512,70 @@ class Client:
                 daemon=True,
             )
             spinner_thread.start()
-
-            for line in response.iter_lines():
-                if not line:
-                    continue
-                chunk = json.loads(line)
-                kind = chunk["kind"]
-                if kind == "meta":
+            try:
+                # process streaming response chunks
+                for line in response.iter_lines():
+                    if not line:
+                        continue
+                    chunk = json.loads(line)
+                    kind = chunk["kind"]
+                    if kind == "meta":
+                        if first_chunk:
+                            print()
+                            spinner_stop.set()
+                            spinner_thread.join()
+                            first_chunk = False
+                        print()
+                        self.__update_banner(
+                            model=chunk.get("model", ""),
+                            session=session_id[:8],
+                            ctx_used=self.ctx_used + chunk.get("ctx_used", 0),
+                            ctx_total=chunk.get("ctx_total", 0),
+                            upload_tokens=self.upload_tokens
+                            + chunk.get("prompt_tokens", 0),
+                            download_tokens=self.download_tokens
+                            + chunk.get("completion_tokens", 0),
+                            cost=self.cost + chunk.get("cost", 0),
+                        )
+                        continue
+                    text = chunk["text"]
                     if first_chunk:
                         print()
                         spinner_stop.set()
                         spinner_thread.join()
                         first_chunk = False
-                    print()
-                    self.__update_banner(
-                        model=chunk.get("model", ""),
-                        session=session_id[:8],
-                        ctx_used=self.ctx_used + chunk.get("ctx_used", 0),
-                        ctx_total=chunk.get("ctx_total", 0),
-                        upload_tokens=self.upload_tokens
-                        + chunk.get("prompt_tokens", 0),
-                        download_tokens=self.download_tokens
-                        + chunk.get("completion_tokens", 0),
-                        cost=self.cost + chunk.get("cost", 0),
-                    )
-                    continue
-                text = chunk["text"]
-                if first_chunk:
-                    print()
-                    spinner_stop.set()
-                    spinner_thread.join()
-                    first_chunk = False
-                if kind == "reasoning":
-                    if not in_reasoning:
+                    if kind == "reasoning":
+                        if not in_reasoning:
+                            print(
+                                Style.DIM + "reasoning:\n" + Style.RESET_ALL,
+                                end="",
+                                flush=True,
+                            )
+                            in_reasoning = True
                         print(
-                            Style.DIM + "reasoning:\n" + Style.RESET_ALL,
+                            Style.DIM + text + Style.RESET_ALL,
                             end="",
                             flush=True,
                         )
-                        in_reasoning = True
-                    print(
-                        Style.DIM + text + Style.RESET_ALL, end="", flush=True
-                    )
-                else:
-                    if in_reasoning:
-                        print()
-                        in_reasoning = False
-                    if not printed_label:
-                        print(
-                            Fore.MAGENTA + "assistant:\n" + Style.RESET_ALL,
-                            end="",
-                            flush=True,
-                        )
-                        printed_label = True
-                    print(text, end="", flush=True)
+                    else:
+                        if in_reasoning:
+                            print()
+                            in_reasoning = False
+                        if not printed_label:
+                            print(
+                                Fore.MAGENTA
+                                + "assistant:\n"
+                                + Style.RESET_ALL,
+                                end="",
+                                flush=True,
+                            )
+                            printed_label = True
+                        print(text, end="", flush=True)
+            except KeyboardInterrupt:
+                response.close()
+                spinner_stop.set()
+                print(Fore.RED + "\n[cancelled]" + Style.RESET_ALL)
+
             # force stop spinner in case no chunks received
             if not spinner_stop.is_set():
                 spinner_stop.set()

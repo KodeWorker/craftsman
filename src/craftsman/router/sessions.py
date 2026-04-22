@@ -1,3 +1,4 @@
+import asyncio
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -95,8 +96,16 @@ class SessionsRouter:
             up_tokens = 0
             down_tokens = 0
             reason_tokens = 0
+            cancel_event = asyncio.Event()
+            cancelled = False
             try:
-                async for kind, text in self.provider.completion(context):
+                async for kind, text in self.provider.completion(
+                    context, cancel_event=cancel_event
+                ):
+                    if await request.is_disconnected():
+                        cancel_event.set()
+                        cancelled = True
+                        break
                     if kind == "meta":
                         up_tokens = text.get("prompt_tokens", 0)
                         down_tokens = text.get("completion_tokens", 0)
@@ -111,6 +120,11 @@ class SessionsRouter:
             except Exception as e:
                 self.logger.error(f"Error in streaming response: {e}")
                 yield json.dumps({"kind": "error", "text": str(e)}) + "\n"
+                return
+            if cancelled:
+                self.logger.info(
+                    f"Client disconnected mid-stream for session {session_id}"
+                )
                 return
             content = "".join(content)
             reasoning = "".join(reasoning)
