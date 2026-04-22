@@ -4,23 +4,35 @@ from unittest.mock import MagicMock, call
 import pytest
 from fastapi.testclient import TestClient
 
+TEST_USER_ID = "user-id-1"
+
 
 @pytest.fixture
 def app(mocker):
     mock_provider = MagicMock()
     mock_provider.cost = MagicMock(return_value=0.0)
     mock_librarian = MagicMock()
+    mock_librarian.structure_db.get_session.return_value = {
+        "user_id": TEST_USER_ID
+    }
     mocker.patch("craftsman.server.Provider", return_value=mock_provider)
     mocker.patch("craftsman.server.Librarian", return_value=mock_librarian)
     mocker.patch(
         "craftsman.server.CraftsmanLogger"
     ).return_value.get_logger.return_value = MagicMock()
 
+    from craftsman.router.deps import get_current_user
     from craftsman.server import Server
 
     server = Server(port=8080)
+    server.app.dependency_overrides[get_current_user] = lambda: TEST_USER_ID
     client = TestClient(server.app, raise_server_exceptions=True)
     return client, server, mock_provider, mock_librarian
+
+
+@pytest.fixture
+def mock_crypto(mocker):
+    return mocker.patch("craftsman.server._crypto")
 
 
 # --- simple GET endpoints ---
@@ -150,7 +162,7 @@ def test_delete_session_success(app):
 
 
 def _make_fake_completion(*yields):
-    async def fake_completion(ctx, max_tokens=None):
+    async def fake_completion(ctx, max_tokens=None, cancel_event=None):
         for item in yields:
             yield item
 
@@ -372,3 +384,88 @@ def test_compact_rebuilds_context_with_tail(app):
     tail = convo[-4:]
     for msg in tail:
         assert msg in push_calls
+
+
+# --- login ---
+
+
+def test_login_success(app, mock_crypto):
+    client, _, _, mock_librarian = app
+    mock_librarian.structure_db.get_user.return_value = {
+        "id": TEST_USER_ID,
+        "username": "alice",
+        "password_hash": "hashed",
+    }
+    mock_crypto.verify_password.return_value = True
+    mock_crypto.create_token.return_value = "tok123"
+    resp = client.post(
+        "/users/login", json={"username": "alice", "password": "pass"}
+    )
+    assert resp.status_code == 200
+    assert resp.json()["token"] == "tok123"
+
+
+def test_login_wrong_password(app, mock_crypto):
+    client, _, _, mock_librarian = app
+    mock_librarian.structure_db.get_user.return_value = {
+        "id": TEST_USER_ID,
+        "username": "alice",
+        "password_hash": "hashed",
+    }
+    mock_crypto.verify_password.return_value = False
+    resp = client.post(
+        "/users/login", json={"username": "alice", "password": "wrong"}
+    )
+    assert resp.status_code == 401
+
+
+def test_login_user_not_found(app, mock_crypto):
+    client, _, _, mock_librarian = app
+    mock_librarian.structure_db.get_user.return_value = None
+    mock_crypto.verify_password.return_value = False
+    resp = client.post(
+        "/users/login", json={"username": "ghost", "password": "pass"}
+    )
+    assert resp.status_code == 401
+
+
+def test_login_missing_fields(app):
+    client, *_ = app
+    assert client.post("/users/login", json={}).status_code == 400
+    assert (
+        client.post("/users/login", json={"username": "a"}).status_code == 400
+    )
+
+
+def test_login_same_error_for_wrong_password_and_missing_user(
+    app, mock_crypto
+):
+    client, _, _, mock_librarian = app
+    mock_librarian.structure_db.get_user.return_value = None
+    mock_crypto.verify_password.return_value = False
+    r1 = client.post(
+        "/users/login", json={"username": "ghost", "password": "x"}
+    )
+    mock_librarian.structure_db.get_user.return_value = {
+        "id": "uid",
+        "username": "alice",
+        "password_hash": "h",
+    }
+    r2 = client.post(
+        "/users/login", json={"username": "alice", "password": "wrong"}
+    )
+    assert r1.json()["detail"] == r2.json()["detail"]
+
+
+# --- ownership ---
+
+
+def test_session_forbidden_for_different_owner(app):
+    client, _, _, mock_librarian = app
+    mock_librarian.structure_db.get_session.return_value = {
+        "user_id": "other-user"
+    }
+    assert (
+        client.post("/sessions/clear", json={"session_id": "s1"}).status_code
+        == 403
+    )

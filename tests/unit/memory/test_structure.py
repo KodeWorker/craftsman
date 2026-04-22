@@ -14,8 +14,61 @@ def db():
 
 
 @pytest.fixture
+def uid(db):
+    return db.create_user("testuser", "hashedpw")["id"]
+
+
+@pytest.fixture
 def sid(db):
     return db.create_session()
+
+
+# --- users ---
+
+
+def test_create_user_returns_id_and_username(db):
+    row = db.create_user("alice", "hash")
+    assert row["username"] == "alice"
+    uuid.UUID(row["id"])
+
+
+def test_get_user_found(db):
+    db.create_user("alice", "hash")
+    assert db.get_user("alice")["username"] == "alice"
+
+
+def test_get_user_not_found(db):
+    assert db.get_user("ghost") is None
+
+
+def test_list_users(db):
+    db.create_user("alice", "h1")
+    db.create_user("bob", "h2")
+    names = [r["username"] for r in db.list_users()]
+    assert "alice" in names and "bob" in names
+
+
+def test_delete_user(db):
+    db.create_user("alice", "hash")
+    db.delete_user("alice")
+    assert db.get_user("alice") is None
+
+
+def test_create_session_stores_user_id(db, uid):
+    sid = db.create_session(user_id=uid)
+    assert db.get_session(sid)["user_id"] == uid
+
+
+def test_list_sessions_filtered_by_user_id(db, uid):
+    s1 = db.create_session(user_id=uid)
+    s2 = db.create_session(user_id=uid)
+    other_uid = db.create_user("other", "h")["id"]
+    s3 = db.create_session(user_id=other_uid)
+    db.add_message(s1, "user", "hi")
+    db.add_message(s2, "user", "hey")
+    db.add_message(s3, "user", "yo")
+    ids = [r["id"] for r in db.list_sessions(user_id=uid)]
+    assert s1 in ids and s2 in ids and s3 not in ids
 
 
 # --- sessions ---
