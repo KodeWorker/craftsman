@@ -2,7 +2,7 @@
 
 All `/sessions/*` endpoints require `Authorization: Bearer <token>`.
 
-## POST /user/login
+## POST /users/login
 
 Request:
 ```json
