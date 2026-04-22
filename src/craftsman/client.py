@@ -455,7 +455,6 @@ class Client:
             ).columns
 
             hint = "Enter your message (or '/help' for commands)"
-            hint = hint
             hint = f"{Style.DIM}{hint}{Style.RESET_ALL}"
             hint = ANSI(hint)
 
@@ -596,9 +595,10 @@ class Client:
                     Fore.YELLOW + "Server not ready yet..." + Style.RESET_ALL
                 )
                 self.logger.warning(
-                    "Connection failed. Retrying in 3 seconds..."
+                    f"Connection failed. "
+                    f"Retrying in {self.retry_interval_sec} seconds..."
                 )
-                time.sleep(3)
+                time.sleep(self.retry_interval_sec)
 
         # fetch JWT token and set in header for subsequent requests
         token = self.__jwt_token()

@@ -31,9 +31,15 @@ class SessionsRouter:
         self.router.post("/clear")(self.clear_session)
         self.router.post("/compact")(self.compact_session)
 
+    def __check_owner(self, session_id: str, user_id: str):
+        session = self.librarian.structure_db.get_session(session_id)
+        if not session or session["user_id"] != user_id:
+            raise HTTPException(status_code=403, detail="Forbidden.")
+
     async def get_system_prompt(
-        self, session_id: str, _: str = Depends(get_current_user)
+        self, session_id: str, user_id: str = Depends(get_current_user)
     ):
+        self.__check_owner(session_id, user_id)
         context = self.librarian.get_context(session_id)
         system_prompt = "".join(
             m["content"] for m in context if m.get("role") == "system"
@@ -73,7 +79,7 @@ class SessionsRouter:
         return {"session_id": session_id}
 
     async def handle_completion(
-        self, request: Request, _: str = Depends(get_current_user)
+        self, request: Request, user_id: str = Depends(get_current_user)
     ):
         body = await request.json()
         message = body.get("message", {})
@@ -86,6 +92,7 @@ class SessionsRouter:
             raise HTTPException(
                 status_code=400, detail="No session ID provided."
             )
+        self.__check_owner(session_id, user_id)
 
         self.librarian.push_context(session_id, message)
         context = self.librarian.get_context(session_id)
@@ -156,7 +163,7 @@ class SessionsRouter:
         return StreamingResponse(stream(), media_type="application/x-ndjson")
 
     async def set_system_prompt(
-        self, request: Request, _: str = Depends(get_current_user)
+        self, request: Request, user_id: str = Depends(get_current_user)
     ):
         body = await request.json()
         system_prompt = body.get("system_prompt", "")
@@ -169,6 +176,7 @@ class SessionsRouter:
             raise HTTPException(
                 status_code=400, detail="No session ID provided."
             )
+        self.__check_owner(session_id, user_id)
         self.librarian.clear_system_prompt(
             session_id
         )  # remove existing system prompts
@@ -189,7 +197,7 @@ class SessionsRouter:
         return {"session_id": session_id}
 
     async def clear_session(
-        self, request: Request, _: str = Depends(get_current_user)
+        self, request: Request, user_id: str = Depends(get_current_user)
     ):
         body = await request.json()
         session_id = body.get("session_id", None)
@@ -197,6 +205,7 @@ class SessionsRouter:
             raise HTTPException(
                 status_code=400, detail="No session ID provided."
             )
+        self.__check_owner(session_id, user_id)
         self.active_sessions.discard(
             session_id
         )  # remove from active sessions if present
@@ -204,7 +213,7 @@ class SessionsRouter:
         return {"status": "session cleared"}
 
     async def delete_session(
-        self, request: Request, _: str = Depends(get_current_user)
+        self, request: Request, user_id: str = Depends(get_current_user)
     ):
         body = await request.json()
         session_id = body.get("session_id", None)
@@ -212,6 +221,7 @@ class SessionsRouter:
             raise HTTPException(
                 status_code=400, detail="No session ID provided."
             )
+        self.__check_owner(session_id, user_id)
         self.active_sessions.discard(
             session_id
         )  # remove from active sessions if present
@@ -219,7 +229,7 @@ class SessionsRouter:
         return {"status": f"session '{session_id}' deleted"}
 
     async def resume_session(
-        self, request: Request, _: str = Depends(get_current_user)
+        self, request: Request, user_id: str = Depends(get_current_user)
     ):
         body = await request.json()
         session_id = body.get("session_id", None)
@@ -227,6 +237,7 @@ class SessionsRouter:
             raise HTTPException(
                 status_code=400, detail="No session ID provided."
             )
+        self.__check_owner(session_id, user_id)
         messages, meta = self.librarian.retrieve_messages(session_id)
         if session_id in self.active_sessions:
             self.logger.warning(
@@ -252,7 +263,7 @@ class SessionsRouter:
         }
 
     async def compact_session(
-        self, request: Request, _: str = Depends(get_current_user)
+        self, request: Request, user_id: str = Depends(get_current_user)
     ):
         body = await request.json()
         session_id = body.get("session_id", None)
@@ -260,6 +271,7 @@ class SessionsRouter:
             raise HTTPException(
                 status_code=400, detail="No session ID provided."
             )
+        self.__check_owner(session_id, user_id)
         summary_limit = body.get("summary_limit", 1000)
         keep_turns = body.get("keep_turns", 5)
 

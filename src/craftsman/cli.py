@@ -181,7 +181,10 @@ def user_list():
 def user_register():
     username = click.prompt("Username")
     password = click.prompt("Password", hide_input=True)
-    click.prompt("Confirm password", hide_input=True)
+    confirmed = click.prompt("Confirm password", hide_input=True)
+    if password != confirmed:
+        click.echo("Passwords do not match.")
+        return
     db = StructureDB()
     if db.get_user(username):
         click.echo(f"User '{username}' already exists.")

@@ -1,6 +1,7 @@
 import hashlib
 import os
 import secrets
+import tempfile
 from datetime import datetime, timedelta, timezone
 
 import bcrypt
@@ -21,6 +22,7 @@ class Crypto:
         self.size = config["crypto"]["size"]
         self.algorithm = config["crypto"]["algorithm"]
         self.duration_hr = config["crypto"]["duration_hr"]
+        self.__secret: str | None = None
 
     def __prehash(self, password: str) -> str:
         return hashlib.sha256(password.encode()).hexdigest()
@@ -36,19 +38,25 @@ class Crypto:
         )
 
     def get_secret(self) -> str:
+        if self.__secret is not None:
+            return self.__secret
+
         if not os.path.exists(self.secret_key):
-            with open(self.secret_key, "w", encoding="utf-8") as f:
-                secret = secrets.token_hex(self.size)
+            secret = secrets.token_hex(self.size)
+            dir_ = os.path.dirname(self.secret_key)
+            with tempfile.NamedTemporaryFile(
+                mode="w", dir=dir_, delete=False, encoding="utf-8"
+            ) as f:
                 f.write(secret)
-                self.logger.info(
-                    f"Generated new secret key at {self.secret_key}"
-                )
+                tmp_path = f.name
+            os.replace(tmp_path, self.secret_key)
         else:
             with open(self.secret_key, "r", encoding="utf-8") as f:
                 secret = f.read().strip()
                 self.logger.info(
                     f"Loaded existing secret key from {self.secret_key}"
                 )
+        self.__secret = secret
         return secret
 
     def create_token(self, user_id: str) -> str:

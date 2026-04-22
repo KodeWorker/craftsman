@@ -1,10 +1,10 @@
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 
-from craftsman.crypto import Crypto
 from craftsman.logger import CraftsmanLogger
 from craftsman.memory.librarian import Librarian
 from craftsman.provider import Provider
+from craftsman.router.deps import _crypto
 from craftsman.router.sessions import SessionsRouter
 
 
@@ -14,7 +14,6 @@ class Server:
         self.logger = CraftsmanLogger().get_logger(__name__)
         self.provider = Provider()
         self.librarian = Librarian()
-        self.crypto = Crypto()
         self.active_sessions = set()
 
         self.app = FastAPI()
@@ -80,31 +79,17 @@ class Server:
                 status_code=400, detail="Username and password are required."
             )
         user = self.librarian.structure_db.get_user(username)
-        if user:
-            user = dict(user)
-            user_id = user["id"]
-            username = user["username"]
-            password_hash = user["password_hash"]
-
-            if self.crypto.verify_password(password, password_hash):
-                token = self.crypto.create_token(user_id)
-                self.logger.info(f"User '{username}' logged in successfully.")
-                return {"token": token}
-            else:
-                self.logger.warning(
-                    f"Failed login attempt for user '{username}': "
-                    f"Incorrect password."
-                )
-                raise HTTPException(
-                    status_code=401, detail="Invalid username or password."
-                )
-        else:
-            self.logger.warning(
-                f"Failed login attempt: User '{username}' not found."
-            )
+        dummy = "$2b$12$dummyhashfortimingXXXXXXXXXXXXXXXXXXXXXXX"
+        password_hash = dict(user)["password_hash"] if user else dummy
+        if not user or not _crypto.verify_password(password, password_hash):
+            self.logger.warning(f"Failed login attempt for user '{username}'.")
             raise HTTPException(
                 status_code=401, detail="Invalid username or password."
             )
+        user = dict(user)
+        token = _crypto.create_token(user["id"])
+        self.logger.info(f"User '{user['username']}' logged in successfully.")
+        return {"token": token}
 
     def start(self):
         self.logger.info(f"Starting server on port {self.port}...")

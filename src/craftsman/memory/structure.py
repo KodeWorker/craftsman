@@ -130,12 +130,13 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
 
 
 class StructureDB:
-    def __init__(self):
+    def __init__(self, path: Path | None = None):
         self.config = get_config()
-        path = (
-            Path(os.path.expanduser(self.config["workspace"]["database"]))
-            / "craftsman.db"
-        )
+        if path is None:
+            path = (
+                Path(os.path.expanduser(self.config["workspace"]["database"]))
+                / "craftsman.db"
+            )
         path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
@@ -203,12 +204,9 @@ class StructureDB:
         return {"id": uid, "username": username}
 
     def get_user(self, username: str) -> sqlite3.Row | None:
-        row = self.conn.execute(
+        return self.conn.execute(
             "SELECT * FROM users WHERE username = ?", (username,)
         ).fetchone()
-        if row:
-            return row
-        return None
 
     def list_users(self) -> list[sqlite3.Row]:
         return self.conn.execute(
@@ -322,20 +320,20 @@ class StructureDB:
     def get_messages(self, session_id: str) -> list[sqlite3.Row]:
         # Find the most recent summary checkpoint; return it + everything after
         row = self.conn.execute(
-            "SELECT created_at FROM messages"
+            "SELECT rowid FROM messages"
             " WHERE session_id = ? AND role = 'summary'"
-            " ORDER BY created_at DESC LIMIT 1",
+            " ORDER BY rowid DESC LIMIT 1",
             (session_id,),
         ).fetchone()
         if row:
             return self.conn.execute(
                 "SELECT * FROM messages WHERE session_id = ?"
-                " AND created_at >= ? ORDER BY created_at ASC",
-                (session_id, row["created_at"]),
+                " AND rowid >= ? ORDER BY rowid ASC",
+                (session_id, row["rowid"]),
             ).fetchall()
         return self.conn.execute(
             "SELECT * FROM messages WHERE session_id = ?"
-            " ORDER BY created_at ASC",
+            " ORDER BY rowid ASC",
             (session_id,),
         ).fetchall()
 
