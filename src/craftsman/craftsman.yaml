@@ -6,10 +6,29 @@ logging:
   debug: true # show logs on the console
   level: DEBUG
 
+chat:
+  retry_interval_sec: 3
+  rebuild_completer_interval_sec: 15
+  footer:
+    - "⚒️ Press Enter to send message. Alt+Enter for newline. @ to attach files or artifacts."
+    - "⚒️ /compact to summarize and reduce conversation history size."
+    - "💬 We are building a ship of Thesus, with code instead of planks."
+    - "💬 Once men turned their thinking over to machines in the hope that this would set them free." # quote from Frank Herbert's novel "Dune"
+    - "💬 Life is like a box of chocolates, you never know what you're gonna get." # quote from Forrest Gump
+    - "💬 To live is to suffer, to survive is to find some meaning in the suffering." # quote from Friedrich Nietzsche
+    - "💬 One must imagine Sisyphus happy." # quote from Albert Camus' essay "The Myth of Sisyphus"
+    - "💬 The only true wisdom is in knowing you know nothing." # quote from Socrates
+
 workspace:
   root: ~/.craftsman
   database: ~/.craftsman/database
+  secrets: ~/.craftsman/secrets
   logs: ~/.craftsman/logs
+
+crypto:
+  size: 32 # 256-bit keys for AES-256 encryption
+  algorithm: HS256 # HMAC-SHA256 for signing encrypted data
+  duration_hr: 8 # hours before encrypted data expires
 
 provider:
   debug: true # true: show reasoning steps

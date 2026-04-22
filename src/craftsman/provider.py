@@ -13,7 +13,7 @@ class Provider:
         self.logger = CraftsmanLogger().get_logger(__name__)
         self.debug = self.config["provider"].get("debug", False)
         self.model = model or self.config["provider"]["model"]
-
+        self.logger.debug("Resetting provider state...")
         self.cert = Auth.get_password("LLM_SSL_CRT")
         self.verify = bool(self.cert)
         if self.cert:
@@ -30,7 +30,12 @@ class Provider:
             "output_cost_per_token", 0.0
         )
 
-    async def completion(self, messages: list, max_tokens: int = None):
+    async def completion(
+        self,
+        messages: list,
+        max_tokens: int = None,
+        cancel_event=None,
+    ):
         response = await litellm.acompletion(
             model=self.model,
             api_key=self.api_key,
@@ -43,7 +48,9 @@ class Provider:
         )
 
         usage = None
-        async for kind, text in self.model_response_parser(response):
+        async for kind, text in self.model_response_parser(
+            response, cancel_event
+        ):
             if kind == "__usage__":
                 usage = text
                 continue
@@ -82,12 +89,16 @@ class Provider:
     async def model_response_parser(
         self,
         response: litellm.utils.CustomStreamWrapper,
+        cancel_event=None,
         think_tag: str = "reasoning_content",
         think_start_tag: str = "<think>",
         think_end_tag: str = "</think>",
     ):
         in_think = False
         async for chunk in response:
+            if cancel_event and cancel_event.is_set():
+                await response.aclose()
+                return
             if getattr(chunk, "usage", None):
                 yield ("__usage__", chunk.usage)
 

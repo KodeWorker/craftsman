@@ -1,5 +1,19 @@
 # API
 
+All `/sessions/*` endpoints require `Authorization: Bearer <token>`.
+
+## POST /users/login
+
+Request:
+```json
+{ "username": "...", "password": "..." }
+```
+
+Response:
+```json
+{ "token": "<jwt>" }
+```
+
 ## GET /health
 
 ```json
@@ -8,7 +22,7 @@
 
 ## GET /sessions/list
 
-Query params: `project_id` (optional), `limit` (optional)
+Query params: `project_id` (optional), `limit` (optional). Returns sessions scoped to the authenticated user.
 
 ```json
 {

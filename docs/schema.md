@@ -5,6 +5,14 @@
 Single file at `~/.craftsman/database/craftsman.db`.
 
 ```sql
+-- Users: registry of valid users
+CREATE TABLE users (
+  id            TEXT PRIMARY KEY,  -- UUID
+  username      TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 -- Projects: groups of related sessions
 CREATE TABLE projects (
   id          TEXT PRIMARY KEY,  -- UUID
@@ -18,6 +26,7 @@ CREATE TABLE projects (
 CREATE TABLE sessions (
   id         TEXT PRIMARY KEY,  -- UUID
   project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
+  user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
   title      TEXT,
   metadata   TEXT,  -- JSON string
   created_at TEXT NOT NULL DEFAULT (datetime('now')),

@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException, Request
 from craftsman.logger import CraftsmanLogger
 from craftsman.memory.librarian import Librarian
 from craftsman.provider import Provider
+from craftsman.router.deps import _crypto
 from craftsman.router.sessions import SessionsRouter
 
 
@@ -18,6 +19,7 @@ class Server:
         self.app = FastAPI()
         self.app.get("/health")(self.health_check)
         self.app.post("/subagent/run")(self.run_subagent)
+        self.app.post("/users/login")(self.login_user)
 
         self.sessions_router = SessionsRouter(
             self.provider, self.librarian, self.active_sessions
@@ -67,6 +69,27 @@ class Server:
             self.active_sessions.discard(
                 session_id
             )  # remove from active sessions if present
+
+    async def login_user(self, request: Request):
+        body = await request.json()
+        username = body.get("username")
+        password = body.get("password")
+        if not username or not password:
+            raise HTTPException(
+                status_code=400, detail="Username and password are required."
+            )
+        user = self.librarian.structure_db.get_user(username)
+        dummy = "$2b$12$dummyhashfortimingXXXXXXXXXXXXXXXXXXXXXXX"
+        password_hash = dict(user)["password_hash"] if user else dummy
+        if not user or not _crypto.verify_password(password, password_hash):
+            self.logger.warning(f"Failed login attempt for user '{username}'.")
+            raise HTTPException(
+                status_code=401, detail="Invalid username or password."
+            )
+        user = dict(user)
+        token = _crypto.create_token(user["id"])
+        self.logger.info(f"User '{user['username']}' logged in successfully.")
+        return {"token": token}
 
     def start(self):
         self.logger.info(f"Starting server on port {self.port}...")

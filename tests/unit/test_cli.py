@@ -18,6 +18,7 @@ def mock_config(mocker):
                 "root": "/tmp/craftsman-test",
                 "database": "/tmp/craftsman-test/database",
                 "logs": "/tmp/craftsman-test/logs",
+                "secrets": "/tmp/craftsman-test/secrets",
             }
         },
     )
@@ -31,7 +32,7 @@ def mock_makedirs(mocker):
 @pytest.fixture
 def mock_auth(mocker):
     mock_cls = mocker.patch("craftsman.cli.Auth")
-    mock_cls.USERNAME_LIST = ["LLM_BASE_URL", "LLM_API_KEY", "LLM_SSL_CRT"]
+    mock_cls.LLM_KEY_LIST = ["LLM_BASE_URL", "LLM_API_KEY", "LLM_SSL_CRT"]
     mock_cls.get_password.return_value = None
     return mock_cls
 
@@ -57,10 +58,10 @@ def mock_init_fs(mocker, mock_makedirs):
     return mock_makedirs
 
 
-def test_init_creates_three_directories(runner, mock_config, mock_init_fs):
+def test_init_creates_four_directories(runner, mock_config, mock_init_fs):
     result = runner.invoke(main, ["init"])
     assert result.exit_code == 0
-    assert mock_init_fs.call_count == 3
+    assert mock_init_fs.call_count == 4
 
 
 def test_init_outputs_root_path(runner, mock_config, mock_init_fs):
@@ -137,24 +138,24 @@ def test_auth_get_shows_not_set(runner, mock_auth):
     assert "Not set" in result.output
 
 
-# --- auth clear ---
+# --- auth delete ---
 
 
-def test_auth_clear_specific_provider(runner, mock_auth):
+def test_auth_delete_specific_key(runner, mock_auth):
     mock_auth.get_password.return_value = "val"
-    runner.invoke(main, ["auth", "clear", "LLM_API_KEY"])
+    runner.invoke(main, ["auth", "delete", "LLM_API_KEY"])
     mock_auth.delete_password.assert_called_once_with("LLM_API_KEY")
 
 
-def test_auth_clear_specific_provider_not_set(runner, mock_auth):
+def test_auth_delete_specific_key_not_set(runner, mock_auth):
     mock_auth.get_password.return_value = None
-    runner.invoke(main, ["auth", "clear", "LLM_API_KEY"])
+    runner.invoke(main, ["auth", "delete", "LLM_API_KEY"])
     mock_auth.delete_password.assert_not_called()
 
 
-def test_auth_clear_all_providers(runner, mock_auth):
+def test_auth_delete_all_llm_keys(runner, mock_auth):
     mock_auth.get_password.return_value = "val"
-    runner.invoke(main, ["auth", "clear"])
+    runner.invoke(main, ["auth", "delete"])
     assert mock_auth.delete_password.call_count == 3
 
 

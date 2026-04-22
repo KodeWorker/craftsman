@@ -21,11 +21,18 @@ def test_set_password_rejects_unknown_username():
 
 
 @pytest.mark.parametrize(
-    "username", ["LLM_BASE_URL", "LLM_API_KEY", "LLM_SSL_CRT"]
+    "username",
+    ["LLM_BASE_URL", "LLM_API_KEY", "LLM_SSL_CRT", "USERNAME", "PASSWORD"],
 )
-def test_set_password_all_valid_usernames_accepted(username, mock_keyring):
+def test_set_password_all_valid_keys_accepted(username, mock_keyring):
     Auth.set_password(username, "val")
     mock_keyring.set_password.assert_called_once()
+
+
+def test_set_password_user_keys_accepted(mock_keyring):
+    Auth.set_password("USERNAME", "alice")
+    Auth.set_password("PASSWORD", "secret")
+    assert mock_keyring.set_password.call_count == 2
 
 
 def test_get_password_returns_value(mock_keyring):

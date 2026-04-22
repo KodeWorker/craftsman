@@ -8,6 +8,8 @@ import click
 from craftsman.auth import Auth
 from craftsman.client import Client
 from craftsman.configure import get_config
+from craftsman.crypto import Crypto
+from craftsman.memory.structure import StructureDB
 
 CONTEXT_SETTINGS = dict(help_option_names=["-h", "--help"])
 
@@ -28,6 +30,9 @@ def init():
         os.path.expanduser(config["workspace"]["database"]), exist_ok=True
     )
     os.makedirs(os.path.expanduser(config["workspace"]["logs"]), exist_ok=True)
+    os.makedirs(
+        os.path.expanduser(config["workspace"]["secrets"]), exist_ok=True
+    )
     user_config = os.path.join(root_dir, "craftsman.yaml")
     if not os.path.exists(user_config):
         shutil.copy(
@@ -92,6 +97,9 @@ def dev(port: int = 6969):
     client.chat()
 
 
+# --- Authentication Commands ---
+
+
 @main.group(context_settings=CONTEXT_SETTINGS)
 def auth():
     """Authentication management commands."""
@@ -101,54 +109,114 @@ def auth():
 @auth.command(name="list")
 def auth_list():
     """Lists all authenticated agents."""
-    for provider in Auth.USERNAME_LIST:
-        password = Auth.get_password(provider)
+    for key in Auth.LLM_KEY_LIST:
+        password = Auth.get_password(key)
         if password is not None:
-            click.echo(f"{provider}: {len(password) * '*'}")
+            click.echo(f"{key}: {len(password) * '*'}")
         else:
-            click.echo(f"{provider}: Not set")
+            click.echo(f"{key}: Not set")
 
 
 @auth.command(name="set")
-@click.argument("provider")
-def auth_set(provider: str):
-    """Sets authentication details for a specific provider."""
-    password = click.prompt(f"Enter password for {provider}", hide_input=True)
-    Auth.set_password(provider, password)
-    click.echo(f"Password for {provider} set successfully.")
+@click.argument("key")
+def auth_set(key: str):
+    """Sets authentication details for a specific key."""
+    password = click.prompt(f"Enter password for {key}", hide_input=True)
+    Auth.set_password(key, password)
+    click.echo(f"Password for {key} set successfully.")
 
 
 @auth.command(name="get")
-@click.argument("provider")
-def auth_get(provider: str):
-    """Gets authentication details for a specific provider."""
-    password = Auth.get_password(provider)
+@click.argument("key")
+def auth_get(key: str):
+    """Gets authentication details for a specific key."""
+    password = Auth.get_password(key)
     if password is not None:
-        click.echo(f"{provider}: {len(password) * '*'}")
+        click.echo(f"{key}: {len(password) * '*'}")
     else:
-        click.echo(f"{provider}: Not set")
+        click.echo(f"{key}: Not set")
 
 
 @auth.command(name="delete")
-@click.argument("provider", required=False)
-def auth_delete(provider: str = None):
+@click.argument("key", required=False)
+def auth_delete(key: str = None):
     """
-    Deletes authentication details for a specific provider, or all providers
+    Deletes authentication details for a specific key, or all keys
     if none is specified.
     """
-    if provider:
-        if Auth.get_password(provider) is not None:
-            Auth.delete_password(provider)
-            click.echo(f"Password for {provider} deleted.")
+    if key:
+        if Auth.get_password(key) is not None:
+            Auth.delete_password(key)
+            click.echo(f"Password for {key} deleted.")
         else:
-            click.echo(f"Password for {provider} is not set.")
+            click.echo(f"Password for {key} is not set.")
     else:
-        for cred in Auth.USERNAME_LIST:
+        for cred in Auth.LLM_KEY_LIST:
             if Auth.get_password(cred) is not None:
                 Auth.delete_password(cred)
                 click.echo(f"Password for {cred} deleted.")
             else:
                 click.echo(f"Password for {cred} is not set.")
+
+
+# --- User Management Commands ---
+
+
+@main.group(context_settings=CONTEXT_SETTINGS)
+def user():
+    """User management commands."""
+    pass
+
+
+# --- Server User Commands ---
+
+
+@user.command(name="list")
+def user_list():
+    for u in StructureDB().list_users():
+        click.echo(f"{u['id'][:8]}  {u['username']}  {u['created_at']}")
+
+
+@user.command(name="register")
+def user_register():
+    username = click.prompt("Username")
+    password = click.prompt("Password", hide_input=True)
+    confirmed = click.prompt("Confirm password", hide_input=True)
+    if password != confirmed:
+        click.echo("Passwords do not match.")
+        return
+    db = StructureDB()
+    if db.get_user(username):
+        click.echo(f"User '{username}' already exists.")
+        return
+    db.create_user(username, Crypto().hash_password(password))
+    click.echo(f"User '{username}' registered successfully.")
+
+
+@user.command(name="delete")
+@click.argument("username")
+def user_delete(username: str):
+    db = StructureDB()
+    if not db.get_user(username):
+        click.echo(f"User '{username}' does not exist.")
+        return
+    db.delete_user(username)
+    click.echo(f"User '{username}' deleted.")
+
+
+# --- Client User Commands ---
+
+
+@user.command(name="login")
+def user_login():
+    username = click.prompt("Username")
+    password = click.prompt("Password", hide_input=True)
+    Auth.set_password("USERNAME", username)
+    Auth.set_password("PASSWORD", password)
+    click.echo("User credentials saved.")
+
+
+# --- Session Management Commands ---
 
 
 @main.group(context_settings=CONTEXT_SETTINGS)

@@ -11,6 +11,8 @@ Dev mode: drop old DB (`rm ~/.craftsman/database/craftsman.db`), no migration.
 
 ## New dependencies
 
+* Implementation note: passlib[bcrypt] -> bcrypt due to passlib bug
+
 ```toml
 PyJWT>=2.8
 passlib[bcrypt]>=1.7
@@ -47,34 +49,47 @@ New `StructureDB` methods:
 - `create_session(project_id, user_id=None)` — update signature
 - `list_sessions(project_id, limit, user_id=None)` — filter by `user_id`
 
-### JWT utilities — `src/craftsman/jwt_utils.py` (new)
+### JWT utilities — `src/craftsman/crypto.py` (new)
+
+* Implementation note: add secrets directory in worksapce and crypto configs
 
 - `get_secret() -> str` — read `~/.craftsman/database/server_secret.key`; generate and write random 32-byte hex on first call
 - `create_token(user_id: str) -> str` — sign JWT `{"sub": user_id, "exp": now + 8h}`
 - `decode_token(token: str) -> str` — return `user_id`; raise `HTTPException(401)` on invalid or expired token
 
-### User router — `src/craftsman/router/user.py` (new)
+### User router — `src/craftsman/router/users.py` (new)
 
-Class `UserRouter`, prefix `/user`, takes `Librarian` in constructor.
+* Implementation note: only one endpoint -> no need for new router
+* Add hash_password and verify_password in crypto.py
+
+Class `UserRouter`, prefix `/users`, takes `Librarian` in constructor.
 
 Only login goes through HTTP — register/list/delete are direct DB operations from the CLI:
 
 | Endpoint | Body | Response |
 |---|---|---|
-| `POST /user/login` | `{username, password}` | `{token}` |
+| `POST /users/login` | `{username, password}` | `{token}` |
 
 `login`: fetch user via `get_user_by_username()`, `bcrypt.verify()`, return `create_token(user_id)`.
 
 ### Server — `src/craftsman/server.py`
 
 - Include `UserRouter`
-- Add `get_current_user` FastAPI dependency:
-  ```python
-  async def get_current_user(request: Request) -> str:
-      token = request.headers.get("Authorization", "").removeprefix("Bearer ")
-      return decode_token(token)  # raises 401 if invalid
-  ```
-- Import and use in `SessionsRouter` handlers via `Depends`
+
+### Router dependencies — `src/craftsman/router/deps.py` (new)
+
+```python
+from fastapi import Request
+from craftsman.jwt_utils import decode_token
+
+async def get_current_user(request: Request) -> str:
+    token = request.headers.get("Authorization", "").removeprefix("Bearer ")
+    return decode_token(token)
+```
+
+Imported by `sessions.py` and ~~`user.py`~~ `server.py` via `from craftsman.router.deps import get_current_user`.
+
+* Implementation note: `verify_token` raises `jwt.PyJWTError` on failure — `deps.py` catches it and raises `HTTPException(401)`. Import is `from craftsman.crypto import Crypto`, not `jwt_utils`.
 
 ### Sessions router — `src/craftsman/router/sessions.py`
 
@@ -85,7 +100,9 @@ Add `user_id: str = Depends(get_current_user)` to:
 
 ### CLI — `src/craftsman/cli.py` + `src/craftsman/client.py`
 
-**Auth keyring**: add `CRAFTSMAN_USER` and `CRAFTSMAN_PASSWORD` to `Auth.USERNAME_LIST` in `auth.py`.
+* Implementation note: `USERNAME`, `PASSWORD` added to `auth.py` for client
+
+**Auth keyring**: drop `USERNAME_LIST` whitelist from `auth.py` — validation is redundant since the DB owns the user registry. Use `Auth` directly for any keyring key.
 
 **Server-side commands** (direct DB, no server running required) — in `cli.py` `user` group, use `StructureDB` + `passlib` directly:
 
@@ -152,11 +169,13 @@ def _fetch_token(self) -> str:
 |---|---|
 | `pyproject.toml` | Add `PyJWT`, `passlib[bcrypt]` |
 | `src/craftsman/memory/structure.py` | `users` table, `user_id` on sessions, new methods |
-| `src/craftsman/jwt_utils.py` | New — JWT sign/verify + secret management |
+| `src/craftsman/crypto.py` | New — JWT sign/verify + secret management |
+| `src/craftsman/router/deps.py` | New — `get_current_user` FastAPI dependency |
 | `src/craftsman/router/user.py` | New — login endpoint only |
 | `src/craftsman/router/sessions.py` | Add `Depends(get_current_user)` to handlers |
 | `src/craftsman/server.py` | Include `AuthRouter`, define `get_current_user` |
-| `src/craftsman/auth.py` | Add `CRAFTSMAN_USER`, `CRAFTSMAN_PASSWORD` to `USERNAME_LIST` |
+| `src/craftsman/auth.py` | Renamed `USERNAME_LIST` → `KEY_LIST`, `__validate_username` → `__validate_key` ✓ done |
+| `src/craftsman/cli.py` | Updated to use `KEY_LIST`, `key` arg naming ✓ done |
 | `src/craftsman/client.py` | `_fetch_token()`, in-memory `self.token`, auth headers + 401 retry in `chat()`/`run()` |
 | `src/craftsman/cli.py` | Add `user` group: `register`, `list`, `delete` (direct DB); `login` (client HTTP) |
 | `docs/schema.md` | Document `users` table and `user_id` on sessions |

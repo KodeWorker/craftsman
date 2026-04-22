@@ -1,8 +1,9 @@
+import os
 import sqlite3
 import uuid
 from pathlib import Path
 
-DB_PATH = Path.home() / ".craftsman" / "database" / "craftsman.db"
+from craftsman.configure import get_config
 
 _DDL = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -13,10 +14,18 @@ CREATE TABLE IF NOT EXISTS projects (
     updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
+CREATE TABLE IF NOT EXISTS users (
+  id            TEXT PRIMARY KEY,
+  username      TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
     id         TEXT PRIMARY KEY,
     project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
     title      TEXT,
+    user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
     metadata   TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     ended_at   TEXT
@@ -121,7 +130,13 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
 
 
 class StructureDB:
-    def __init__(self, path: Path = DB_PATH):
+    def __init__(self, path: Path | None = None):
+        self.config = get_config()
+        if path is None:
+            path = (
+                Path(os.path.expanduser(self.config["workspace"]["database"]))
+                / "craftsman.db"
+            )
         path.parent.mkdir(parents=True, exist_ok=True)
         self.conn = sqlite3.connect(str(path), check_same_thread=False)
         self.conn.row_factory = sqlite3.Row
@@ -177,19 +192,45 @@ class StructureDB:
         self.conn.execute("DELETE FROM projects WHERE id = ?", (project_id,))
         self.conn.commit()
 
+    # --- users ---
+    def create_user(self, username: str, password_hash: str) -> dict:
+        uid = str(uuid.uuid4())
+        self.conn.execute(
+            "INSERT INTO users (id, username, password_hash)"
+            " VALUES (?, ?, ?)",
+            (uid, username, password_hash),
+        )
+        self.conn.commit()
+        return {"id": uid, "username": username}
+
+    def get_user(self, username: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM users WHERE username = ?", (username,)
+        ).fetchone()
+
+    def list_users(self) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT * FROM users ORDER BY username"
+        ).fetchall()
+
+    def delete_user(self, username: str) -> None:
+        self.conn.execute("DELETE FROM users WHERE username = ?", (username,))
+        self.conn.commit()
+
     # --- sessions ---
 
     def create_session(
         self,
         project_id: str = None,
         title: str = None,
+        user_id: str = None,
         metadata: str = None,
     ) -> str:
         sid = str(uuid.uuid4())
         self.conn.execute(
-            "INSERT INTO sessions (id, project_id, title, metadata)"
-            " VALUES (?, ?, ?, ?)",
-            (sid, project_id, title, metadata),
+            "INSERT INTO sessions (id, project_id, title, user_id, metadata)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (sid, project_id, title, user_id, metadata),
         )
         self.conn.commit()
         return sid
@@ -216,11 +257,20 @@ class StructureDB:
         ).fetchone()
 
     def list_sessions(
-        self, project_id: str = None, limit: int = None
+        self, project_id: str = None, user_id: str = None, limit: int = None
     ) -> list[sqlite3.Row]:
+        clauses = []
+        params = []
+        if project_id:
+            clauses.append("s.project_id = ?")
+            params.append(project_id)
+        if user_id:
+            clauses.append("s.user_id = ?")
+            params.append(user_id)
+        where = ("WHERE " + " AND ".join(clauses)) if clauses else ""
         limit_clause = " LIMIT ?" if limit is not None else ""
-        project_clause = " AND s.project_id = ?" if project_id else ""
-        params = tuple(p for p in [project_id, limit] if p is not None)
+        if limit is not None:
+            params.append(limit)
         return self.conn.execute(
             f"""
             SELECT s.*, m.content AS last_input, m.created_at AS last_input_at
@@ -232,7 +282,7 @@ class StructureDB:
                 GROUP BY session_id
                 HAVING created_at = MAX(created_at)
             ) m ON m.session_id = s.id
-            {project_clause}
+            {where}
             ORDER BY s.created_at DESC{limit_clause}
             """,
             params,
@@ -270,20 +320,20 @@ class StructureDB:
     def get_messages(self, session_id: str) -> list[sqlite3.Row]:
         # Find the most recent summary checkpoint; return it + everything after
         row = self.conn.execute(
-            "SELECT created_at FROM messages"
+            "SELECT rowid FROM messages"
             " WHERE session_id = ? AND role = 'summary'"
-            " ORDER BY created_at DESC LIMIT 1",
+            " ORDER BY rowid DESC LIMIT 1",
             (session_id,),
         ).fetchone()
         if row:
             return self.conn.execute(
                 "SELECT * FROM messages WHERE session_id = ?"
-                " AND created_at >= ? ORDER BY created_at ASC",
-                (session_id, row["created_at"]),
+                " AND rowid >= ? ORDER BY rowid ASC",
+                (session_id, row["rowid"]),
             ).fetchall()
         return self.conn.execute(
             "SELECT * FROM messages WHERE session_id = ?"
-            " ORDER BY created_at ASC",
+            " ORDER BY rowid ASC",
             (session_id,),
         ).fetchall()
 
