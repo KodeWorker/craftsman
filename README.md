@@ -28,7 +28,7 @@ uv run craftsman auth delete [<provider>]
 # Server-side User control
 uv run craftsman user list
 uv run craftsman user register
-uv run craftsman user delete <usernam>
+uv run craftsman user delete <username>
 # Client-side login
 uv run craftsman user login
 

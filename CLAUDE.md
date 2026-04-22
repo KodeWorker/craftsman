@@ -19,7 +19,7 @@ uv run black --line-length=79 src/
 uv run isort src/
 ```
 
-No test suite exists yet.
+Run tests: `uv run pytest tests/unit/`
 
 ## Architecture
 
@@ -27,9 +27,11 @@ Early-stage autonomous agent framework. CLI + server functional; client/vector/g
 
 ### Entry point
 
-`src/craftsman/cli.py` — Click CLI with two command groups:
-- Top-level: `init`, `server`, `client`, `dev`
-- `auth` subgroup: `list`, `set`, `get`, `clear`
+`src/craftsman/cli.py` — Click CLI with three command groups:
+- Top-level: `init`, `server`, `chat`, `run`, `dev`
+- `auth` subgroup: `list`, `set`, `get`, `delete`
+- `sess` subgroup: `list`, `delete`
+- `user` subgroup: `list`, `register`, `delete`, `login` (API only; no CLI yet)
 
 ### Modules
 
@@ -44,6 +46,8 @@ Early-stage autonomous agent framework. CLI + server functional; client/vector/g
 | `memory/vector.py` | Stub | sqlite-vec embeddings via LightRAG |
 | `memory/graph.py` | Stub | Kuzu knowledge graph via LightRAG |
 | `client.py` | Done | Terminal chat client; streaming display, session resume, slash commands |
+| `crypto.py` | Done | JWT token creation/verification; bcrypt password hashing; secret key management |
+| `router/deps.py` | Done | FastAPI dependencies; `get_current_user` JWT guard; `_crypto` singleton |
 
 ### Infrastructure
 
