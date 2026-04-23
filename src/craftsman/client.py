@@ -24,6 +24,9 @@ from craftsman.auth import Auth
 from craftsman.configure import get_config
 from craftsman.logger import CraftsmanLogger
 
+_AT_FILE_STYLE_CLASS = "class:at-file"  # `@` file completion style class name
+_AT_FILE_STYLE = "fg:ansimagenta bold"  # `@` file completion style
+
 
 class ChatCompleter(Completer):
 
@@ -68,7 +71,7 @@ class ChatCompleter(Completer):
                         yield Completion(
                             "@" + file_path,
                             start_position=-len(word),
-                            style="fg:ansimagenta bold",
+                            style=_AT_FILE_STYLE,
                         )
                     else:
                         yield Completion(file_path, start_position=-len(word))
@@ -86,7 +89,7 @@ class AtFileLexer(Lexer):
                     j = i + 1
                     while j < len(line) and not line[j].isspace():
                         j += 1
-                    tokens.append(("class:at-file", line[i:j]))
+                    tokens.append((_AT_FILE_STYLE_CLASS, line[i:j]))
                     i = j
                 else:
                     j = i + 1
@@ -156,7 +159,7 @@ class Client:
         self.input_style = PTStyle.from_dict(
             {
                 "prompt": "fg:ansigreen bold",
-                "at-file": "fg:ansimagenta bold",
+                "at-file": _AT_FILE_STYLE,
             }
         )
 
