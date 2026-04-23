@@ -54,6 +54,7 @@ CREATE TABLE IF NOT EXISTS global_facts (
 
 CREATE TABLE IF NOT EXISTS artifacts (
     id         TEXT PRIMARY KEY,
+    user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
     session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
     project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
     filepath   TEXT NOT NULL,
@@ -379,6 +380,7 @@ class StructureDB:
         self,
         filepath: str,
         filename: str,
+        user_id: str = None,
         session_id: str = None,
         project_id: str = None,
         mime_type: str = None,
@@ -387,11 +389,12 @@ class StructureDB:
         aid = str(uuid.uuid4())
         self.conn.execute(
             "INSERT INTO artifacts"
-            " (id, session_id, project_id,"
+            " (id, user_id, session_id, project_id,"
             " filepath, filename, mime_type, size_bytes)"
-            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             (
                 aid,
+                user_id,
                 session_id,
                 project_id,
                 filepath,
@@ -420,6 +423,7 @@ class StructureDB:
 
     def get_artifacts(
         self,
+        user_id: str = None,
         session_id: str = None,
         project_id: str = None,
     ) -> list[sqlite3.Row]:
@@ -434,6 +438,12 @@ class StructureDB:
                 "SELECT * FROM artifacts WHERE project_id = ?"
                 " ORDER BY created_at DESC",
                 (project_id,),
+            ).fetchall()
+        if user_id:
+            return self.conn.execute(
+                "SELECT * FROM artifacts WHERE user_id = ?"
+                " ORDER BY created_at DESC",
+                (user_id,),
             ).fetchall()
         return self.conn.execute(
             "SELECT * FROM artifacts ORDER BY created_at DESC"

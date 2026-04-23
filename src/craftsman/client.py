@@ -957,6 +957,41 @@ class Client:
         )
         return result
 
+    def list_artifacts(self) -> list:
+        response = self.__request("get", f"{self.entry_point}/artifacts/")
+        if response.status_code != 200:
+            self.logger.error(
+                f"Error listing artifacts: "
+                f"{response.status_code} - {response.text}"
+            )
+            return []
+        artifacts = response.json().get("artifacts", [])
+        infos = []
+        for artifact in artifacts:
+            artifact_id = artifact.get("id", "")[:8]
+            filename = artifact.get("filename", "")
+            mime_type = artifact.get("mime_type", "")
+            size_bytes = artifact.get("size_bytes", 0)
+            created_at = artifact.get("created_at", "")
+            infos.append(
+                f"{artifact_id} | {filename} | {mime_type} | "
+                f"{size_bytes} bytes | {created_at}"
+            )
+        return infos
+
+    def delete_artifact(self, artifact: str) -> bool:
+        response = self.__request(
+            "delete", f"{self.entry_point}/artifacts/{artifact}"
+        )
+        if response.status_code == 200:
+            self.logger.info(f"Artifact '{artifact}' deleted.")
+            return True
+        self.logger.error(
+            f"Error deleting artifact '{artifact}': "
+            f"{response.status_code} - {response.text}"
+        )
+        return False
+
     def upload_artifacts(self, user_input: str, session_id: str) -> str | None:
         # find all @file_path patterns in user input
         pattern = r"@([\w./\\~:-]+)"

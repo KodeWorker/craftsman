@@ -262,13 +262,12 @@ def arti():
 
 
 @arti.command(name="list")
+@click.option("--host", default="localhost", help="Server host")
 @click.option("--port", default=6969, help="Server port")
 def arti_list(host: str = "localhost", port: int = 6969):
-    """Lists all artifacts."""
-    from craftsman.server import Server
-
-    _server = Server(port=port)
-    artifact_infos = _server.list_artifacts()
+    """Lists all artifacts for the current user."""
+    client = Client(host=host, port=port)
+    artifact_infos = client.list_artifacts()
     for artifact_info in artifact_infos:
         click.echo(artifact_info)
 
@@ -281,8 +280,6 @@ def arti_delete(
     artifact: str = None, host: str = "localhost", port: int = 6969
 ):
     """Deletes artifact by ID or prefix."""
-    from craftsman.server import Server
-
-    _server = Server(port=port)
-    if _server.delete_artifact(artifact):
+    client = Client(host=host, port=port)
+    if client.delete_artifact(artifact):
         click.echo(f"Artifact '{artifact}' deleted successfully.")
