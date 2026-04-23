@@ -959,7 +959,7 @@ class Client:
 
     def upload_artifacts(self, user_input: str, session_id: str) -> str | None:
         # find all @file_path patterns in user input
-        pattern = r"@([\w./\\~-]+)"
+        pattern = r"@([\w./\\~:-]+)"
         matches = re.findall(pattern, user_input)
         for file_path in matches:
             # skip if user_input already contains @image: or @audio:
