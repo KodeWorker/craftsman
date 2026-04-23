@@ -920,6 +920,10 @@ class Client:
         pattern = r"@([\w./\\~-]+)"
         matches = re.findall(pattern, user_input)
         for file_path in matches:
+            # skip if user_input already contains @image: or @audio:
+            # pattern to avoid duplicate uploads
+            if re.match(r"^(image|audio):[0-9a-f-]+$", file_path):
+                continue
             if file_path in self.completer_ignores:
                 continue
             full_path = Path(file_path).expanduser()
@@ -991,7 +995,6 @@ class Client:
                 self.logger.info(
                     f"Uploaded file '{file_path}' as artifact '{artifact_id}'."
                 )
-                return user_input
             else:
                 print(
                     Fore.RED
@@ -1003,3 +1006,63 @@ class Client:
                     f"{response.status_code} - {response.text}"
                 )
                 return None
+        return user_input
+
+    def list_artifacts(self, session_id: str = None, project_id: str = None):
+        params = {}
+        if session_id:
+            params["session_id"] = session_id
+        if project_id:
+            params["project_id"] = project_id
+
+        response = self.__request(
+            "get",
+            f"{self.entry_point}/artifacts/",
+            params=params,
+        )
+        if response.status_code == 200:
+            artifacts = response.json().get("artifacts", [])
+        else:
+            print(
+                Fore.RED
+                + "Error retrieving artifacts. Please check logs."
+                + Style.RESET_ALL
+            )
+            self.logger.error(
+                "Error retrieving artifacts: "
+                f"{response.status_code} - {response.text}"
+            )
+            artifacts = []
+
+        artifact_infos = []
+        for artifact in artifacts:
+            artifact_id = artifact.get("id", "")[:8]
+            filename = artifact.get("filename", "")
+            mime_type = artifact.get("mime_type", "")
+            size_bytes = artifact.get("size_bytes", 0)
+            created_at = artifact.get("created_at", "")
+            artifact_info = (
+                f"{Fore.CYAN}{artifact_id} | {filename} | {mime_type} | "
+                f"{size_bytes} bytes | {created_at}{Style.RESET_ALL}"
+            )
+            artifact_infos.append(artifact_info)
+        return artifact_infos
+
+    def delete_artifact(self, artifact: str):
+        response = self.__request(
+            "delete",
+            f"{self.entry_point}/artifacts/{artifact}",
+        )
+        if response.status_code == 200:
+            status = response.json().get("status", "")
+            self.logger.info(status)
+        else:
+            print(
+                Fore.RED
+                + f"Error deleting artifact '{artifact}'. Please check logs."
+                + Style.RESET_ALL
+            )
+            self.logger.error(
+                "Error deleting artifact: "
+                f"{response.status_code} - {response.text}"
+            )

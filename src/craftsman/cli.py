@@ -250,3 +250,36 @@ def sess_delete(
     client = Client(host=host, port=port)
     client.delete_session(session)
     click.echo(f"Session '{session}' deleted successfully.")
+
+
+# --- Artifact Management Commands ---
+
+
+@main.group(context_settings=CONTEXT_SETTINGS)
+def arti():
+    """Artifact management commands."""
+    pass
+
+
+@arti.command(name="list")
+@click.option("--host", default="localhost", help="Server host")
+@click.option("--port", default=6969, help="Server port")
+def arti_list(host: str = "localhost", port: int = 6969):
+    """Lists all artifacts."""
+    client = Client(host=host, port=port)
+    artifact_infos = client.list_artifacts()
+    for artifact_info in artifact_infos:
+        click.echo(artifact_info)
+
+
+@arti.command(name="delete")
+@click.argument("artifact")
+@click.option("--host", default="localhost", help="Server host")
+@click.option("--port", default=6969, help="Server port")
+def arti_delete(
+    artifact: str = None, host: str = "localhost", port: int = 6969
+):
+    """Deletes artifact by ID or prefix."""
+    client = Client(host=host, port=port)
+    client.delete_artifact(artifact)
+    click.echo(f"Artifact '{artifact}' deleted successfully.")

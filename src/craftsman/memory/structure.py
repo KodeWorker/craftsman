@@ -440,7 +440,9 @@ class StructureDB:
         ).fetchall()
 
     def delete_artifact(self, artifact_id: str) -> None:
-        self.conn.execute("DELETE FROM artifacts WHERE id = ?", (artifact_id,))
+        self.conn.execute(
+            "DELETE FROM artifacts WHERE id LIKE ?", (f"{artifact_id}%",)
+        )
         self.conn.commit()
 
     # --- plans ---

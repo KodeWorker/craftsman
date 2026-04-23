@@ -133,8 +133,8 @@ warrant their own routers.
 - [ ] `/artifacts` slash command — lists artifacts uploaded in the current session
       (artifact_id, filename, mime type, size); session-scoped only; short UUID prefix shown
       so user can copy and type `@image:<prefix>` to re-inject a past artifact into context
-- [ ] `craftsman artifacts list` CLI — lists all artifacts across sessions
-- [ ] `craftsman artifacts delete <id>` CLI — deletes artifact and removes file
+- [ ] `craftsman arti list` CLI — lists all artifacts across sessions
+- [ ] `craftsman arti delete <id>` CLI — deletes artifact and removes file
       from `~/.craftsman/workspace/`
 - [x] `@filepath` inline syntax — user types `describe @image.jpg` in chat or
       `craftsman run "describe @image.jpg"`; client detects `@`-prefixed tokens,
