@@ -117,8 +117,10 @@ warrant their own routers.
 - [ ] Add `ArtifactRouter` — new `/artifacts/*` handlers
 
 ### Infrastructure
-- [ ] `POST /artifacts/upload` — multipart upload, save to workspace, return artifact_id
+- [ ] `POST /artifacts/` — multipart upload, save to workspace, return artifact_id
+- [ ] `GET /artifacts/` — list artifacts; optional `?session_id=` filter for session-scoped view
 - [ ] `GET /artifacts/{id}` — retrieve artifact metadata
+- [ ] `DELETE /artifacts/{id}` — delete artifact record and remove file from workspace
 - [ ] Strip base64 from message before `store_message`; replace with `[image/audio: artifact_id=<uuid>]`
 - [ ] On `resume_session`: re-encode artifact from disk when restoring messages with artifact refs
 

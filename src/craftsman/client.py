@@ -289,8 +289,7 @@ class Client:
                 os.system("cls" if os.name == "nt" else "clear")
                 response = self.__request(
                     "post",
-                    f"{self.entry_point}/sessions/clear",
-                    json={"session_id": session_id},
+                    f"{self.entry_point}/sessions/{session_id}/clear",
                 )
                 if response.status_code == 200:
                     self.logger.info("Session cleared.")
@@ -307,8 +306,7 @@ class Client:
             elif user_input.lower() == "/system":
                 response = self.__request(
                     "get",
-                    f"{self.entry_point}/sessions/system",
-                    params={"session_id": session_id},
+                    f"{self.entry_point}/sessions/{session_id}/system",
                 )
                 if response.status_code == 200:
                     system_prompt = response.json().get("system_prompt", None)
@@ -344,9 +342,8 @@ class Client:
                 )
                 response = self.__request(
                     "post",
-                    f"{self.entry_point}/sessions/compact",
+                    f"{self.entry_point}/sessions/{session_id}/compact",
                     json={
-                        "session_id": session_id,
                         "summary_limit": limit,
                         "keep_turns": keep_turns,
                     },
@@ -423,15 +420,12 @@ class Client:
             return
 
         if not session_id:
-            response = self.__request(
-                "post", f"{self.entry_point}/sessions/create"
-            )
+            response = self.__request("post", f"{self.entry_point}/sessions/")
             session_id = response.json().get("session_id", "")
         else:
             response = self.__request(
                 "post",
-                f"{self.entry_point}/sessions/resume",
-                json={"session_id": session_id},
+                f"{self.entry_point}/sessions/{session_id}/resume",
             )
             if response.status_code == 200:
                 data = response.json()
@@ -467,12 +461,9 @@ class Client:
         system_prompt = self.__read_system_prompt()
         if system_prompt:
             response = self.__request(
-                "post",
-                f"{self.entry_point}/sessions/system",
-                json={
-                    "system_prompt": system_prompt,
-                    "session_id": session_id,
-                },
+                "put",
+                f"{self.entry_point}/sessions/{session_id}/system",
+                json={"system_prompt": system_prompt},
             )
             if response.status_code == 200:
                 self.logger.info("System prompt set successfully.")
@@ -541,8 +532,8 @@ class Client:
             message = {"role": "user", "content": user_input}
             response = self.__request(
                 "post",
-                f"{self.entry_point}/sessions/completion",
-                json={"message": message, "session_id": session_id},
+                f"{self.entry_point}/sessions/{session_id}/completion",
+                json={"message": message},
                 stream=True,
             )
             if response.status_code != 200:
@@ -673,9 +664,7 @@ class Client:
             return
 
         # Create a new session for this subagent task
-        response = self.__request(
-            "post", f"{self.entry_point}/sessions/create"
-        )
+        response = self.__request("post", f"{self.entry_point}/sessions/")
         if response.status_code == 200:
             session_id = response.json().get("session_id", "")
             self.logger.info(f"Created new session with ID: {session_id}")
@@ -694,12 +683,9 @@ class Client:
         system_prompt = self.__read_system_prompt()
         if system_prompt:
             response = self.__request(
-                "post",
-                f"{self.entry_point}/sessions/system",
-                json={
-                    "system_prompt": system_prompt,
-                    "session_id": session_id,
-                },
+                "put",
+                f"{self.entry_point}/sessions/{session_id}/system",
+                json={"system_prompt": system_prompt},
             )
             if response.status_code == 200:
                 self.logger.info("System prompt set successfully.")
@@ -764,7 +750,7 @@ class Client:
     def get_sessions(self, project_id: str = None, limit: int = 5) -> list:
         response = self.__request(
             "get",
-            f"{self.entry_point}/sessions/list",
+            f"{self.entry_point}/sessions/",
             params={"project_id": project_id, "limit": limit},
         )
         if response.status_code == 200:
@@ -807,7 +793,7 @@ class Client:
     def find_session_id(self, session: str) -> str:
         response = self.__request(
             "get",
-            f"{self.entry_point}/sessions/id",
+            f"{self.entry_point}/sessions/resolve",
             params={"session": session},
         )
         if response.status_code == 200:
@@ -853,9 +839,8 @@ class Client:
             return
 
         response = self.__request(
-            "post",
-            f"{self.entry_point}/sessions/delete",
-            json={"session_id": session_id},
+            "delete",
+            f"{self.entry_point}/sessions/{session_id}",
         )
         if response.status_code == 200:
             status = response.json().get("status", "")

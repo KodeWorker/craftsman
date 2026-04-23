@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException, Request
 from craftsman.logger import CraftsmanLogger
 from craftsman.memory.librarian import Librarian
 from craftsman.provider import Provider
+from craftsman.router.artifacts import ArtifactsRouter
 from craftsman.router.deps import _crypto
 from craftsman.router.sessions import SessionsRouter
 
@@ -24,7 +25,9 @@ class Server:
         self.sessions_router = SessionsRouter(
             self.provider, self.librarian, self.active_sessions
         )
+        self.artifacts_router = ArtifactsRouter(self.librarian)
         self.app.include_router(self.sessions_router.router)
+        self.app.include_router(self.artifacts_router.router)
 
     async def health_check(self):
         return {"status": "ok"}

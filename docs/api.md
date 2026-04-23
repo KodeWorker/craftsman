@@ -1,6 +1,6 @@
 # API
 
-All `/sessions/*` endpoints require `Authorization: Bearer <token>`.
+All `/sessions/*` and `/artifacts/*` endpoints require `Authorization: Bearer <token>`.
 
 ## POST /users/login
 
@@ -20,7 +20,11 @@ Response:
 { "status": "ok" }
 ```
 
-## GET /sessions/list
+---
+
+## Sessions
+
+### GET /sessions/
 
 Query params: `project_id` (optional), `limit` (optional). Returns sessions scoped to the authenticated user.
 
@@ -37,34 +41,27 @@ Query params: `project_id` (optional), `limit` (optional). Returns sessions scop
 }
 ```
 
-## GET /sessions/id
+### GET /sessions/resolve
 
-Query params: `session` — id, prefix, or title
-
-```json
-{ "session_id": "<uuid>" }
-```
-
-## GET /sessions/system
-
-Query params: `session_id` (required)
-
-```json
-{ "system_prompt": "..." }
-```
-
-## POST /sessions/create
+Query params: `session` — id, prefix, or title.
 
 ```json
 { "session_id": "<uuid>" }
 ```
 
-## POST /sessions/resume
+### POST /sessions/
 
-Request:
 ```json
 { "session_id": "<uuid>" }
 ```
+
+### DELETE /sessions/{id}
+
+```json
+{ "status": "session '<uuid>' deleted" }
+```
+
+### POST /sessions/{id}/resume
 
 Response:
 ```json
@@ -75,35 +72,23 @@ Response:
 }
 ```
 
-## POST /sessions/delete
+### POST /sessions/{id}/clear
 
-Request:
-```json
-{ "session_id": "<uuid>" }
-```
-
-Response:
-```json
-{ "status": "session '<uuid>' deleted" }
-```
-
-## POST /sessions/clear
-
-Request:
-```json
-{ "session_id": "<uuid>" }
-```
-
-Response:
 ```json
 { "status": "session cleared" }
 ```
 
-## POST /sessions/system
+### GET /sessions/{id}/system
+
+```json
+{ "system_prompt": "..." }
+```
+
+### PUT /sessions/{id}/system
 
 Request:
 ```json
-{ "session_id": "<uuid>", "system_prompt": "..." }
+{ "system_prompt": "..." }
 ```
 
 Response:
@@ -111,11 +96,11 @@ Response:
 { "status": "system prompt set" }
 ```
 
-## POST /sessions/completion
+### POST /sessions/{id}/completion
 
 Request:
 ```json
-{ "session_id": "<uuid>", "message": { "role": "user", "content": "..." } }
+{ "message": { "role": "user", "content": "..." } }
 ```
 
 Response: NDJSON stream.
@@ -136,11 +121,11 @@ Response: NDJSON stream.
 }
 ```
 
-## POST /sessions/compact
+### POST /sessions/{id}/compact
 
 Request:
 ```json
-{ "session_id": "<uuid>", "summary_limit": 1000 , "keep_turns": 5}
+{ "summary_limit": 1000, "keep_turns": 5 }
 ```
 
 Response:
@@ -150,6 +135,56 @@ Response:
   "meta": { "prompt_tokens": 0, "completion_tokens": 0, "cost": 0.0 }
 }
 ```
+
+---
+
+## Artifacts
+
+### POST /artifacts/
+
+Multipart form upload. Fields: `file` (required), `session_id` (optional).
+
+```json
+{ "artifact_id": "<uuid>" }
+```
+
+### GET /artifacts/
+
+Query params: `session_id` (optional).
+
+```json
+{
+  "artifacts": [
+    {
+      "artifact_id": "<uuid>",
+      "filename": "...",
+      "mime_type": "...",
+      "size_bytes": 0,
+      "created_at": "..."
+    }
+  ]
+}
+```
+
+### GET /artifacts/{id}
+
+```json
+{
+  "artifact_id": "<uuid>",
+  "filename": "...",
+  "mime_type": "...",
+  "size_bytes": 0,
+  "created_at": "..."
+}
+```
+
+### DELETE /artifacts/{id}
+
+```json
+{ "status": "artifact '<uuid>' deleted" }
+```
+
+---
 
 ## POST /subagent/run
 
