@@ -16,6 +16,7 @@ from prompt_toolkit.filters import is_done
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
+from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.shortcuts import choice
 from prompt_toolkit.styles import Style as PTStyle
 
@@ -27,9 +28,13 @@ from craftsman.logger import CraftsmanLogger
 class ChatCompleter(Completer):
 
     def __init__(
-        self, slash_commands: list = None, rebuild_interval_sec: int = 15
+        self,
+        slash_commands: list = None,
+        support_formats: list = None,
+        rebuild_interval_sec: int = 15,
     ):
         self.slash_commands = slash_commands or []
+        self.support_formats = support_formats or []
         self._file_cache: list[str] = []
         self._cache_time: float = 0
         self._rebuild_interval_sec = rebuild_interval_sec
@@ -53,14 +58,45 @@ class ChatCompleter(Completer):
             for cmd in self.slash_commands:
                 if cmd.startswith(full_text.lower()):
                     yield Completion(cmd, start_position=-len(full_text))
+
         # project file completion — triggered by "@" prefix
         if word.startswith("@"):
             file_prefix = word[1:]
             for file_path in self._get_files():
                 if file_path.startswith(file_prefix):
-                    yield Completion(
-                        "@" + file_path, start_position=-len(word)
-                    )
+                    if file_path.endswith(tuple(self.support_formats)):
+                        yield Completion(
+                            "@" + file_path,
+                            start_position=-len(word),
+                            style="fg:ansimagenta bold",
+                        )
+                    else:
+                        yield Completion(file_path, start_position=-len(word))
+
+
+class AtFileLexer(Lexer):
+
+    def lex_document(self, document):
+        def get_line(lineno):
+            line = document.lines[lineno]
+            tokens = []
+            i = 0
+            while i < len(line):
+                if line[i] == "@":
+                    j = i + 1
+                    while j < len(line) and not line[j].isspace():
+                        j += 1
+                    tokens.append(("class:at-file", line[i:j]))
+                    i = j
+                else:
+                    j = i + 1
+                    while j < len(line) and line[j] != "@":
+                        j += 1
+                    tokens.append(("", line[i:j]))
+                    i = j
+            return tokens
+
+        return get_line
 
 
 class InputMode(Enum):
@@ -80,6 +116,17 @@ class Client:
         self.slash_commands = [
             cmd["name"] for cmd in self.config.get("commands", [])
         ]
+        self.support_formats = self.config.get("provider", {}).get(
+            "capabilities", {}
+        ).get("vision", {}).get("formats", []) + self.config.get(
+            "provider", {}
+        ).get(
+            "capabilities", {}
+        ).get(
+            "audio", {}
+        ).get(
+            "formats", []
+        )
         self.rebuild_interval_sec = self.config.get("chat", {}).get(
             "rebuild_completer_interval_sec", 15
         )
@@ -108,7 +155,8 @@ class Client:
 
         self.input_style = PTStyle.from_dict(
             {
-                "prompt": "fg:ansigreen bold",  # prompt label color
+                "prompt": "fg:ansigreen bold",
+                "at-file": "fg:ansimagenta bold",
             }
         )
 
@@ -439,6 +487,7 @@ class Client:
         history = FileHistory(str(self.prompt_history_path))
         completer = ChatCompleter(
             slash_commands=self.slash_commands,
+            support_formats=self.support_formats,
             rebuild_interval_sec=self.rebuild_interval_sec,
         )
 
@@ -471,6 +520,7 @@ class Client:
                 multiline=True,
                 history=history,
                 completer=completer,
+                lexer=AtFileLexer(),
                 style=self.input_style,
                 key_bindings=kb,
                 show_frame=~is_done,
