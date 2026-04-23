@@ -403,6 +403,15 @@ class StructureDB:
         self.conn.commit()
         return aid
 
+    def update_artifact(
+        self, artifact_id: str, filepath: str, size_bytes: int
+    ) -> None:
+        self.conn.execute(
+            "UPDATE artifacts SET filepath = ?, size_bytes = ? WHERE id = ?",
+            (filepath, size_bytes, artifact_id),
+        )
+        self.conn.commit()
+
     def get_artifacts(
         self,
         session_id: str = None,
