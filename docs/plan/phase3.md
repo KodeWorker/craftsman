@@ -112,16 +112,18 @@ warrant their own routers.
 ## Checklist
 
 ### Server
-- [ ] Extract `SessionRouter` — move existing `/sessions/*` handlers out of `Server`
-- [ ] Add `ArtifactRouter` — new `/artifacts/*` handlers
+- [x] Extract `SessionRouter` — move existing `/sessions/*` handlers out of `Server`
+- [x] Add `ArtifactRouter` — new `/artifacts/*` handlers
 
 ### Infrastructure
-- [ ] `POST /artifacts/` — multipart upload, save to workspace, return artifact_id
-- [ ] `GET /artifacts/` — list artifacts; optional `?session_id=` filter for session-scoped view
-- [ ] `GET /artifacts/{id}` — retrieve artifact metadata
-- [ ] `DELETE /artifacts/{id}` — delete artifact record and remove file from workspace
-- [ ] Strip base64 from message before `store_message`; replace with `[image/audio: artifact_id=<uuid>]`
-- [ ] On `resume_session`: re-encode artifact from disk when restoring messages with artifact refs
+- [x] `POST /artifacts/` — multipart upload, save to workspace, return artifact_id
+- [x] `GET /artifacts/` — list artifacts; optional `?session_id=` filter for session-scoped view
+- [x] `GET /artifacts/{id}` — retrieve artifact metadata
+- [x] `DELETE /artifacts/{id}` — delete artifact record and remove file from workspace
+- [x] Strip base64 from message before `store_message`; store original `@image:<uuid>` / `@audio:<uuid>` token
+- [ ] `get_artifact` resolves UUID prefix — `LIKE 'prefix%'` so user can type short IDs
+- ~~[ ] On `resume_session`: re-encode artifact from disk when restoring messages with artifact refs~~
+  — deferred: user re-injects via `/artifacts` + `@image:<uuid>` syntax instead
 
 ### Provider
 - [ ] `craftsman.yaml` capability flags (`vision`, `audio`)
@@ -129,15 +131,15 @@ warrant their own routers.
 
 ### Client
 - [ ] `/artifacts` slash command — lists artifacts uploaded in the current session
-      (artifact_id, filename, mime type, size); session-scoped only
+      (artifact_id, filename, mime type, size); session-scoped only; short UUID prefix shown
+      so user can copy and type `@image:<prefix>` to re-inject a past artifact into context
 - [ ] `craftsman artifacts list` CLI — lists all artifacts across sessions
 - [ ] `craftsman artifacts delete <id>` CLI — deletes artifact and removes file
       from `~/.craftsman/workspace/`
-- [ ] `@filepath` inline syntax — user types `describe @image.jpg` in chat or
+- [x] `@filepath` inline syntax — user types `describe @image.jpg` in chat or
       `craftsman run "describe @image.jpg"`; client detects `@`-prefixed tokens,
-      uploads the file, and replaces the token with the base64 multimodal content part
-- [ ] Update `ChatCompleter` to trigger file completion only on `@`-prefixed words
-      (current completer completes every word, which is too eager)
+      uploads the file, and replaces with `@image:<uuid>` / `@audio:<uuid>` token
+- [x] Update `ChatCompleter` to trigger file completion only on `@`-prefixed words
 - [ ] Display artifact_id ref in chat alongside the message
 - [ ] *(low priority)* Drag-and-drop support — hook `Buffer.on_text_insert`,
       detect bracketed-paste paths (`file://`, `/`, `~/`), normalise and

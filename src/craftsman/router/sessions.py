@@ -1,5 +1,7 @@
 import asyncio
+import base64
 import json
+import re
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -92,6 +94,9 @@ class SessionsRouter:
             )
         self.__check_owner(session_id, user_id)
 
+        original_content = message.get("content", "")
+        message = self.multimodalize_message(message)
+
         self.librarian.push_context(session_id, message)
         context = self.librarian.get_context(session_id)
 
@@ -137,8 +142,10 @@ class SessionsRouter:
                 session_id, {"role": "assistant", "content": content}
             )
             # Store messages and token usage in the structure DB
-            message["tokens"] = up_tokens
-            self.librarian.store_message(session_id, message)
+            self.librarian.store_message(
+                session_id,
+                {**message, "content": original_content, "tokens": up_tokens},
+            )
             # Store reasoning and token usage
             self.librarian.store_message(
                 session_id,
@@ -317,4 +324,57 @@ class SessionsRouter:
                 "completion_tokens": down_tokens,
                 "cost": cost,
             },
+        }
+
+    def multimodalize_message(self, message: dict) -> dict:
+        pattern = r"@(image|audio):([0-9a-f-]+)"
+        parts = []
+        if not re.search(pattern, message["content"]):
+            return message
+        last = 0
+        for m in re.finditer(pattern, message["content"]):
+            if m.start() > last:
+                parts.append(
+                    {
+                        "type": "text",
+                        "text": message["content"][last : m.start()],
+                    }
+                )
+            media_type, uuid = m.group(1), m.group(2)
+
+            artifact = self.librarian.structure_db.get_artifact(uuid)
+            if not artifact:
+                self.logger.warning(
+                    f"Message references missing artifact {uuid}"
+                )
+                last = m.end()
+                continue
+            filepath = artifact["filepath"]
+            mime = artifact["mime_type"]
+            fmt = mime.split("/")[-1]
+            with open(filepath, "rb") as f:
+                data = base64.b64encode(f.read()).decode("utf-8")
+            if media_type == "image":
+                parts.append(
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{data}"},
+                    }
+                )
+            elif media_type == "audio":
+                parts.append(
+                    {
+                        "type": "input_audio",
+                        "input_audio": {"data": data, "format": fmt},
+                    }
+                )
+            last = m.end()
+        if last < len(message["content"]):
+            parts.append({"type": "text", "text": message["content"][last:]})
+
+        if not parts:
+            return message
+        return {
+            "role": message["role"],
+            "content": parts,
         }

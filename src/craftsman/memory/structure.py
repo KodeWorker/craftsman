@@ -414,7 +414,8 @@ class StructureDB:
 
     def get_artifact(self, artifact_id: str) -> sqlite3.Row | None:
         return self.conn.execute(
-            "SELECT * FROM artifacts WHERE id = ?", (artifact_id,)
+            "SELECT * FROM artifacts WHERE id LIKE ?",
+            (f"{artifact_id}%",),
         ).fetchone()
 
     def get_artifacts(
