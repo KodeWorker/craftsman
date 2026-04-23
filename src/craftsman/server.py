@@ -29,10 +29,10 @@ class Server:
         self.app.include_router(self.sessions_router.router)
         self.app.include_router(self.artifacts_router.router)
 
-    async def health_check(self):
+    async def health_check(self) -> dict:
         return {"status": "ok"}
 
-    async def run_subagent(self, request: Request):
+    async def run_subagent(self, request: Request) -> dict:
         body = await request.json()
         message = body.get("message", {})
         session_id = body.get("session_id", None)
@@ -73,7 +73,7 @@ class Server:
                 session_id
             )  # remove from active sessions if present
 
-    async def login_user(self, request: Request):
+    async def login_user(self, request: Request) -> dict:
         body = await request.json()
         username = body.get("username")
         password = body.get("password")

@@ -38,8 +38,7 @@ client → POST /artifacts/upload (multipart)
        → server saves file to ~/.craftsman/workspace/
        → server records artifact in SQLite (filepath, mime_type, session_id, size_bytes)
        → returns { artifact_id }
-client → POST /sessions/completion with [image: artifact_id=<uuid>]
-                                      | [audio: artifact_id=<uuid>]
+client → POST /sessions/completion with @image:<uuid> | @audio:<uuid>
        → server resolves artifact_id, reads file from disk, base64-encodes inline
        → server sends assembled multimodal message to model
 ```
@@ -68,8 +67,8 @@ Instead, the message stored in SQLite replaces the multimodal content part with
 an artifact reference:
 
 ```
-[image: artifact_id=<uuid>]
-[audio: artifact_id=<uuid>]
+@image:<uuid>
+@audio:<uuid>
 ```
 
 On resume, the client re-fetches and re-encodes the artifact from disk before

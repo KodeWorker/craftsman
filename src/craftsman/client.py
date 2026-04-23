@@ -3,6 +3,7 @@ import itertools
 import json
 import os
 import random
+import re
 import shutil
 import threading
 import time
@@ -137,16 +138,17 @@ class Client:
         self.slash_commands = [
             cmd["name"] for cmd in self.config.get("commands", [])
         ]
-        self.support_formats = self.config.get("provider", {}).get(
-            "capabilities", {}
-        ).get("vision", {}).get("formats", []) + self.config.get(
-            "provider", {}
-        ).get(
-            "capabilities", {}
-        ).get(
-            "audio", {}
-        ).get(
-            "formats", []
+        self.support_image_formats = (
+            self.config.get("provider", {})
+            .get("capabilities", {})
+            .get("vision", {})
+            .get("formats", [])
+        )
+        self.support_audio_formats = (
+            self.config.get("provider", {})
+            .get("capabilities", {})
+            .get("audio", {})
+            .get("formats", [])
         )
         self.rebuild_interval_sec = self.config.get("chat", {}).get(
             "rebuild_completer_interval_sec", 15
@@ -277,7 +279,7 @@ class Client:
             time.sleep(0.08)
         print("\r  \r", end="", flush=True)
 
-    def __read_system_prompt(self):
+    def __read_system_prompt(self) -> str:
         if self.project_system_prompt.exists():
             with open(self.project_system_prompt, "r") as f:
                 return f.read().strip()
@@ -507,7 +509,8 @@ class Client:
         ):
             completer = ChatCompleter(
                 slash_commands=self.slash_commands,
-                support_formats=self.support_formats,
+                support_formats=self.support_image_formats
+                + self.support_audio_formats,
                 rebuild_interval_sec=self.rebuild_interval_sec,
                 ignores=self.completer_ignores,
             )
@@ -556,6 +559,10 @@ class Client:
             if mode == InputMode.EXIT:
                 break
             elif mode == InputMode.COMMAND:
+                continue
+
+            user_input = self.upload_artifacts(user_input, session_id)
+            if user_input is None:
                 continue
 
             message = {"role": "user", "content": user_input}
@@ -907,3 +914,92 @@ class Client:
             default=None,
         )
         return result
+
+    def upload_artifacts(self, user_input: str, session_id: str) -> str | None:
+        # find all @file_path patterns in user input
+        pattern = r"@([\w./\\~-]+)"
+        matches = re.findall(pattern, user_input)
+        for file_path in matches:
+            if file_path in self.completer_ignores:
+                continue
+            full_path = Path(file_path).expanduser()
+            if not full_path.is_file():
+                print(
+                    Fore.YELLOW
+                    + f"File '{file_path}' not found. Skipping upload."
+                    + Style.RESET_ALL
+                )
+                self.logger.warning(f"File '{file_path}' not found.")
+                continue
+            extension = full_path.suffix
+
+            # size limit check (10MB)
+            size_mb = full_path.stat().st_size / (1024 * 1024)
+            if extension in self.support_image_formats:
+                type_desc = "image"
+                limit_mb = (
+                    self.config.get("provider", {})
+                    .get("capabilities", {})
+                    .get("vision", {})
+                    .get("max_size_mb", 10)
+                )
+            elif extension in self.support_audio_formats:
+                type_desc = "audio"
+                limit_mb = (
+                    self.config.get("provider", {})
+                    .get("capabilities", {})
+                    .get("audio", {})
+                    .get("max_size_mb", 25)
+                )
+            else:
+                print(
+                    Fore.RED
+                    + f"Unsupported file format: {extension}. "
+                    + Style.RESET_ALL
+                )
+                self.logger.error(f"Unsupported file format: {extension}.")
+                return None
+
+            if size_mb > limit_mb:
+                print(
+                    Fore.RED
+                    + f"File '{file_path}' is too large ({size_mb:.1f}MB). "
+                    + f"Max allowed size for {type_desc} "
+                    + f"files is {limit_mb}MB. "
+                    + Style.RESET_ALL
+                )
+                self.logger.error(
+                    f"File '{file_path}' is too large ({size_mb:.1f}MB). "
+                    f"Max allowed size for {type_desc} files is {limit_mb}MB."
+                )
+                return None
+
+            with open(full_path, "rb") as f:
+                files = {"file": (full_path.name, f)}
+                response = self.__request(
+                    "post",
+                    f"{self.entry_point}/artifacts/upload",
+                    files=files,
+                    data={"session_id": session_id},
+                )
+            if response.status_code == 200:
+                artifact_id = response.json().get("artifact_id", "")
+                user_input = user_input.replace(
+                    f"@{file_path}",
+                    f"@{type_desc}:{artifact_id}",
+                )
+                self.logger.info(
+                    f"Uploaded file '{file_path}' as artifact '{artifact_id}'."
+                )
+                return user_input
+            else:
+                print(
+                    Fore.RED
+                    + f"Error uploading file '{file_path}'. Please check logs."
+                    + Style.RESET_ALL
+                )
+                self.logger.error(
+                    f"Error uploading file '{file_path}': "
+                    f"{response.status_code} - {response.text}"
+                )
+                return None

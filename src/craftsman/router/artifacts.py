@@ -29,7 +29,7 @@ class ArtifactsRouter:
         file: UploadFile = File(...),
         session_id: str = Form(None),
         _: str = Depends(get_current_user),
-    ):
+    ) -> dict:
         suffix = Path(file.filename).suffix
         artifact_id = self.librarian.structure_db.add_artifact(
             filepath="",
@@ -56,11 +56,39 @@ class ArtifactsRouter:
         )
         return {"artifact_id": artifact_id}
 
-    async def list_artifacts(self):
-        pass
+    async def list_artifacts(
+        self,
+        session_id: str = None,
+        project_id: str = None,
+        _: str = Depends(get_current_user),
+    ) -> dict:
+        artifacts = self.librarian.structure_db.get_artifacts(
+            session_id=session_id, project_id=project_id
+        )
+        return {"artifacts": [dict(artifact) for artifact in artifacts]}
 
-    async def get_artifact(self, artifact_id: str):
-        pass
+    async def get_artifact(
+        self, artifact_id: str, _: str = Depends(get_current_user)
+    ) -> dict | None:
+        artifact = self.librarian.structure_db.get_artifact(artifact_id)
+        if not artifact:
+            raise HTTPException(status_code=404, detail="Artifact not found.")
+        return {"artifact": dict(artifact)}
 
-    async def delete_artifact(self, artifact_id: str):
-        pass
+    async def delete_artifact(
+        self, artifact_id: str, _: str = Depends(get_current_user)
+    ) -> dict:
+        artifact = self.librarian.structure_db.get_artifact(artifact_id)
+        if not artifact:
+            raise HTTPException(status_code=404, detail="Artifact not found.")
+        self.librarian.structure_db.delete_artifact(artifact_id)
+        if artifact["filepath"]:
+            try:
+                os.remove(artifact["filepath"])
+            except Exception as e:
+                self.logger.error(
+                    f"Failed to delete artifact file"
+                    f" {artifact['filepath']}: {e}"
+                )
+        self.logger.info(f"Artifact {artifact_id} deleted.")
+        return {"status": "Artifact deleted successfully."}

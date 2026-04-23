@@ -412,6 +412,11 @@ class StructureDB:
         )
         self.conn.commit()
 
+    def get_artifact(self, artifact_id: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM artifacts WHERE id = ?", (artifact_id,)
+        ).fetchone()
+
     def get_artifacts(
         self,
         session_id: str = None,
@@ -432,6 +437,10 @@ class StructureDB:
         return self.conn.execute(
             "SELECT * FROM artifacts ORDER BY created_at DESC"
         ).fetchall()
+
+    def delete_artifact(self, artifact_id: str) -> None:
+        self.conn.execute("DELETE FROM artifacts WHERE id = ?", (artifact_id,))
+        self.conn.commit()
 
     # --- plans ---
 

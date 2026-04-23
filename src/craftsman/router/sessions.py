@@ -41,7 +41,7 @@ class SessionsRouter:
         project_id: str = None,
         user_id: str = Depends(get_current_user),
         limit: int = None,
-    ):
+    ) -> dict:
         sessions = self.librarian.structure_db.list_sessions(
             project_id, user_id, limit
         )
@@ -59,7 +59,7 @@ class SessionsRouter:
 
     async def resolve_session(
         self, session: str = None, _: str = Depends(get_current_user)
-    ):
+    ) -> dict:
         row = (
             self.librarian.structure_db.resolve_session(session)
             if session
@@ -70,7 +70,7 @@ class SessionsRouter:
 
     async def get_system_prompt(
         self, session_id: str, user_id: str = Depends(get_current_user)
-    ):
+    ) -> dict:
         self.__check_owner(session_id, user_id)
         context = self.librarian.get_context(session_id)
         system_prompt = "".join(
@@ -83,7 +83,7 @@ class SessionsRouter:
         session_id: str,
         request: Request,
         user_id: str = Depends(get_current_user),
-    ):
+    ) -> StreamingResponse:
         body = await request.json()
         message = body.get("message", {})
         if not message:
@@ -165,7 +165,7 @@ class SessionsRouter:
         session_id: str,
         request: Request,
         user_id: str = Depends(get_current_user),
-    ):
+    ) -> dict:
         body = await request.json()
         system_prompt = body.get("system_prompt", "")
         if not system_prompt:
@@ -179,7 +179,9 @@ class SessionsRouter:
         )
         return {"status": "system prompt set"}
 
-    async def create_session(self, user_id: str = Depends(get_current_user)):
+    async def create_session(
+        self, user_id: str = Depends(get_current_user)
+    ) -> dict:
         session_id = self.librarian.structure_db.create_session(
             user_id=user_id
         )
@@ -194,7 +196,7 @@ class SessionsRouter:
         self,
         session_id: str,
         user_id: str = Depends(get_current_user),
-    ):
+    ) -> dict:
         self.__check_owner(session_id, user_id)
         self.active_sessions.discard(session_id)
         self.librarian.structure_db.delete_session(session_id)
@@ -204,7 +206,7 @@ class SessionsRouter:
         self,
         session_id: str,
         user_id: str = Depends(get_current_user),
-    ):
+    ) -> dict:
         self.__check_owner(session_id, user_id)
         messages, meta = self.librarian.retrieve_messages(session_id)
         if session_id in self.active_sessions:
@@ -234,7 +236,7 @@ class SessionsRouter:
         self,
         session_id: str,
         user_id: str = Depends(get_current_user),
-    ):
+    ) -> dict:
         self.__check_owner(session_id, user_id)
         self.active_sessions.discard(session_id)
         self.librarian.clear_session(session_id)
@@ -245,7 +247,7 @@ class SessionsRouter:
         session_id: str,
         request: Request,
         user_id: str = Depends(get_current_user),
-    ):
+    ) -> dict:
         self.__check_owner(session_id, user_id)
         body = await request.json()
         summary_limit = body.get("summary_limit", 1000)
