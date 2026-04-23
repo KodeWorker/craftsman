@@ -16,3 +16,15 @@ class ArtifactsRouter:
         self.router.get("/")(self.list_artifacts)
         self.router.get("/{artifact_id}")(self.get_artifact)
         self.router.delete("/{artifact_id}")(self.delete_artifact)
+
+    async def upload_artifact(self):
+        pass
+
+    async def list_artifacts(self):
+        pass
+
+    async def get_artifact(self, artifact_id: str):
+        pass
+
+    async def delete_artifact(self, artifact_id: str):
+        pass
