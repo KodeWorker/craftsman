@@ -53,11 +53,14 @@ class ChatCompleter(Completer):
             for cmd in self.slash_commands:
                 if cmd.startswith(full_text.lower()):
                     yield Completion(cmd, start_position=-len(full_text))
-        # project file completion — match current word anywhere in input
-        if word:
+        # project file completion — triggered by "@" prefix
+        if word.startswith("@"):
+            file_prefix = word[1:]
             for file_path in self._get_files():
-                if file_path.startswith(word):
-                    yield Completion(file_path, start_position=-len(word))
+                if file_path.startswith(file_prefix):
+                    yield Completion(
+                        "@" + file_path, start_position=-len(word)
+                    )
 
 
 class InputMode(Enum):
