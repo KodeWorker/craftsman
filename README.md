@@ -26,19 +26,19 @@ uv run craftsman auth get <provider>
 uv run craftsman auth delete [<provider>]
 
 # Server-side User control
-uv run craftsman user list
-uv run craftsman user register
-uv run craftsman user delete <username>
+uv run craftsman user list [--port]
+uv run craftsman user register [--port]
+uv run craftsman user delete <username> [--port]
 # Client-side login
-uv run craftsman user login
+uv run craftsman user login [--host] [--port]
 
 # Session management
 uv run craftsman sess list [--host] [--port] [--project-id] [--limit]
 uv run craftsman sess delete <id|prefix|title> [--host] [--port]
 
-# Artifact management
-uv run craftsman arti list [--host] [--port]
-uv run craftsman arti delete <id|prefix> [--host] [--port]
+# Server-side Artifact management
+uv run craftsman arti list [--port]
+uv run craftsman arti delete <id|prefix> [--port]
 ```
 
 ## Docs

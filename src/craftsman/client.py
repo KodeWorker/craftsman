@@ -1,6 +1,7 @@
 import fnmatch
 import itertools
 import json
+import mimetypes
 import os
 import random
 import re
@@ -11,7 +12,7 @@ from enum import Enum
 from pathlib import Path
 
 import requests
-from colorama import Back, Fore, Style
+from colorama import Fore, Style
 from prompt_toolkit import prompt
 from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.filters import is_done
@@ -304,7 +305,7 @@ class Client:
             elif user_input.lower() == "/help":
                 for cmd in self.config.get("commands", []):
                     print(
-                        Fore.LIGHTMAGENTA_EX
+                        Fore.CYAN
                         + f"  {cmd['name']} - {cmd['description']}"
                         + Style.RESET_ALL
                     )
@@ -343,7 +344,7 @@ class Client:
                         if system_prompt
                         else "(No system prompt set.)"
                     )
-                    print(Back.MAGENTA + Fore.WHITE + msg + Style.RESET_ALL)
+                    print(Fore.CYAN + msg + Style.RESET_ALL)
                 else:
                     print(
                         Fore.RED
@@ -399,6 +400,47 @@ class Client:
                     )
                     self.logger.error(
                         "Error compacting session: "
+                        f"{response.status_code} - {response.text}"
+                    )
+            elif user_input.lower() == "/artifacts":
+                response = self.__request(
+                    "get",
+                    f"{self.entry_point}/artifacts/",
+                    params={"session_id": session_id},
+                )
+                if response.status_code == 200:
+                    artifacts = response.json().get("artifacts", [])
+                    if not artifacts:
+                        print(
+                            Fore.YELLOW
+                            + "No artifacts uploaded in this session."
+                            + Style.RESET_ALL
+                        )
+                        return InputMode.COMMAND
+                    print(
+                        Fore.LIGHTMAGENTA_EX
+                        + "Artifacts uploaded in this session:"
+                        + Style.RESET_ALL
+                    )
+                    for artifact in artifacts:
+                        artifact_id = artifact.get("id", "")[:8]
+                        filename = artifact.get("filename", "")
+                        mime_type = artifact.get("mime_type", "")
+                        size_bytes = artifact.get("size_bytes", 0)
+                        created_at = artifact.get("created_at", "")
+                        print(
+                            f"{Fore.CYAN}{artifact_id} | {filename} | "
+                            f"{mime_type} | {size_bytes} bytes | "
+                            f"{created_at}{Style.RESET_ALL}"
+                        )
+                else:
+                    print(
+                        Fore.RED
+                        + "Error retrieving artifacts. Please check logs."
+                        + Style.RESET_ALL
+                    )
+                    self.logger.error(
+                        "Error retrieving artifacts: "
                         f"{response.status_code} - {response.text}"
                     )
             else:
@@ -856,7 +898,7 @@ class Client:
             )
             return None
 
-    def delete_session(self, session: str = None):
+    def delete_session(self, session: str = None) -> bool:
         if not session:
             print(
                 Fore.RED
@@ -864,7 +906,7 @@ class Client:
                 + Style.RESET_ALL
             )
             self.logger.error("No session ID or prefix or title provided.")
-            return
+            return False
 
         session_id = self.find_session_id(session)
         if not session_id:
@@ -872,25 +914,25 @@ class Client:
                 Fore.RED + f"Session '{session}' not found." + Style.RESET_ALL
             )
             self.logger.error(f"Session '{session}' not found.")
-            return
+            return False
 
         response = self.__request(
             "delete",
             f"{self.entry_point}/sessions/{session_id}",
         )
         if response.status_code == 200:
-            status = response.json().get("status", "")
-            self.logger.info(status)
-        else:
-            print(
-                Fore.RED
-                + f"Error deleting session '{session}'. Please check logs."
-                + Style.RESET_ALL
-            )
-            self.logger.error(
-                "Error deleting session: "
-                f"{response.status_code} - {response.text}"
-            )
+            self.logger.info(response.json().get("status", ""))
+            return True
+        print(
+            Fore.RED
+            + f"Error deleting session '{session}'. Please check logs."
+            + Style.RESET_ALL
+        )
+        self.logger.error(
+            "Error deleting session: "
+            f"{response.status_code} - {response.text}"
+        )
+        return False
 
     def pick_session(self, project_id: str = None, limit: int = 5) -> str:
         sessions = self.get_sessions(project_id=project_id, limit=limit)
@@ -935,7 +977,7 @@ class Client:
                 )
                 self.logger.warning(f"File '{file_path}' not found.")
                 continue
-            extension = full_path.suffix
+            extension = full_path.suffix[1:].lower()
 
             # size limit check (10MB)
             size_mb = full_path.stat().st_size / (1024 * 1024)
@@ -978,11 +1020,18 @@ class Client:
                 )
                 return None
 
+            mime_type, _ = mimetypes.guess_type(str(full_path))
             with open(full_path, "rb") as f:
-                files = {"file": (full_path.name, f)}
+                files = {
+                    "file": (
+                        full_path.name,
+                        f,
+                        mime_type or "application/octet-stream",
+                    )
+                }
                 response = self.__request(
                     "post",
-                    f"{self.entry_point}/artifacts/upload",
+                    f"{self.entry_point}/artifacts/",
                     files=files,
                     data={"session_id": session_id},
                 )
@@ -1007,62 +1056,3 @@ class Client:
                 )
                 return None
         return user_input
-
-    def list_artifacts(self, session_id: str = None, project_id: str = None):
-        params = {}
-        if session_id:
-            params["session_id"] = session_id
-        if project_id:
-            params["project_id"] = project_id
-
-        response = self.__request(
-            "get",
-            f"{self.entry_point}/artifacts/",
-            params=params,
-        )
-        if response.status_code == 200:
-            artifacts = response.json().get("artifacts", [])
-        else:
-            print(
-                Fore.RED
-                + "Error retrieving artifacts. Please check logs."
-                + Style.RESET_ALL
-            )
-            self.logger.error(
-                "Error retrieving artifacts: "
-                f"{response.status_code} - {response.text}"
-            )
-            artifacts = []
-
-        artifact_infos = []
-        for artifact in artifacts:
-            artifact_id = artifact.get("id", "")[:8]
-            filename = artifact.get("filename", "")
-            mime_type = artifact.get("mime_type", "")
-            size_bytes = artifact.get("size_bytes", 0)
-            created_at = artifact.get("created_at", "")
-            artifact_info = (
-                f"{Fore.CYAN}{artifact_id} | {filename} | {mime_type} | "
-                f"{size_bytes} bytes | {created_at}{Style.RESET_ALL}"
-            )
-            artifact_infos.append(artifact_info)
-        return artifact_infos
-
-    def delete_artifact(self, artifact: str):
-        response = self.__request(
-            "delete",
-            f"{self.entry_point}/artifacts/{artifact}",
-        )
-        if response.status_code == 200:
-            status = response.json().get("status", "")
-            self.logger.info(status)
-        else:
-            print(
-                Fore.RED
-                + f"Error deleting artifact '{artifact}'. Please check logs."
-                + Style.RESET_ALL
-            )
-            self.logger.error(
-                "Error deleting artifact: "
-                f"{response.status_code} - {response.text}"
-            )

@@ -351,7 +351,8 @@ class SessionsRouter:
                 continue
             filepath = artifact["filepath"]
             mime = artifact["mime_type"]
-            fmt = mime.split("/")[-1]
+            _AUDIO_FMT = {"mpeg": "mp3", "x-wav": "wav", "wave": "wav"}
+            fmt = _AUDIO_FMT.get(mime.split("/")[-1], mime.split("/")[-1])
             with open(filepath, "rb") as f:
                 data = base64.b64encode(f.read()).decode("utf-8")
             if media_type == "image":
