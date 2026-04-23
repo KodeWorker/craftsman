@@ -1,3 +1,4 @@
+import fnmatch
 import itertools
 import json
 import os
@@ -35,21 +36,38 @@ class ChatCompleter(Completer):
         slash_commands: list = None,
         support_formats: list = None,
         rebuild_interval_sec: int = 15,
+        ignores: list = None,
     ):
         self.slash_commands = slash_commands or []
         self.support_formats = support_formats or []
         self._file_cache: list[str] = []
         self._cache_time: float = 0
         self._rebuild_interval_sec = rebuild_interval_sec
+        ignores = ignores or []
+        # patterns ending with "/" are dir filters; strip trailing "/"
+        self._dir_ignores = [p.rstrip("/") for p in ignores if p.endswith("/")]
+        self._file_ignores = [p for p in ignores if not p.endswith("/")]
 
     def _get_files(self) -> list[str]:
         now = time.monotonic()
         if now - self._cache_time > self._rebuild_interval_sec:
-            self._file_cache = [
-                os.path.relpath(os.path.join(root, file))
-                for root, _, files in os.walk(Path.cwd())
-                for file in files
-            ]
+            result = []
+            for root, dirs, files in os.walk(Path.cwd()):
+                dirs[:] = [
+                    d
+                    for d in dirs
+                    if not any(
+                        fnmatch.fnmatch(d, pat) for pat in self._dir_ignores
+                    )
+                ]
+                result.extend(
+                    os.path.relpath(os.path.join(root, f))
+                    for f in files
+                    if not any(
+                        fnmatch.fnmatch(f, pat) for pat in self._file_ignores
+                    )
+                )
+            self._file_cache = result
             self._cache_time = now
         return self._file_cache
 
@@ -132,6 +150,9 @@ class Client:
         )
         self.rebuild_interval_sec = self.config.get("chat", {}).get(
             "rebuild_completer_interval_sec", 15
+        )
+        self.completer_ignores = (
+            self.config.get("chat", {}).get("completer", {}).get("ignores", [])
         )
         self.retry_interval_sec = self.config.get("chat", {}).get(
             "retry_interval_sec", 3
@@ -479,11 +500,19 @@ class Client:
                 )
 
         history = FileHistory(str(self.prompt_history_path))
-        completer = ChatCompleter(
-            slash_commands=self.slash_commands,
-            support_formats=self.support_formats,
-            rebuild_interval_sec=self.rebuild_interval_sec,
-        )
+        if (
+            self.config.get("chat", {})
+            .get("completer", {})
+            .get("enabled", False)
+        ):
+            completer = ChatCompleter(
+                slash_commands=self.slash_commands,
+                support_formats=self.support_formats,
+                rebuild_interval_sec=self.rebuild_interval_sec,
+                ignores=self.completer_ignores,
+            )
+        else:
+            completer = None
 
         kb = KeyBindings()
 
