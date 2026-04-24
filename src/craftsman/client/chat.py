@@ -369,25 +369,37 @@ class Client(SessionsClient, ArtifactsClient):
         )
 
         _dd_active = False
+        _dd_prev_before = [""]  # text-before-cursor from the last event
 
         def _drag_drop_handler(buf):
             nonlocal _dd_active
             if _dd_active:
                 return
-            text = buf.text
-            if text.startswith("file://"):
-                raw = text[7:]
-            elif text.startswith(("/", "~/")):
-                raw = text
+            doc = buf.document
+            current_before = doc.text_before_cursor
+            prev_before = _dd_prev_before[0]
+            _dd_prev_before[0] = current_before
+            # compute what was just inserted at the cursor position
+            if not current_before.startswith(prev_before):
+                return  # deletion or cursor-only move — skip
+            inserted = current_before[len(prev_before) :]
+            stripped = inserted.strip().strip("''")
+            # require at least 2 chars to avoid false-positive on typing "/"
+            if len(stripped) <= 1:
+                return
+            if stripped.startswith(("/", "~/")):
+                raw = stripped
             else:
                 return
-            raw = raw.strip().strip("'\"")
             if not raw:
                 return
             _dd_active = True
             try:
-                new_text = f"@{raw}"
-                buf.set_document(Document(new_text, len(new_text)))
+                replacement = f"@{raw}"
+                new_text = prev_before + replacement + doc.text_after_cursor
+                cursor_pos = len(prev_before) + len(replacement)
+                buf.set_document(Document(new_text, cursor_pos))
+                _dd_prev_before[0] = prev_before + replacement
             finally:
                 _dd_active = False
 
