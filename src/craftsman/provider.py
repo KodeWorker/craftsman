@@ -18,9 +18,8 @@ class Provider:
         self.verify = bool(self.cert)
         if self.cert:
             os.environ["SSL_CERT_FILE"] = self.cert
-        api_key = Auth.get_password("LLM_API_KEY")
-        self.api_key = api_key if api_key else "dummy_api_key"
-        self.api_base = Auth.get_password("LLM_BASE_URL")
+        self.api_key = None
+        self.api_base = None
 
         self.max_tokens = self.config["provider"].get("max_tokens", 4096)
         self.input_cost_per_token = self.config["provider"].get(
@@ -30,15 +29,10 @@ class Provider:
             "output_cost_per_token", 0.0
         )
 
-    def reset(self):
+    def reset(self, base_url: str = None, api_key: str = None):
         self.logger.debug("Resetting provider state...")
-        self.cert = Auth.get_password("LLM_SSL_CRT")
-        self.verify = bool(self.cert)
-        if self.cert:
-            os.environ["SSL_CERT_FILE"] = self.cert
-        api_key = Auth.get_password("LLM_API_KEY")
         self.api_key = api_key if api_key else "dummy_api_key"
-        self.api_base = Auth.get_password("LLM_BASE_URL")
+        self.api_base = base_url if base_url else "http://localhost:8000"
 
     async def completion(
         self,

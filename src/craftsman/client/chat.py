@@ -15,6 +15,7 @@ from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
 from prompt_toolkit.styles import Style as PTStyle
 
+from craftsman.auth import Auth
 from craftsman.client.artifacts import ArtifactsClient
 from craftsman.client.base import _AT_FILE_STYLE
 from craftsman.client.completer import AtFileLexer, ChatCompleter
@@ -251,7 +252,14 @@ class Client(SessionsClient, ArtifactsClient):
                 time.sleep(self.retry_interval_sec)
 
         # reset provider state on the server
-        response = self._request("post", f"{self.entry_point}/reset")
+        response = self._request(
+            "post",
+            f"{self.entry_point}/reset",
+            json={
+                "api_base": Auth.get_password("LLM_BASE_URL"),
+                "api_key": Auth.get_password("LLM_API_KEY"),
+            },
+        )
         if response.status_code == 200:
             self.logger.info("Provider state reset successfully.")
             return True
