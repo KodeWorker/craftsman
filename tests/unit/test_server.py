@@ -49,7 +49,7 @@ def test_get_system_prompt_joins_system_messages(app):
         {"role": "system", "content": "Be helpful."},
         {"role": "user", "content": "hi"},
     ]
-    resp = client.get("/sessions/system", params={"session_id": "s1"})
+    resp = client.get("/sessions/s1/system")
     assert resp.json()["system_prompt"] == "Be helpful."
 
 
@@ -58,15 +58,15 @@ def test_get_session_id_found(app):
     mock_librarian.structure_db.resolve_session.return_value = {
         "id": "abc-123"
     }
-    assert client.get("/sessions/id", params={"session": "abc"}).json() == {
-        "session_id": "abc-123"
-    }
+    assert client.get(
+        "/sessions/resolve", params={"session": "abc"}
+    ).json() == {"session_id": "abc-123"}
 
 
 def test_get_session_id_not_found(app):
     client, _, _, mock_librarian = app
     mock_librarian.structure_db.resolve_session.return_value = None
-    assert client.get("/sessions/id", params={"session": "x"}).json() == {
+    assert client.get("/sessions/resolve", params={"session": "x"}).json() == {
         "session_id": None
     }
 
@@ -74,7 +74,7 @@ def test_get_session_id_not_found(app):
 def test_list_sessions_empty(app):
     client, _, _, mock_librarian = app
     mock_librarian.structure_db.list_sessions.return_value = []
-    assert client.get("/sessions/list").json() == {"sessions": []}
+    assert client.get("/sessions/").json() == {"sessions": []}
 
 
 def test_list_sessions_maps_fields(app):
@@ -87,7 +87,7 @@ def test_list_sessions_maps_fields(app):
             "last_input_at": "2024-01-01",
         }
     ]
-    sessions = client.get("/sessions/list").json()["sessions"]
+    sessions = client.get("/sessions/").json()["sessions"]
     assert sessions[0]["session_id"] == "sid-1"
     assert sessions[0]["title"] == "mytitle"
 
@@ -95,31 +95,32 @@ def test_list_sessions_maps_fields(app):
 def test_create_session_returns_id(app):
     client, server, _, mock_librarian = app
     mock_librarian.structure_db.create_session.return_value = "new-sid"
-    resp = client.post("/sessions/create")
+    resp = client.post("/sessions/")
     assert resp.json()["session_id"] == "new-sid"
     assert "new-sid" in server.active_sessions
 
 
-# --- POST validation ---
+# --- system prompt ---
 
 
-def test_set_system_prompt_missing_session_id(app):
-    client, *_ = app
-    resp = client.post("/sessions/system", json={"system_prompt": "hi"})
-    assert resp.status_code == 400
+def test_set_system_prompt_forbidden_for_different_owner(app):
+    client, _, _, mock_librarian = app
+    mock_librarian.structure_db.get_session.return_value = {"user_id": "other"}
+    resp = client.put("/sessions/s1/system", json={"system_prompt": "hi"})
+    assert resp.status_code == 403
 
 
 def test_set_system_prompt_missing_prompt(app):
     client, *_ = app
-    resp = client.post("/sessions/system", json={"session_id": "s1"})
+    resp = client.put("/sessions/s1/system", json={})
     assert resp.status_code == 400
 
 
 def test_set_system_prompt_clears_then_pushes(app):
     client, _, _, mock_librarian = app
-    client.post(
-        "/sessions/system",
-        json={"session_id": "s1", "system_prompt": "You are helpful."},
+    client.put(
+        "/sessions/s1/system",
+        json={"system_prompt": "You are helpful."},
     )
     mock_librarian.clear_system_prompt.assert_called_once_with("s1")
     mock_librarian.push_context.assert_called_once_with(
@@ -127,25 +128,29 @@ def test_set_system_prompt_clears_then_pushes(app):
     )
 
 
+# --- completion ---
+
+
 def test_completion_missing_message(app):
     client, *_ = app
-    resp = client.post("/sessions/completion", json={"session_id": "s1"})
+    resp = client.post("/sessions/s1/completion", json={})
     assert resp.status_code == 400
 
 
-def test_completion_missing_session_id(app):
-    client, *_ = app
+def test_completion_forbidden_for_different_owner(app):
+    client, _, _, mock_librarian = app
+    mock_librarian.structure_db.get_session.return_value = {"user_id": "other"}
     resp = client.post(
-        "/sessions/completion",
+        "/sessions/s1/completion",
         json={"message": {"role": "user", "content": "hi"}},
     )
-    assert resp.status_code == 400
+    assert resp.status_code == 403
 
 
 def test_clear_session_success(app):
     client, server, _, mock_librarian = app
     server.active_sessions.add("s1")
-    resp = client.post("/sessions/clear", json={"session_id": "s1"})
+    resp = client.post("/sessions/s1/clear")
     assert resp.json()["status"] == "session cleared"
     mock_librarian.clear_session.assert_called_once_with("s1")
     assert "s1" not in server.active_sessions
@@ -153,7 +158,7 @@ def test_clear_session_success(app):
 
 def test_delete_session_success(app):
     client, _, _, mock_librarian = app
-    resp = client.post("/sessions/delete", json={"session_id": "s1"})
+    resp = client.delete("/sessions/s1")
     assert "deleted" in resp.json()["status"]
     mock_librarian.structure_db.delete_session.assert_called_once_with("s1")
 
@@ -190,11 +195,8 @@ def test_completion_streams_ndjson(app):
     mock_librarian.store_message.return_value = "mid"
 
     resp = client.post(
-        "/sessions/completion",
-        json={
-            "session_id": "s1",
-            "message": {"role": "user", "content": "hi"},
-        },
+        "/sessions/s1/completion",
+        json={"message": {"role": "user", "content": "hi"}},
     )
     lines = [line for line in resp.text.strip().split("\n") if line.strip()]
     assert all(json.loads(line) for line in lines)
@@ -224,11 +226,8 @@ def test_completion_stores_messages(app):
     mock_librarian.store_message.return_value = "mid"
 
     client.post(
-        "/sessions/completion",
-        json={
-            "session_id": "s1",
-            "message": {"role": "user", "content": "hi"},
-        },
+        "/sessions/s1/completion",
+        json={"message": {"role": "user", "content": "hi"}},
     )
     assert mock_librarian.store_message.call_count == 3
 
@@ -254,11 +253,8 @@ def test_completion_pushes_assistant_to_context(app):
     mock_librarian.store_message.return_value = "mid"
 
     client.post(
-        "/sessions/completion",
-        json={
-            "session_id": "s1",
-            "message": {"role": "user", "content": "hi"},
-        },
+        "/sessions/s1/completion",
+        json={"message": {"role": "user", "content": "hi"}},
     )
     mock_librarian.push_context.assert_any_call(
         "s1", {"role": "assistant", "content": "world"}
@@ -275,7 +271,7 @@ def test_resume_session_converts_summary_to_user(app):
         {"ctx_used": 10, "upload_tokens": 0, "download_tokens": 10},
     )
     mock_provider.cost = MagicMock(return_value=0.0)
-    client.post("/sessions/resume", json={"session_id": "s1"})
+    client.post("/sessions/s1/resume")
     mock_librarian.push_context.assert_called_once_with(
         "s1",
         {
@@ -293,7 +289,7 @@ def test_resume_session_adds_to_active_sessions(app):
         {"ctx_used": 0, "upload_tokens": 0, "download_tokens": 0},
     )
     mock_provider.cost = MagicMock(return_value=0.0)
-    client.post("/sessions/resume", json={"session_id": "s-new"})
+    client.post("/sessions/s-new/resume")
     assert "s-new" in server.active_sessions
 
 
@@ -304,7 +300,7 @@ def test_resume_session_meta_includes_cost(app):
         {"ctx_used": 0, "upload_tokens": 5, "download_tokens": 10},
     )
     mock_provider.cost = MagicMock(return_value=1.23)
-    resp = client.post("/sessions/resume", json={"session_id": "s1"})
+    resp = client.post("/sessions/s1/resume")
     assert resp.json()["meta"]["cost"] == 1.23
 
 
@@ -318,7 +314,7 @@ def test_compact_nothing_to_do(app):
         {"role": "user", "content": "u1"},
         {"role": "assistant", "content": "a1"},
     ]  # 2 convo msgs <= keep_turns(5)*2=10
-    resp = client.post("/sessions/compact", json={"session_id": "s1"})
+    resp = client.post("/sessions/s1/compact", json={})
     assert resp.json()["status"] == "nothing to compact"
 
 
@@ -334,7 +330,7 @@ def test_compact_invokes_provider_and_stores_summary(app):
     )
     mock_librarian.store_message.return_value = "mid"
 
-    client.post("/sessions/compact", json={"session_id": "s1"})
+    client.post("/sessions/s1/compact", json={})
     mock_librarian.store_message.assert_called_once()
     stored = mock_librarian.store_message.call_args[0][1]
     assert stored["role"] == "summary"
@@ -352,7 +348,7 @@ def test_compact_preserves_system_messages(app):
     mock_provider.completion = _make_fake_completion(("content", "summary"))
     mock_librarian.store_message.return_value = "mid"
 
-    client.post("/sessions/compact", json={"session_id": "s1"})
+    client.post("/sessions/s1/compact", json={})
     push_calls = mock_librarian.push_context.call_args_list
     assert call("s1", sys_msg) in push_calls
 
@@ -369,9 +365,7 @@ def test_compact_rebuilds_context_with_tail(app):
     )
     mock_librarian.store_message.return_value = "mid"
 
-    client.post(
-        "/sessions/compact", json={"session_id": "s1", "keep_turns": 2}
-    )
+    client.post("/sessions/s1/compact", json={"keep_turns": 2})
     push_calls = [
         args[0][1] for args in mock_librarian.push_context.call_args_list
     ]
@@ -465,7 +459,4 @@ def test_session_forbidden_for_different_owner(app):
     mock_librarian.structure_db.get_session.return_value = {
         "user_id": "other-user"
     }
-    assert (
-        client.post("/sessions/clear", json={"session_id": "s1"}).status_code
-        == 403
-    )
+    assert client.post("/sessions/s1/clear").status_code == 403

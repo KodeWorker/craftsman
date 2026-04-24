@@ -26,3 +26,9 @@ def test_commands_is_list_of_dicts_with_name():
     commands = get_config()["commands"]
     assert isinstance(commands, list)
     assert all(isinstance(c, dict) and "name" in c for c in commands)
+
+
+def test_get_config_returns_empty_dict_for_empty_yaml(mocker):
+    mocker.patch("craftsman.configure.os.path.exists", return_value=False)
+    mocker.patch("craftsman.configure.yaml.safe_load", return_value=None)
+    assert get_config() == {}

@@ -150,13 +150,13 @@ Multipart form upload. Fields: `file` (required), `session_id` (optional).
 
 ### GET /artifacts/
 
-Query params: `session_id` (optional).
+Query params: `session_id` (optional), `project_id` (optional). Both trigger an ownership check; 403 if the session/project belongs to a different user.
 
 ```json
 {
   "artifacts": [
     {
-      "artifact_id": "<uuid>",
+      "id": "<uuid>",
       "filename": "...",
       "mime_type": "...",
       "size_bytes": 0,
@@ -168,20 +168,26 @@ Query params: `session_id` (optional).
 
 ### GET /artifacts/{id}
 
+`{id}` may be a full UUID or an unambiguous prefix.
+
 ```json
 {
-  "artifact_id": "<uuid>",
-  "filename": "...",
-  "mime_type": "...",
-  "size_bytes": 0,
-  "created_at": "..."
+  "artifact": {
+    "id": "<uuid>",
+    "filename": "...",
+    "mime_type": "...",
+    "size_bytes": 0,
+    "created_at": "..."
+  }
 }
 ```
 
 ### DELETE /artifacts/{id}
 
+`{id}` may be a full UUID or an unambiguous prefix. 403 if the artifact belongs to a different user.
+
 ```json
-{ "status": "artifact '<uuid>' deleted" }
+{ "status": "Artifact deleted successfully." }
 ```
 
 ---
