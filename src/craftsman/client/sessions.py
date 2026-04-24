@@ -86,15 +86,10 @@ class SessionsClient(BaseClient):
 
     def delete_session(self, session: str = None) -> bool:
         if not session:
-            print(
-                Fore.RED
-                + "No session ID or prefix or title provided."
-                + Style.RESET_ALL
-            )
-            self.logger.error("No session ID or prefix or title provided.")
-            return False
+            session_id = self.pick_session(None, limit=None)
+        else:
+            session_id = self.find_session_id(session)
 
-        session_id = self.find_session_id(session)
         if not session_id:
             print(
                 Fore.RED + f"Session '{session}' not found." + Style.RESET_ALL

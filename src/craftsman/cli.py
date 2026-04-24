@@ -240,7 +240,6 @@ def sess_list(
 
 
 @sess.command(name="delete")
-@click.argument("session")
 @click.option("--host", default="localhost", help="Server host")
 @click.option("--port", default=6969, help="Server port")
 def sess_delete(

@@ -34,7 +34,7 @@ uv run craftsman user login [--host] [--port]
 
 # Session management
 uv run craftsman sess list [--host] [--port] [--project-id] [--limit]
-uv run craftsman sess delete <id|prefix|title> [--host] [--port]
+uv run craftsman sess delete [<id|prefix|title>] [--host] [--port]
 
 # Artifact management
 uv run craftsman arti list [--host] [--port]
