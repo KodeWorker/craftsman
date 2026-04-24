@@ -273,7 +273,6 @@ def arti_list(host: str = "localhost", port: int = 6969):
 
 
 @arti.command(name="delete")
-@click.argument("artifact")
 @click.option("--host", default="localhost", help="Server host")
 @click.option("--port", default=6969, help="Server port")
 def arti_delete(

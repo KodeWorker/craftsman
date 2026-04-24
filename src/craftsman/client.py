@@ -36,12 +36,10 @@ class ChatCompleter(Completer):
     def __init__(
         self,
         slash_commands: list = None,
-        support_formats: list = None,
         rebuild_interval_sec: int = 15,
         ignores: list = None,
     ):
         self.slash_commands = slash_commands or []
-        self.support_formats = support_formats or []
         self._file_cache: list[str] = []
         self._cache_time: float = 0
         self._rebuild_interval_sec = rebuild_interval_sec
@@ -87,14 +85,11 @@ class ChatCompleter(Completer):
             file_prefix = word[1:]
             for file_path in self._get_files():
                 if file_path.startswith(file_prefix):
-                    if file_path.endswith(tuple(self.support_formats)):
-                        yield Completion(
-                            "@" + file_path,
-                            start_position=-len(word),
-                            style=_AT_FILE_STYLE,
-                        )
-                    else:
-                        yield Completion(file_path, start_position=-len(word))
+                    yield Completion(
+                        "@" + file_path,
+                        start_position=-len(word),
+                        style=_AT_FILE_STYLE,
+                    )
 
 
 class AtFileLexer(Lexer):
@@ -551,8 +546,6 @@ class Client:
         ):
             completer = ChatCompleter(
                 slash_commands=self.slash_commands,
-                support_formats=self.support_image_formats
-                + self.support_audio_formats,
                 rebuild_interval_sec=self.rebuild_interval_sec,
                 ignores=self.completer_ignores,
             )
@@ -979,7 +972,37 @@ class Client:
             )
         return infos
 
-    def delete_artifact(self, artifact: str) -> bool:
+    def pick_artifact(self) -> str | None:
+        response = self.__request("get", f"{self.entry_point}/artifacts/")
+        if response.status_code != 200:
+            self.logger.error(
+                f"Error listing artifacts: "
+                f"{response.status_code} - {response.text}"
+            )
+            return None
+        artifacts = response.json().get("artifacts", [])
+        if not artifacts:
+            self.logger.info("No artifacts available to pick.")
+            return None
+
+        options = [
+            (artifact["id"], f"{artifact['id'][:8]} | {artifact['filename']}")
+            for artifact in artifacts
+        ]
+
+        result = choice(
+            message="Please choose an artifact:",
+            options=options,
+            default=None,
+        )
+        return result
+
+    def delete_artifact(self, artifact: str | None = None) -> bool:
+        if not artifact:
+            artifact = self.pick_artifact()
+        if not artifact:
+            return False
+
         response = self.__request(
             "delete", f"{self.entry_point}/artifacts/{artifact}"
         )
@@ -1001,7 +1024,11 @@ class Client:
             # pattern to avoid duplicate uploads
             if re.match(r"^(image|audio):[0-9a-f-]+$", file_path):
                 continue
-            if file_path in self.completer_ignores:
+            # check if file_path matches any ignore patterns
+            if any(
+                fnmatch.fnmatch(file_path, pat)
+                for pat in self.completer_ignores
+            ):
                 continue
             full_path = Path(file_path).expanduser()
             if not full_path.is_file():
@@ -1033,13 +1060,10 @@ class Client:
                     .get("max_size_mb", 25)
                 )
             else:
-                print(
-                    Fore.RED
-                    + f"Unsupported file format: {extension}. "
-                    + Style.RESET_ALL
-                )
-                self.logger.error(f"Unsupported file format: {extension}.")
-                return None
+                # email xxx@yyy.zzz case also matches the pattern,
+                # so we should ignore if not a supported file format
+                # unsupported format — leave @path as-is in message
+                continue
 
             if size_mb > limit_mb:
                 print(

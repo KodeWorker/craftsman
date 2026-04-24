@@ -38,7 +38,7 @@ uv run craftsman sess delete <id|prefix|title> [--host] [--port]
 
 # Artifact management
 uv run craftsman arti list [--host] [--port]
-uv run craftsman arti delete <id|prefix> [--host] [--port]
+uv run craftsman arti delete [<id|prefix>] [--host] [--port]
 ```
 
 ## Docs
