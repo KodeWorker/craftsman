@@ -415,10 +415,19 @@ class StructureDB:
         )
         self.conn.commit()
 
+    def resolve_artifact_id(self, prefix: str) -> str | None:
+        rows = self.conn.execute(
+            "SELECT id FROM artifacts WHERE id LIKE ?",
+            (f"{prefix}%",),
+        ).fetchall()
+        if len(rows) == 1:
+            return rows[0]["id"]
+        return None
+
     def get_artifact(self, artifact_id: str) -> sqlite3.Row | None:
         return self.conn.execute(
-            "SELECT * FROM artifacts WHERE id LIKE ?",
-            (f"{artifact_id}%",),
+            "SELECT * FROM artifacts WHERE id = ?",
+            (artifact_id,),
         ).fetchone()
 
     def get_artifacts(
@@ -450,9 +459,7 @@ class StructureDB:
         ).fetchall()
 
     def delete_artifact(self, artifact_id: str) -> None:
-        self.conn.execute(
-            "DELETE FROM artifacts WHERE id LIKE ?", (f"{artifact_id}%",)
-        )
+        self.conn.execute("DELETE FROM artifacts WHERE id = ?", (artifact_id,))
         self.conn.commit()
 
     # --- plans ---

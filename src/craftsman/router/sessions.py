@@ -3,6 +3,7 @@ import base64
 import json
 import re
 
+import aiofiles
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
@@ -10,6 +11,8 @@ from craftsman.logger import CraftsmanLogger
 from craftsman.memory.librarian import Librarian
 from craftsman.provider import Provider
 from craftsman.router.deps import get_current_user
+
+_AUDIO_FMT = {"mpeg": "mp3", "x-wav": "wav", "wave": "wav"}
 
 
 class SessionsRouter:
@@ -95,7 +98,7 @@ class SessionsRouter:
         self.__check_owner(session_id, user_id)
 
         original_content = message.get("content", "")
-        message = self.multimodalize_message(message)
+        message = await self.multimodalize_message(message)
 
         self.librarian.push_context(session_id, message)
         context = self.librarian.get_context(session_id)
@@ -326,22 +329,21 @@ class SessionsRouter:
             },
         }
 
-    def multimodalize_message(self, message: dict) -> dict:
-        pattern = r"@(image|audio):([0-9a-f-]+)"
-        parts = []
-        if not re.search(pattern, message["content"]):
+    async def multimodalize_message(self, message: dict) -> dict:
+        content = message.get("content", "")
+        if not isinstance(content, str):
             return message
+        pattern = r"@(image|audio):([0-9a-f-]+)"
+        if not re.search(pattern, content):
+            return message
+        parts = []
         last = 0
-        for m in re.finditer(pattern, message["content"]):
+        for m in re.finditer(pattern, content):
             if m.start() > last:
                 parts.append(
-                    {
-                        "type": "text",
-                        "text": message["content"][last : m.start()],
-                    }
+                    {"type": "text", "text": content[last : m.start()]}
                 )
             media_type, uuid = m.group(1), m.group(2)
-
             artifact = self.librarian.structure_db.get_artifact(uuid)
             if not artifact:
                 self.logger.warning(
@@ -349,12 +351,10 @@ class SessionsRouter:
                 )
                 last = m.end()
                 continue
-            filepath = artifact["filepath"]
             mime = artifact["mime_type"]
-            _AUDIO_FMT = {"mpeg": "mp3", "x-wav": "wav", "wave": "wav"}
             fmt = _AUDIO_FMT.get(mime.split("/")[-1], mime.split("/")[-1])
-            with open(filepath, "rb") as f:
-                data = base64.b64encode(f.read()).decode("utf-8")
+            async with aiofiles.open(artifact["filepath"], "rb") as f:
+                data = base64.b64encode(await f.read()).decode("utf-8")
             if media_type == "image":
                 parts.append(
                     {
@@ -370,12 +370,8 @@ class SessionsRouter:
                     }
                 )
             last = m.end()
-        if last < len(message["content"]):
-            parts.append({"type": "text", "text": message["content"][last:]})
-
+        if last < len(content):
+            parts.append({"type": "text", "text": content[last:]})
         if not parts:
             return message
-        return {
-            "role": message["role"],
-            "content": parts,
-        }
+        return {"role": message["role"], "content": parts}
