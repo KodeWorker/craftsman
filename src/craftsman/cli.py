@@ -6,7 +6,7 @@ from importlib.resources import files
 import click
 
 from craftsman.auth import Auth
-from craftsman.client import Client
+from craftsman.client.chat import Client
 from craftsman.configure import get_config
 from craftsman.crypto import Crypto
 from craftsman.memory.structure import StructureDB

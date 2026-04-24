@@ -1,11 +1,5 @@
-import fnmatch
-import itertools
 import json
-import mimetypes
 import os
-import random
-import re
-import shutil
 import threading
 import time
 from enum import Enum
@@ -14,107 +8,16 @@ from pathlib import Path
 import requests
 from colorama import Fore, Style
 from prompt_toolkit import prompt
-from prompt_toolkit.completion import Completer, Completion
 from prompt_toolkit.filters import is_done
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.lexers import Lexer
-from prompt_toolkit.shortcuts import choice
 from prompt_toolkit.styles import Style as PTStyle
 
-from craftsman.auth import Auth
-from craftsman.configure import get_config
-from craftsman.logger import CraftsmanLogger
-
-_AT_FILE_STYLE_CLASS = "class:at-file"  # `@` file completion style class name
-_AT_FILE_STYLE = "fg:ansimagenta bold"  # `@` file completion style
-
-
-class ChatCompleter(Completer):
-
-    def __init__(
-        self,
-        slash_commands: list = None,
-        rebuild_interval_sec: int = 15,
-        ignores: list = None,
-    ):
-        self.slash_commands = slash_commands or []
-        self._file_cache: list[str] = []
-        self._cache_time: float = 0
-        self._rebuild_interval_sec = rebuild_interval_sec
-        ignores = ignores or []
-        # patterns ending with "/" are dir filters; strip trailing "/"
-        self._dir_ignores = [p.rstrip("/") for p in ignores if p.endswith("/")]
-        self._file_ignores = [p for p in ignores if not p.endswith("/")]
-
-    def _get_files(self) -> list[str]:
-        now = time.monotonic()
-        if now - self._cache_time > self._rebuild_interval_sec:
-            result = []
-            for root, dirs, files in os.walk(Path.cwd()):
-                dirs[:] = [
-                    d
-                    for d in dirs
-                    if not any(
-                        fnmatch.fnmatch(d, pat) for pat in self._dir_ignores
-                    )
-                ]
-                result.extend(
-                    os.path.relpath(os.path.join(root, f))
-                    for f in files
-                    if not any(
-                        fnmatch.fnmatch(f, pat) for pat in self._file_ignores
-                    )
-                )
-            self._file_cache = result
-            self._cache_time = now
-        return self._file_cache
-
-    def get_completions(self, document, complete_event):
-        full_text = document.text_before_cursor
-        word = document.get_word_before_cursor(WORD=True)
-        # slash command completion — only at start of input
-        if full_text.lstrip() == full_text and full_text.startswith("/"):
-            for cmd in self.slash_commands:
-                if cmd.startswith(full_text.lower()):
-                    yield Completion(cmd, start_position=-len(full_text))
-
-        # project file completion — triggered by "@" prefix
-        if word.startswith("@"):
-            file_prefix = word[1:]
-            for file_path in self._get_files():
-                if file_path.startswith(file_prefix):
-                    yield Completion(
-                        "@" + file_path,
-                        start_position=-len(word),
-                        style=_AT_FILE_STYLE,
-                    )
-
-
-class AtFileLexer(Lexer):
-
-    def lex_document(self, document):
-        def get_line(lineno):
-            line = document.lines[lineno]
-            tokens = []
-            i = 0
-            while i < len(line):
-                if line[i] == "@":
-                    j = i + 1
-                    while j < len(line) and not line[j].isspace():
-                        j += 1
-                    tokens.append((_AT_FILE_STYLE_CLASS, line[i:j]))
-                    i = j
-                else:
-                    j = i + 1
-                    while j < len(line) and line[j] != "@":
-                        j += 1
-                    tokens.append(("", line[i:j]))
-                    i = j
-            return tokens
-
-        return get_line
+from craftsman.client.artifacts import ArtifactsClient
+from craftsman.client.base import _AT_FILE_STYLE
+from craftsman.client.completer import AtFileLexer, ChatCompleter
+from craftsman.client.sessions import SessionsClient
 
 
 class InputMode(Enum):
@@ -123,157 +26,42 @@ class InputMode(Enum):
     EXIT = 3
 
 
-class Client:
+class Client(SessionsClient, ArtifactsClient):
 
     def __init__(self, host: str, port: int):
-        self.host = host
-        self.port = port
-        self.entry_point = f"http://{self.host}:{self.port}"
-        self.logger = CraftsmanLogger().get_logger(__name__)
-        self.config = get_config()
+        super().__init__(host, port)
+
         self.slash_commands = [
             cmd["name"] for cmd in self.config.get("commands", [])
         ]
-        self.support_image_formats = (
-            self.config.get("provider", {})
-            .get("capabilities", {})
-            .get("vision", {})
-            .get("formats", [])
-        )
-        self.support_audio_formats = (
-            self.config.get("provider", {})
-            .get("capabilities", {})
-            .get("audio", {})
-            .get("formats", [])
-        )
         self.rebuild_interval_sec = self.config.get("chat", {}).get(
             "rebuild_completer_interval_sec", 15
-        )
-        self.completer_ignores = (
-            self.config.get("chat", {}).get("completer", {}).get("ignores", [])
         )
         self.retry_interval_sec = self.config.get("chat", {}).get(
             "retry_interval_sec", 3
         )
         self.prompt_history_path = (
-            Path(os.path.expanduser(get_config()["workspace"]["root"]))
+            Path(os.path.expanduser(self.config["workspace"]["root"]))
             / "prompt_history.txt"
         )
         self.project_system_prompt = (
             Path.cwd() / ".craftsman" / "system_prompt.md"
         )
         self.root_system_prompt = (
-            Path(os.path.expanduser(get_config()["workspace"]["root"]))
+            Path(os.path.expanduser(self.config["workspace"]["root"]))
             / "system_prompt.md"
         )
-        self.banner = "Welcome to Craftsman!"
-        self.footer_pool = self.config.get("chat", {}).get("footer", [])
-        self.footer = self.footer_pool[0] if self.footer_pool else ""
+
         self.ctx_used = 0
         self.upload_tokens = 0
         self.download_tokens = 0
         self.cost = 0.0
-        self.request_session = requests.Session()
-
         self.input_style = PTStyle.from_dict(
             {
                 "prompt": "fg:ansigreen bold",
                 "at-file": _AT_FILE_STYLE,
             }
         )
-
-    def __jwt_token(self) -> str | None:
-        username = Auth.get_password("USERNAME")
-        password = Auth.get_password("PASSWORD")
-        if not username or not password:
-            print(
-                Fore.RED
-                + "Username or password not set in secrets. "
-                + "Proceeding without authentication token."
-                + Style.RESET_ALL
-            )
-            self.logger.error("Username or password not set in secrets.")
-            return None
-
-        response = self.request_session.post(
-            f"{self.entry_point}/users/login",
-            json={"username": username, "password": password},
-        )
-        if response.status_code == 200:
-            self.logger.info("Successfully obtained JWT token.")
-            return response.json().get("token")
-        else:
-            print(
-                Fore.RED
-                + "Failed to obtain authentication token. Please check logs."
-                + Style.RESET_ALL
-            )
-            self.logger.error("Failed to obtain JWT token.")
-            return None
-
-    # wire requests through this method to handle 401
-    # and retry with JWT token if needed
-    def __request(self, method: str, url: str, **kwargs) -> requests.Response:
-        resp = getattr(self.request_session, method)(url, **kwargs)
-        if resp.status_code == 401:
-            token = self.__jwt_token()
-            if not token:
-                return resp
-            self.request_session.headers.update(
-                {"Authorization": f"Bearer {token}"}
-            )
-            resp = getattr(self.request_session, method)(url, **kwargs)
-        return resp
-
-    def __update_banner(
-        self,
-        model: str = "",
-        session: str = "",
-        ctx_used: int = 0,
-        ctx_total: int = 0,
-        upload_tokens: int = 0,
-        download_tokens: int = 0,
-        cost: float = 0.0,
-        sandbox: bool = False,
-    ):
-        ctx_used_display = (
-            f"{ctx_used/1000:.1f}K" if ctx_used >= 1000 else str(ctx_used)
-        )
-        ctx_total_display = (
-            f"{ctx_total/1000:.1f}K" if ctx_total >= 1000 else str(ctx_total)
-        )
-        upload_tokens_display = (
-            f"{upload_tokens/1000:.1f}K"
-            if upload_tokens >= 1000
-            else str(upload_tokens)
-        )
-        download_tokens_display = (
-            f"{download_tokens/1000:.1f}K"
-            if download_tokens >= 1000
-            else str(download_tokens)
-        )
-        self.banner = (
-            f"model: {model} | session: {session} "
-            f"| ctx: {ctx_used_display}/{ctx_total_display} "
-            f"| {upload_tokens_display}↑ {download_tokens_display}↓ "
-            f"| (${cost:.4f}) "
-            f"| sandbox: {sandbox}"
-        )
-
-    @staticmethod
-    def __spin(spinner_stop, message="Thinking..."):
-        for frame in itertools.cycle(
-            ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
-        ):
-            if spinner_stop.is_set():
-                break
-            print(
-                f"\r{Style.DIM}{frame} {message} {Style.RESET_ALL}",
-                end="",
-                flush=True,
-            )
-            time.sleep(0.08)
-        print("\r  \r", end="", flush=True)
 
     def __read_system_prompt(self) -> str:
         if self.project_system_prompt.exists():
@@ -306,7 +94,7 @@ class Client:
                     )
             elif user_input.lower() == "/clear":
                 os.system("cls" if os.name == "nt" else "clear")
-                response = self.__request(
+                response = self._request(
                     "post",
                     f"{self.entry_point}/sessions/{session_id}/clear",
                 )
@@ -323,7 +111,7 @@ class Client:
                         f"{response.status_code} - {response.text}"
                     )
             elif user_input.lower() == "/system":
-                response = self.__request(
+                response = self._request(
                     "get",
                     f"{self.entry_point}/sessions/{session_id}/system",
                 )
@@ -359,7 +147,7 @@ class Client:
                     ),
                     (1000, 5),
                 )
-                response = self.__request(
+                response = self._request(
                     "post",
                     f"{self.entry_point}/sessions/{session_id}/compact",
                     json={
@@ -380,7 +168,7 @@ class Client:
                         "completion_tokens", 0
                     )
                     self.cost += data.get("meta", {}).get("cost", 0.0)
-                    self.__update_banner(
+                    self._update_banner(
                         session=session_id[:8],
                         ctx_used=self.ctx_used,
                         upload_tokens=self.upload_tokens,
@@ -398,7 +186,7 @@ class Client:
                         f"{response.status_code} - {response.text}"
                     )
             elif user_input.lower() == "/artifacts":
-                response = self.__request(
+                response = self._request(
                     "get",
                     f"{self.entry_point}/artifacts/",
                     params={"session_id": session_id},
@@ -449,7 +237,7 @@ class Client:
         # health check loop to wait for server to be ready
         while True:
             try:
-                response = self.__request("get", f"{self.entry_point}/health")
+                response = self._request("get", f"{self.entry_point}/health")
                 if response.status_code == 200:
                     self.logger.info("Successfully connected to the server.")
                     break
@@ -464,7 +252,7 @@ class Client:
                 time.sleep(self.retry_interval_sec)
 
         # fetch JWT token and set in header for subsequent requests
-        token = self.__jwt_token()
+        token = self._jwt_token()
         if token:
             self.logger.info("Setting JWT token for authentication.")
             self.request_session.headers.update(
@@ -480,10 +268,10 @@ class Client:
             return
 
         if not session_id:
-            response = self.__request("post", f"{self.entry_point}/sessions/")
+            response = self._request("post", f"{self.entry_point}/sessions/")
             session_id = response.json().get("session_id", "")
         else:
-            response = self.__request(
+            response = self._request(
                 "post",
                 f"{self.entry_point}/sessions/{session_id}/resume",
             )
@@ -520,7 +308,7 @@ class Client:
         # set system prompt if exists
         system_prompt = self.__read_system_prompt()
         if system_prompt:
-            response = self.__request(
+            response = self._request(
                 "put",
                 f"{self.entry_point}/sessions/{session_id}/system",
                 json={"system_prompt": system_prompt},
@@ -563,16 +351,11 @@ class Client:
             event.current_buffer.insert_text("\n")
 
         while True:
-            terminal_width = shutil.get_terminal_size(
-                fallback=(80, 24)
-            ).columns
 
             hint = "Enter your message (or '/help' for commands)"
             hint = f"{Style.DIM}{hint}{Style.RESET_ALL}"
             hint = ANSI(hint)
 
-            separator = "_" * terminal_width
-            print(Style.BRIGHT + Fore.CYAN + separator + Style.RESET_ALL)
             print(Style.BRIGHT + Fore.CYAN + self.banner + Style.RESET_ALL)
 
             user_input = prompt(
@@ -588,8 +371,8 @@ class Client:
                 bottom_toolbar=self.footer,
             )
 
-            if self.footer_pool:
-                self.footer = random.choice(self.footer_pool)
+            self._update_footer()
+
             mode = self.__handle_slash_command(session_id, user_input)
             if mode == InputMode.EXIT:
                 break
@@ -601,7 +384,7 @@ class Client:
                 continue
 
             message = {"role": "user", "content": user_input}
-            response = self.__request(
+            response = self._request(
                 "post",
                 f"{self.entry_point}/sessions/{session_id}/completion",
                 json={"message": message},
@@ -624,7 +407,7 @@ class Client:
             printed_label = False
             spinner_stop = threading.Event()
             spinner_thread = threading.Thread(
-                target=self.__spin,
+                target=self._spin,
                 args=(spinner_stop, "Thinking..."),
                 daemon=True,
             )
@@ -643,7 +426,7 @@ class Client:
                             spinner_thread.join()
                             first_chunk = False
                         print()
-                        self.__update_banner(
+                        self._update_banner(
                             model=chunk.get("model", ""),
                             session=session_id[:8],
                             ctx_used=self.ctx_used + chunk.get("ctx_used", 0),
@@ -704,7 +487,7 @@ class Client:
         # health check loop to wait for server to be ready
         while True:
             try:
-                response = self.__request("get", f"{self.entry_point}/health")
+                response = self._request("get", f"{self.entry_point}/health")
                 if response.status_code == 200:
                     self.logger.info("Successfully connected to the server.")
                     break
@@ -719,7 +502,7 @@ class Client:
                 time.sleep(self.retry_interval_sec)
 
         # fetch JWT token and set in header for subsequent requests
-        token = self.__jwt_token()
+        token = self._jwt_token()
         if token:
             self.logger.info("Setting JWT token for authentication.")
             self.request_session.headers.update(
@@ -735,7 +518,7 @@ class Client:
             return
 
         # Create a new session for this subagent task
-        response = self.__request("post", f"{self.entry_point}/sessions/")
+        response = self._request("post", f"{self.entry_point}/sessions/")
         if response.status_code == 200:
             session_id = response.json().get("session_id", "")
             self.logger.info(f"Created new session with ID: {session_id}")
@@ -753,7 +536,7 @@ class Client:
 
         system_prompt = self.__read_system_prompt()
         if system_prompt:
-            response = self.__request(
+            response = self._request(
                 "put",
                 f"{self.entry_point}/sessions/{session_id}/system",
                 json={"system_prompt": system_prompt},
@@ -775,13 +558,13 @@ class Client:
 
         spinner_stop = threading.Event()
         spinner_thread = threading.Thread(
-            target=self.__spin,
+            target=self._spin,
             args=(spinner_stop, "Running subagent..."),
             daemon=True,
         )
         spinner_thread.start()
 
-        response = self.__request(
+        response = self._request(
             "post",
             f"{self.entry_point}/subagent/run",
             json={"message": message, "session_id": session_id},
@@ -817,310 +600,3 @@ class Client:
             + f" Completion: {down_tokens}, Cost: ${cost:.4f}"
             + Style.RESET_ALL
         )
-
-    def get_sessions(self, project_id: str = None, limit: int = 5) -> list:
-        response = self.__request(
-            "get",
-            f"{self.entry_point}/sessions/",
-            params={"project_id": project_id, "limit": limit},
-        )
-        if response.status_code == 200:
-            return response.json().get("sessions", [])
-        else:
-            print(
-                Fore.RED
-                + "Error retrieving sessions. Please check logs."
-                + Style.RESET_ALL
-            )
-            self.logger.error(
-                "Error retrieving sessions: "
-                f"{response.status_code} - {response.text}"
-            )
-            return []
-
-    def list_sessions(self, project_id: str = None, limit: int = 5) -> list:
-        sessions = self.get_sessions(project_id=project_id, limit=limit)
-        session_infos = []
-        terminal_width = shutil.get_terminal_size(fallback=(80, 24)).columns
-        for session in sessions:
-            session_id = session.get("session_id", "")[:8]
-            title = session.get("title", "")
-            last_input = session.get("last_input", "")
-            last_input_at = session.get("last_input_at", "")
-            display_input = (
-                last_input[: terminal_width - 3] + "..."
-                if len(last_input) > terminal_width
-                else last_input
-            )
-
-            session_info = (
-                f"{Fore.CYAN}{session_id[:8]} | "
-                f"{title} | {last_input_at}{Style.RESET_ALL}\n"
-                f"{display_input}"
-            )
-            session_infos.append(session_info)
-        return session_infos
-
-    def find_session_id(self, session: str) -> str:
-        response = self.__request(
-            "get",
-            f"{self.entry_point}/sessions/resolve",
-            params={"session": session},
-        )
-        if response.status_code == 200:
-            session_id = response.json().get("session_id", None)
-            if not session_id:
-                print(
-                    Fore.RED
-                    + f"Session '{session}' not found."
-                    + Style.RESET_ALL
-                )
-                self.logger.error(f"Session '{session}' not found.")
-                return None
-            return session_id
-        else:
-            print(
-                Fore.RED
-                + f"Error retrieving session ID for '{session}'. "
-                + "Please check logs."
-                + Style.RESET_ALL
-            )
-            self.logger.error(
-                "Error retrieving session ID: "
-                f"{response.status_code} - {response.text}"
-            )
-            return None
-
-    def delete_session(self, session: str = None) -> bool:
-        if not session:
-            print(
-                Fore.RED
-                + "No session ID or prefix or title provided."
-                + Style.RESET_ALL
-            )
-            self.logger.error("No session ID or prefix or title provided.")
-            return False
-
-        session_id = self.find_session_id(session)
-        if not session_id:
-            print(
-                Fore.RED + f"Session '{session}' not found." + Style.RESET_ALL
-            )
-            self.logger.error(f"Session '{session}' not found.")
-            return False
-
-        response = self.__request(
-            "delete",
-            f"{self.entry_point}/sessions/{session_id}",
-        )
-        if response.status_code == 200:
-            self.logger.info(response.json().get("status", ""))
-            return True
-        print(
-            Fore.RED
-            + f"Error deleting session '{session}'. Please check logs."
-            + Style.RESET_ALL
-        )
-        self.logger.error(
-            "Error deleting session: "
-            f"{response.status_code} - {response.text}"
-        )
-        return False
-
-    def pick_session(self, project_id: str = None, limit: int = 5) -> str:
-        sessions = self.get_sessions(project_id=project_id, limit=limit)
-        if not sessions:
-            self.logger.info(
-                "No existing sessions found. Starting a new session."
-            )
-            return None
-
-        options = [
-            (
-                session["session_id"],
-                f"{session['session_id'][:8]} | {session['title']} | "
-                f"{session['last_input_at']} - {session['last_input']}",
-            )
-            for session in sessions
-        ]
-        result = choice(
-            message="Please choose a session:",
-            options=options,
-            default=None,
-        )
-        return result
-
-    def list_artifacts(self) -> list:
-        response = self.__request("get", f"{self.entry_point}/artifacts/")
-        if response.status_code != 200:
-            self.logger.error(
-                f"Error listing artifacts: "
-                f"{response.status_code} - {response.text}"
-            )
-            return []
-        artifacts = response.json().get("artifacts", [])
-        infos = []
-        for artifact in artifacts:
-            artifact_id = artifact.get("id", "")[:8]
-            filename = artifact.get("filename", "")
-            mime_type = artifact.get("mime_type", "")
-            size_bytes = artifact.get("size_bytes", 0)
-            created_at = artifact.get("created_at", "")
-            infos.append(
-                f"{artifact_id} | {filename} | {mime_type} | "
-                f"{size_bytes} bytes | {created_at}"
-            )
-        return infos
-
-    def pick_artifact(self) -> str | None:
-        response = self.__request("get", f"{self.entry_point}/artifacts/")
-        if response.status_code != 200:
-            self.logger.error(
-                f"Error listing artifacts: "
-                f"{response.status_code} - {response.text}"
-            )
-            return None
-        artifacts = response.json().get("artifacts", [])
-        if not artifacts:
-            self.logger.info("No artifacts available to pick.")
-            return None
-
-        options = [
-            (artifact["id"], f"{artifact['id'][:8]} | {artifact['filename']}")
-            for artifact in artifacts
-        ]
-
-        result = choice(
-            message="Please choose an artifact:",
-            options=options,
-            default=None,
-        )
-        return result
-
-    def delete_artifact(self, artifact: str | None = None) -> bool:
-        if not artifact:
-            artifact = self.pick_artifact()
-        if not artifact:
-            return False
-
-        response = self.__request(
-            "delete", f"{self.entry_point}/artifacts/{artifact}"
-        )
-        if response.status_code == 200:
-            self.logger.info(f"Artifact '{artifact}' deleted.")
-            return True
-        self.logger.error(
-            f"Error deleting artifact '{artifact}': "
-            f"{response.status_code} - {response.text}"
-        )
-        return False
-
-    def upload_artifacts(self, user_input: str, session_id: str) -> str | None:
-        # find all @file_path patterns in user input
-        pattern = r"@([\w./\\~:-]+)"
-        matches = re.findall(pattern, user_input)
-        for file_path in matches:
-            # skip if user_input already contains @image: or @audio:
-            # pattern to avoid duplicate uploads
-            if re.match(r"^(image|audio):[0-9a-f-]+$", file_path):
-                continue
-            # check if file_path matches any ignore patterns
-            if any(
-                fnmatch.fnmatch(file_path, pat)
-                for pat in self.completer_ignores
-            ):
-                continue
-
-            # early check file extension before uploading
-            # to save time and bandwidth
-            extension = Path(file_path).expanduser().suffix[1:].lower()
-            if (
-                extension not in self.support_image_formats
-                and extension not in self.support_audio_formats
-            ):
-                # email case (e.g. xxx@yyy.zzz -> @yyy.zzz)
-                # also matches the pattern, so we should ignore
-                continue
-
-            full_path = Path(file_path).expanduser()
-            if not full_path.is_file():
-                # file not found - print warning and skip
-                print(
-                    Fore.YELLOW
-                    + f"File '{file_path}' not found."
-                    + Style.RESET_ALL
-                )
-                self.logger.warning(f"File '{file_path}' not found.")
-                continue
-
-            # size limit check (10MB)
-            size_mb = full_path.stat().st_size / (1024 * 1024)
-
-            # no else needed
-            if extension in self.support_image_formats:
-                type_desc = "image"
-                limit_mb = (
-                    self.config.get("provider", {})
-                    .get("capabilities", {})
-                    .get("vision", {})
-                    .get("max_size_mb", 10)
-                )
-            elif extension in self.support_audio_formats:
-                type_desc = "audio"
-                limit_mb = (
-                    self.config.get("provider", {})
-                    .get("capabilities", {})
-                    .get("audio", {})
-                    .get("max_size_mb", 25)
-                )
-
-            if size_mb > limit_mb:
-                print(
-                    Fore.RED
-                    + f"File '{file_path}' is too large ({size_mb:.1f}MB). "
-                    + f"Max allowed size for {type_desc} "
-                    + f"files is {limit_mb}MB. "
-                    + Style.RESET_ALL
-                )
-                self.logger.error(
-                    f"File '{file_path}' is too large ({size_mb:.1f}MB). "
-                    f"Max allowed size for {type_desc} files is {limit_mb}MB."
-                )
-                return None
-
-            mime_type, _ = mimetypes.guess_type(str(full_path))
-            with open(full_path, "rb") as f:
-                files = {
-                    "file": (
-                        full_path.name,
-                        f,
-                        mime_type or "application/octet-stream",
-                    )
-                }
-                response = self.__request(
-                    "post",
-                    f"{self.entry_point}/artifacts/",
-                    files=files,
-                    data={"session_id": session_id},
-                )
-            if response.status_code == 200:
-                artifact_id = response.json().get("artifact_id", "")
-                user_input = user_input.replace(
-                    f"@{file_path}",
-                    f"@{type_desc}:{artifact_id}",
-                )
-                self.logger.info(
-                    f"Uploaded file '{file_path}' as artifact '{artifact_id}'."
-                )
-            else:
-                print(
-                    Fore.RED
-                    + f"Error uploading file '{file_path}'. Please check logs."
-                    + Style.RESET_ALL
-                )
-                self.logger.error(
-                    f"Error uploading file '{file_path}': "
-                    f"{response.status_code} - {response.text}"
-                )
-                return None
-        return user_input
