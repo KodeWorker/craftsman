@@ -1030,19 +1030,33 @@ class Client:
                 for pat in self.completer_ignores
             ):
                 continue
+
+            # early check file extension before uploading
+            # to save time and bandwidth
+            extension = Path(file_path).expanduser().suffix[1:].lower()
+            if (
+                extension not in self.support_image_formats
+                and extension not in self.support_audio_formats
+            ):
+                # email case (e.g. xxx@yyy.zzz -> @yyy.zzz)
+                # also matches the pattern, so we should ignore
+                continue
+
             full_path = Path(file_path).expanduser()
             if not full_path.is_file():
+                # file not found - print warning and skip
                 print(
                     Fore.YELLOW
-                    + f"File '{file_path}' not found. Skipping upload."
+                    + f"File '{file_path}' not found."
                     + Style.RESET_ALL
                 )
                 self.logger.warning(f"File '{file_path}' not found.")
                 continue
-            extension = full_path.suffix[1:].lower()
 
             # size limit check (10MB)
             size_mb = full_path.stat().st_size / (1024 * 1024)
+
+            # no else needed
             if extension in self.support_image_formats:
                 type_desc = "image"
                 limit_mb = (
@@ -1059,11 +1073,6 @@ class Client:
                     .get("audio", {})
                     .get("max_size_mb", 25)
                 )
-            else:
-                # email xxx@yyy.zzz case also matches the pattern,
-                # so we should ignore if not a supported file format
-                # unsupported format — leave @path as-is in message
-                continue
 
             if size_mb > limit_mb:
                 print(
