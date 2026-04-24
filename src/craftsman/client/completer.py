@@ -14,10 +14,12 @@ class ChatCompleter(Completer):
     def __init__(
         self,
         slash_commands: list = None,
+        support_formats: list = None,
         rebuild_interval_sec: int = 15,
         ignores: list = None,
     ):
         self.slash_commands = slash_commands or []
+        self.support_formats = support_formats or []
         self._file_cache: list[str] = []
         self._cache_time: float = 0
         self._rebuild_interval_sec = rebuild_interval_sec
@@ -63,11 +65,18 @@ class ChatCompleter(Completer):
             file_prefix = word[1:]
             for file_path in self._get_files():
                 if file_path.startswith(file_prefix):
-                    yield Completion(
-                        "@" + file_path,
-                        start_position=-len(word),
-                        style=_AT_FILE_STYLE,
-                    )
+                    extension = Path(file_path).suffix[1:].lower()
+                    if extension in self.support_formats:
+                        yield Completion(
+                            "@" + file_path,
+                            start_position=-len(word),
+                            style=_AT_FILE_STYLE,
+                        )
+                    else:
+                        yield Completion(
+                            "@" + file_path,
+                            start_position=-len(word),
+                        )
 
 
 class AtFileLexer(Lexer):

@@ -335,6 +335,8 @@ class Client(SessionsClient, ArtifactsClient):
         ):
             completer = ChatCompleter(
                 slash_commands=self.slash_commands,
+                support_formats=self.support_image_formats
+                + self.support_audio_formats,
                 rebuild_interval_sec=self.rebuild_interval_sec,
                 ignores=self.completer_ignores,
             )
@@ -355,7 +357,7 @@ class Client(SessionsClient, ArtifactsClient):
             f"{Style.DIM}Enter your message (or '/help' for commands)"
             f"{Style.RESET_ALL}"
         )
-        session = PromptSession(
+        prompt_session = PromptSession(
             message=[("class:prompt", "user: ")],
             placeholder=hint,
             multiline=True,
@@ -411,13 +413,13 @@ class Client(SessionsClient, ArtifactsClient):
             finally:
                 _dd_active = False
 
-        session.default_buffer.on_text_changed += _drag_drop_handler
+        prompt_session.default_buffer.on_text_changed += _drag_drop_handler
 
         while True:
 
             print(Style.BRIGHT + Fore.CYAN + self.banner + Style.RESET_ALL)
 
-            user_input = session.prompt()
+            user_input = prompt_session.prompt()
 
             self._update_footer()
 
