@@ -140,11 +140,10 @@ warrant their own routers.
       uploads the file, and replaces with `@image:<uuid>` / `@audio:<uuid>` token
 - [x] Update `ChatCompleter` to trigger file completion only on `@`-prefixed words
 - [x] Display artifact_id ref in chat alongside the message
-- [ ] *(low priority)* Drag-and-drop support — hook `Buffer.on_text_insert`,
+- [x] *(low priority)* Drag-and-drop support — hook `Buffer.on_text_insert`,
       detect bracketed-paste paths (`file://`, `/`, `~/`), normalise and
       convert to `@filepath` syntax automatically
-- [ ] *(low priority)* Voice input keybinding — push-to-talk key records audio
-      and feeds it into the prompt via the existing audio artifact upload flow
+- ~~[ ] *(low priority)* Voice input keybinding — push-to-talk key records audio~~
 
 #### Why `@` for inline file references
 `@` is visually distinct, not a valid filename-start character on Linux/Mac (so

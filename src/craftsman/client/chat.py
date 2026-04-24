@@ -7,7 +7,8 @@ from pathlib import Path
 
 import requests
 from colorama import Fore, Style
-from prompt_toolkit import prompt
+from prompt_toolkit import PromptSession
+from prompt_toolkit.document import Document
 from prompt_toolkit.filters import is_done
 from prompt_toolkit.formatted_text import ANSI
 from prompt_toolkit.history import FileHistory
@@ -350,26 +351,53 @@ class Client(SessionsClient, ArtifactsClient):
         def _(event):
             event.current_buffer.insert_text("\n")
 
-        while True:
+        hint = ANSI(
+            f"{Style.DIM}Enter your message (or '/help' for commands)"
+            f"{Style.RESET_ALL}"
+        )
+        session = PromptSession(
+            message=[("class:prompt", "user: ")],
+            placeholder=hint,
+            multiline=True,
+            history=history,
+            completer=completer,
+            lexer=AtFileLexer(),
+            style=self.input_style,
+            key_bindings=kb,
+            show_frame=~is_done,
+            bottom_toolbar=self.footer,
+        )
 
-            hint = "Enter your message (or '/help' for commands)"
-            hint = f"{Style.DIM}{hint}{Style.RESET_ALL}"
-            hint = ANSI(hint)
+        _dd_active = False
+
+        def _drag_drop_handler(buf):
+            nonlocal _dd_active
+            if _dd_active:
+                return
+            text = buf.text
+            if text.startswith("file://"):
+                raw = text[7:]
+            elif text.startswith(("/", "~/")):
+                raw = text
+            else:
+                return
+            raw = raw.strip().strip("'\"")
+            if not raw:
+                return
+            _dd_active = True
+            try:
+                new_text = f"@{raw}"
+                buf.set_document(Document(new_text, len(new_text)))
+            finally:
+                _dd_active = False
+
+        session.default_buffer.on_text_changed += _drag_drop_handler
+
+        while True:
 
             print(Style.BRIGHT + Fore.CYAN + self.banner + Style.RESET_ALL)
 
-            user_input = prompt(
-                message=[("class:prompt", "user: ")],
-                placeholder=hint,
-                multiline=True,
-                history=history,
-                completer=completer,
-                lexer=AtFileLexer(),
-                style=self.input_style,
-                key_bindings=kb,
-                show_frame=~is_done,
-                bottom_toolbar=self.footer,
-            )
+            user_input = session.prompt()
 
             self._update_footer()
 
