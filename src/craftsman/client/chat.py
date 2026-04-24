@@ -383,11 +383,19 @@ class Client(SessionsClient, ArtifactsClient):
             if not current_before.startswith(prev_before):
                 return  # deletion or cursor-only move — skip
             inserted = current_before[len(prev_before) :]
-            stripped = inserted.strip().strip("''")
+            stripped = inserted.strip().strip("'")
             # require at least 2 chars to avoid false-positive on typing "/"
             if len(stripped) <= 1:
                 return
+            # Linux/Mac path (e.g. /path/to/file or ~/file)
             if stripped.startswith(("/", "~/")):
+                raw = stripped
+            # Windows path with drive letter (e.g. C:\path\to\file)
+            elif (
+                len(stripped) > 2
+                and stripped[1] == ":"
+                and stripped[2] in ("\\", "/")
+            ):
                 raw = stripped
             else:
                 return
