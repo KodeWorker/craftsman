@@ -41,7 +41,7 @@ uv run craftsman auth set LLM_SSL_CRT   # optional, for self-signed certs
 
 ```bash
 uv run craftsman sess list   [--host] [--port] [--project-id] [--limit]
-uv run craftsman sess delete <id|prefix|title> [--host] [--port]
+uv run craftsman sess delete [<id|prefix|title>] [--host] [--port]
 ```
 
 ## User Management
@@ -68,6 +68,6 @@ Credentials are stored in the system keyring (not in config files).
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `LLM_BASE_URL` | Base URL of the OpenAI-compatible server | _(empty)_ |
-| `LLM_API_KEY` | API key | _(empty)_ |
-| `LLM_SSL_CRT` | Path to SSL certificate for self-signed servers | _(empty)_ |
+| `LLM_BASE_URL` | Base URL of the OpenAI-compatible server (client) | _(empty)_ |
+| `LLM_API_KEY` | API key (client) | _(empty)_ |
+| `LLM_SSL_CRT` | Path to SSL certificate for self-signed servers (server) | _(empty)_ |

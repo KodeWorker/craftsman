@@ -282,3 +282,117 @@ def test_delete_global_fact(db):
     fid = db.add_global_fact("to delete")
     db.delete_global_fact(fid)
     assert all(f["content"] != "to delete" for f in db.get_global_facts())
+
+
+# --- artifacts ---
+
+
+@pytest.fixture
+def aid(db, uid, sid):
+    return db.add_artifact(
+        filepath="/tmp/test.jpg",
+        filename="test.jpg",
+        user_id=uid,
+        session_id=sid,
+        mime_type="image/jpeg",
+        size_bytes=1024,
+    )
+
+
+def test_add_artifact_returns_uuid(db):
+    result = db.add_artifact(filepath="", filename="file.jpg")
+    uuid.UUID(result)
+
+
+def test_add_artifact_stores_fields(db, uid, sid):
+    aid = db.add_artifact(
+        filepath="/tmp/x.jpg",
+        filename="x.jpg",
+        user_id=uid,
+        session_id=sid,
+        mime_type="image/jpeg",
+        size_bytes=512,
+    )
+    row = db.get_artifact(aid)
+    assert row["filename"] == "x.jpg"
+    assert row["mime_type"] == "image/jpeg"
+    assert row["size_bytes"] == 512
+    assert row["user_id"] == uid
+
+
+def test_update_artifact_updates_filepath_and_size(db, aid):
+    db.update_artifact(aid, filepath="/new/path.jpg", size_bytes=9999)
+    row = db.get_artifact(aid)
+    assert row["filepath"] == "/new/path.jpg"
+    assert row["size_bytes"] == 9999
+
+
+def test_resolve_artifact_id_by_prefix(db, aid):
+    assert db.resolve_artifact_id(aid[:8]) == aid
+
+
+def test_resolve_artifact_id_exact_full_id(db, aid):
+    assert db.resolve_artifact_id(aid) == aid
+
+
+def test_resolve_artifact_id_ambiguous_returns_none(db):
+    db.conn.execute(
+        "INSERT INTO artifacts (id, filepath, filename, created_at)"
+        " VALUES (?, '', 'a.jpg', datetime('now'))",
+        ("abcd1111-0000-0000-0000-000000000001",),
+    )
+    db.conn.execute(
+        "INSERT INTO artifacts (id, filepath, filename, created_at)"
+        " VALUES (?, '', 'b.jpg', datetime('now'))",
+        ("abcd2222-0000-0000-0000-000000000002",),
+    )
+    db.conn.commit()
+    assert db.resolve_artifact_id("abcd") is None
+
+
+def test_resolve_artifact_id_no_match_returns_none(db):
+    assert db.resolve_artifact_id("nonexistent") is None
+
+
+def test_get_artifact_returns_row(db, aid):
+    assert db.get_artifact(aid)["id"] == aid
+
+
+def test_get_artifact_unknown_returns_none(db):
+    assert db.get_artifact("no-such-id") is None
+
+
+def test_get_artifacts_by_user_id(db, uid):
+    other_uid = db.create_user("other", "h")["id"]
+    a1 = db.add_artifact(filepath="", filename="a.jpg", user_id=uid)
+    a2 = db.add_artifact(filepath="", filename="b.jpg", user_id=other_uid)
+    ids = [r["id"] for r in db.get_artifacts(user_id=uid)]
+    assert a1 in ids and a2 not in ids
+
+
+def test_get_artifacts_by_session_id(db, sid):
+    other_sid = db.create_session()
+    a1 = db.add_artifact(filepath="", filename="a.jpg", session_id=sid)
+    a2 = db.add_artifact(filepath="", filename="b.jpg", session_id=other_sid)
+    ids = [r["id"] for r in db.get_artifacts(session_id=sid)]
+    assert a1 in ids and a2 not in ids
+
+
+def test_get_artifacts_by_project_id(db):
+    pid = db.create_project("proj")
+    other_pid = db.create_project("other")
+    a1 = db.add_artifact(filepath="", filename="a.jpg", project_id=pid)
+    a2 = db.add_artifact(filepath="", filename="b.jpg", project_id=other_pid)
+    ids = [r["id"] for r in db.get_artifacts(project_id=pid)]
+    assert a1 in ids and a2 not in ids
+
+
+def test_get_artifacts_no_filter_returns_all(db):
+    db.add_artifact(filepath="", filename="a.jpg")
+    db.add_artifact(filepath="", filename="b.jpg")
+    assert len(db.get_artifacts()) == 2
+
+
+def test_delete_artifact_removes_row(db, aid):
+    db.delete_artifact(aid)
+    assert db.get_artifact(aid) is None

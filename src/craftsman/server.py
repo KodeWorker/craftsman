@@ -4,6 +4,7 @@ from fastapi import FastAPI, HTTPException, Request
 from craftsman.logger import CraftsmanLogger
 from craftsman.memory.librarian import Librarian
 from craftsman.provider import Provider
+from craftsman.router.artifacts import ArtifactsRouter
 from craftsman.router.deps import _crypto
 from craftsman.router.sessions import SessionsRouter
 
@@ -18,18 +19,28 @@ class Server:
 
         self.app = FastAPI()
         self.app.get("/health")(self.health_check)
+        self.app.post("/reset")(self.reset_provider)
         self.app.post("/subagent/run")(self.run_subagent)
         self.app.post("/users/login")(self.login_user)
 
         self.sessions_router = SessionsRouter(
             self.provider, self.librarian, self.active_sessions
         )
+        self.artifacts_router = ArtifactsRouter(self.librarian)
         self.app.include_router(self.sessions_router.router)
+        self.app.include_router(self.artifacts_router.router)
 
-    async def health_check(self):
+    async def health_check(self) -> dict:
         return {"status": "ok"}
 
-    async def run_subagent(self, request: Request):
+    async def reset_provider(self, request: Request) -> dict:
+        body = await request.json()
+        api_base = body.get("api_base", None)
+        api_key = body.get("api_key", None)
+        self.provider.reset(api_base=api_base, api_key=api_key)
+        return {"status": "provider reset"}
+
+    async def run_subagent(self, request: Request) -> dict:
         body = await request.json()
         message = body.get("message", {})
         session_id = body.get("session_id", None)
@@ -70,7 +81,7 @@ class Server:
                 session_id
             )  # remove from active sessions if present
 
-    async def login_user(self, request: Request):
+    async def login_user(self, request: Request) -> dict:
         body = await request.json()
         username = body.get("username")
         password = body.get("password")

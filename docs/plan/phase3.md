@@ -34,13 +34,12 @@ provider:
 ### Upload Flow
 
 ```
-client → POST /artifacts/upload (multipart)
-       → server saves file to ~/.craftsman/workspace/
-       → server records artifact in SQLite (filepath, mime_type, session_id, size_bytes)
+client → POST /artifacts/ (multipart)
+       → server saves file to ~/.craftsman/artifacts/
+       → server records artifact in SQLite (filepath, mime_type, user_id, session_id, size_bytes)
        → returns { artifact_id }
-client → POST /sessions/completion with [image: artifact_id=<uuid>]
-                                      | [audio: artifact_id=<uuid>]
-       → server resolves artifact_id, reads file from disk, base64-encodes inline
+client → POST /sessions/{id}/completion with @image:<uuid> | @audio:<uuid>
+       → server resolves artifact_id (full UUID or unambiguous prefix), reads file from disk, base64-encodes inline
        → server sends assembled multimodal message to model
 ```
 
@@ -55,7 +54,7 @@ content part. The model receives the actual image or audio directly.
 - Image → `{ type: "image_url", image_url: { url: "data:<mime>;base64,<data>" } }`
 - Audio → `{ type: "input_audio", input_audio: { data: "<base64>", format: "<fmt>" } }`
 
-Original file stored in `~/.craftsman/workspace/`, referenced by `artifact_id`.
+Original file stored in `~/.craftsman/artifacts/`, referenced by `artifact_id`.
 
 No pre-captioning or STT pipeline — the main model handles vision and audio natively.
 
@@ -68,8 +67,8 @@ Instead, the message stored in SQLite replaces the multimodal content part with
 an artifact reference:
 
 ```
-[image: artifact_id=<uuid>]
-[audio: artifact_id=<uuid>]
+@image:<uuid>
+@audio:<uuid>
 ```
 
 On resume, the client re-fetches and re-encodes the artifact from disk before
@@ -113,36 +112,38 @@ warrant their own routers.
 ## Checklist
 
 ### Server
-- [ ] Extract `SessionRouter` — move existing `/sessions/*` handlers out of `Server`
-- [ ] Add `ArtifactRouter` — new `/artifacts/*` handlers
+- [x] Extract `SessionRouter` — move existing `/sessions/*` handlers out of `Server`
+- [x] Add `ArtifactRouter` — new `/artifacts/*` handlers
 
 ### Infrastructure
-- [ ] `POST /artifacts/upload` — multipart upload, save to workspace, return artifact_id
-- [ ] `GET /artifacts/{id}` — retrieve artifact metadata
-- [ ] Strip base64 from message before `store_message`; replace with `[image/audio: artifact_id=<uuid>]`
-- [ ] On `resume_session`: re-encode artifact from disk when restoring messages with artifact refs
+- [x] `POST /artifacts/` — multipart upload, save to `~/.craftsman/artifacts/`, return artifact_id
+- [x] `GET /artifacts/` — list artifacts; optional `?session_id=` / `?project_id=` filter; ownership-checked
+- [x] `GET /artifacts/{id}` — retrieve artifact metadata; `{id}` may be full UUID or unambiguous prefix
+- [x] `DELETE /artifacts/{id}` — delete artifact record and remove file from disk; ownership-checked
+- [x] Strip base64 from message before `store_message`; store original `@image:<uuid>` / `@audio:<uuid>` token
+- [x] `resolve_artifact_id` — `LIKE 'prefix%'` prefix lookup; returns full UUID if unique, else `None`
+- ~~[ ] On `resume_session`: re-encode artifact from disk when restoring messages with artifact refs~~
+  — deferred: user re-injects via `/artifacts` + `@image:<uuid>` syntax instead
 
 ### Provider
-- [ ] `craftsman.yaml` capability flags (`vision`, `audio`)
-- [ ] Guard in `completion()` — raise if multimodal content present but capability not declared
+- [x] `craftsman.yaml` capability flags (`vision`, `audio`)
+- [x] Guard in `completion()` — raise if multimodal content present but capability not declared
 
 ### Client
-- [ ] `/artifacts` slash command — lists artifacts uploaded in the current session
-      (artifact_id, filename, mime type, size); session-scoped only
-- [ ] `craftsman artifacts list` CLI — lists all artifacts across sessions
-- [ ] `craftsman artifacts delete <id>` CLI — deletes artifact and removes file
-      from `~/.craftsman/workspace/`
-- [ ] `@filepath` inline syntax — user types `describe @image.jpg` in chat or
+- [x] `/artifacts` slash command — lists artifacts uploaded in the current session
+      (id prefix, filename, mime type, size, created_at); session-scoped
+- [x] `craftsman arti list` CLI — lists all artifacts for the authenticated user
+- [x] `craftsman arti delete [<id|prefix>]` CLI — interactive picker if no id given;
+      deletes artifact record and removes file from `~/.craftsman/artifacts/`
+- [x] `@filepath` inline syntax — user types `describe @image.jpg` in chat or
       `craftsman run "describe @image.jpg"`; client detects `@`-prefixed tokens,
-      uploads the file, and replaces the token with the base64 multimodal content part
-- [ ] Update `ChatCompleter` to trigger file completion only on `@`-prefixed words
-      (current completer completes every word, which is too eager)
-- [ ] Display artifact_id ref in chat alongside the message
-- [ ] *(low priority)* Drag-and-drop support — hook `Buffer.on_text_insert`,
+      uploads the file, and replaces with `@image:<uuid>` / `@audio:<uuid>` token
+- [x] Update `ChatCompleter` to trigger file completion only on `@`-prefixed words
+- [x] Display artifact_id ref in chat alongside the message
+- [x] *(low priority)* Drag-and-drop support — hook `Buffer.on_text_insert`,
       detect bracketed-paste paths (`file://`, `/`, `~/`), normalise and
       convert to `@filepath` syntax automatically
-- [ ] *(low priority)* Voice input keybinding — push-to-talk key records audio
-      and feeds it into the prompt via the existing audio artifact upload flow
+- ~~[ ] *(low priority)* Voice input keybinding — push-to-talk key records audio~~
 
 #### Why `@` for inline file references
 `@` is visually distinct, not a valid filename-start character on Linux/Mac (so

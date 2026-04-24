@@ -9,8 +9,18 @@ logging:
 chat:
   retry_interval_sec: 3
   rebuild_completer_interval_sec: 15
+  completer:
+    enabled: true
+    ignores:
+      - ".venv/"
+      - ".pytest_cache/"
+      - ".craftsman/"
+      - "__pycache__/"
+      - "*.egg-info/"
+      - "*.pyc"
+      - ".git/"
   footer:
-    - "⚒️ Press Enter to send message. Alt+Enter for newline. @ to attach files or artifacts."
+    - "⚒️ Press Enter to send message. Alt+Enter for newline. @ to attach/search files."
     - "⚒️ /compact to summarize and reduce conversation history size."
     - "💬 We are building a ship of Thesus, with code instead of planks."
     - "💬 Once men turned their thinking over to machines in the hope that this would set them free." # quote from Frank Herbert's novel "Dune"
@@ -22,6 +32,7 @@ chat:
 workspace:
   root: ~/.craftsman
   database: ~/.craftsman/database
+  artifacts: ~/.craftsman/artifacts
   secrets: ~/.craftsman/secrets
   logs: ~/.craftsman/logs
 
@@ -40,7 +51,7 @@ provider:
   capabilities:
     vision:
       enabled: true
-      formats: [jpeg, png, webp, gif]
+      formats: [jpeg, jpg, png]
       # SigLIP encoder: token cost is resolution-based, not file-size-based
       # 10MB covers all phone photos (3-8MB); RAW/TIFF should be exported first
       max_size_mb: 10

@@ -53,12 +53,13 @@ CREATE TABLE global_facts (
   expires_at        TEXT
 );
 
--- Artifacts: references to files stored in ~/.craftsman/workspace/
+-- Artifacts: references to files stored in ~/.craftsman/artifacts/
 CREATE TABLE artifacts (
   id         TEXT PRIMARY KEY,  -- UUID
+  user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
   session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
   project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
-  filepath   TEXT NOT NULL,  -- relative to ~/.craftsman/workspace/
+  filepath   TEXT NOT NULL,  -- absolute path under ~/.craftsman/artifacts/
   filename   TEXT NOT NULL,
   mime_type  TEXT,
   size_bytes INTEGER,

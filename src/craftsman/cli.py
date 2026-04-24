@@ -6,7 +6,7 @@ from importlib.resources import files
 import click
 
 from craftsman.auth import Auth
-from craftsman.client import Client
+from craftsman.client.chat import Client
 from craftsman.configure import get_config
 from craftsman.crypto import Crypto
 from craftsman.memory.structure import StructureDB
@@ -25,14 +25,8 @@ def init():
     """Initializes the craftsman environment."""
     config = get_config()
     root_dir = os.path.expanduser(config["workspace"]["root"])
-    os.makedirs(root_dir, exist_ok=True)
-    os.makedirs(
-        os.path.expanduser(config["workspace"]["database"]), exist_ok=True
-    )
-    os.makedirs(os.path.expanduser(config["workspace"]["logs"]), exist_ok=True)
-    os.makedirs(
-        os.path.expanduser(config["workspace"]["secrets"]), exist_ok=True
-    )
+    for path in config["workspace"].values():
+        os.makedirs(os.path.expanduser(path), exist_ok=True)
     user_config = os.path.join(root_dir, "craftsman.yaml")
     if not os.path.exists(user_config):
         shutil.copy(
@@ -246,7 +240,6 @@ def sess_list(
 
 
 @sess.command(name="delete")
-@click.argument("session")
 @click.option("--host", default="localhost", help="Server host")
 @click.option("--port", default=6969, help="Server port")
 def sess_delete(
@@ -254,5 +247,37 @@ def sess_delete(
 ):
     """Deletes session by ID, prefix, or title."""
     client = Client(host=host, port=port)
-    client.delete_session(session)
-    click.echo(f"Session '{session}' deleted successfully.")
+    if client.delete_session(session):
+        click.echo(f"Session '{session}' deleted successfully.")
+
+
+# --- Artifact Management Commands ---
+
+
+@main.group(context_settings=CONTEXT_SETTINGS)
+def arti():
+    """Artifact management commands."""
+    pass
+
+
+@arti.command(name="list")
+@click.option("--host", default="localhost", help="Server host")
+@click.option("--port", default=6969, help="Server port")
+def arti_list(host: str = "localhost", port: int = 6969):
+    """Lists all artifacts for the current user."""
+    client = Client(host=host, port=port)
+    artifact_infos = client.list_artifacts()
+    for artifact_info in artifact_infos:
+        click.echo(artifact_info)
+
+
+@arti.command(name="delete")
+@click.option("--host", default="localhost", help="Server host")
+@click.option("--port", default=6969, help="Server port")
+def arti_delete(
+    artifact: str = None, host: str = "localhost", port: int = 6969
+):
+    """Deletes artifact by ID or prefix."""
+    client = Client(host=host, port=port)
+    if client.delete_artifact(artifact):
+        click.echo(f"Artifact '{artifact}' deleted successfully.")

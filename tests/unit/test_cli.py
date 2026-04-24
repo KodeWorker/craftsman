@@ -190,3 +190,46 @@ def test_auth_group_in_help(runner):
 
 def test_sess_group_in_help(runner):
     assert "sess" in runner.invoke(main, ["--help"]).output
+
+
+def test_sess_delete_success_message(runner, mock_client):
+    mock_client.delete_session.return_value = True
+    result = runner.invoke(main, ["sess", "delete", "abc123"])
+    assert "deleted successfully" in result.output
+
+
+# --- arti list / delete ---
+
+
+def test_arti_list_empty(runner, mock_client):
+    mock_client.list_artifacts.return_value = []
+    result = runner.invoke(main, ["arti", "list"])
+    assert result.exit_code == 0
+    assert result.output.strip() == ""
+
+
+def test_arti_list_prints_infos(runner, mock_client):
+    mock_client.list_artifacts.return_value = [
+        "abc12345 | photo.jpg | image/jpeg | 1024 bytes | 2024-01-01"
+    ]
+    result = runner.invoke(main, ["arti", "list"])
+    assert "abc12345" in result.output
+
+
+def test_arti_delete_success_echoes_confirmation(runner, mock_client):
+    mock_client.delete_artifact.return_value = True
+    result = runner.invoke(main, ["arti", "delete"])
+    assert "deleted successfully" in result.output
+
+
+def test_arti_delete_failure_no_confirmation(runner, mock_client):
+    mock_client.delete_artifact.return_value = False
+    result = runner.invoke(main, ["arti", "delete"])
+    assert "deleted successfully" not in result.output
+
+
+# --- arti group in help ---
+
+
+def test_arti_group_in_help(runner):
+    assert "arti" in runner.invoke(main, ["--help"]).output

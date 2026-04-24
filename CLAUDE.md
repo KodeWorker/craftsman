@@ -27,10 +27,11 @@ Early-stage autonomous agent framework. CLI + server functional; client/vector/g
 
 ### Entry point
 
-`src/craftsman/cli.py` — Click CLI with three command groups:
+`src/craftsman/cli.py` — Click CLI with four command groups:
 - Top-level: `init`, `server`, `chat`, `run`, `dev`
 - `auth` subgroup: `list`, `set`, `get`, `delete`
 - `sess` subgroup: `list`, `delete`
+- `arti` subgroup: `list`, `delete`
 - `user` subgroup: `list`, `register`, `delete`, `login` (API only; no CLI yet)
 
 ### Modules
@@ -45,9 +46,15 @@ Early-stage autonomous agent framework. CLI + server functional; client/vector/g
 | `memory/librarian.py` | Done | Unified memory interface; in-process cache + SQLite |
 | `memory/vector.py` | Stub | sqlite-vec embeddings via LightRAG |
 | `memory/graph.py` | Stub | Kuzu knowledge graph via LightRAG |
-| `client.py` | Done | Terminal chat client; streaming display, session resume, slash commands |
+| `client/base.py` | Done | BaseClient: HTTP session, JWT retry, spinner, banner |
+| `client/sessions.py` | Done | SessionsClient: list, pick, find, delete sessions |
+| `client/artifacts.py` | Done | ArtifactsClient: list, pick, delete, upload `@file` references |
+| `client/chat.py` | Done | Client (chat + run): streaming display, slash commands, completer |
+| `client/completer.py` | Done | prompt_toolkit completer and lexer for `@file` and `/command` |
 | `crypto.py` | Done | JWT token creation/verification; bcrypt password hashing; secret key management |
 | `router/deps.py` | Done | FastAPI dependencies; `get_current_user` JWT guard; `_crypto` singleton |
+| `router/sessions.py` | Done | Sessions router; multimodal message transform (`@image:`, `@audio:`) |
+| `router/artifacts.py` | Done | Artifacts router; upload, list, get, delete with ownership checks |
 
 ### Infrastructure
 
