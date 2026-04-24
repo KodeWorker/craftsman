@@ -1,5 +1,3 @@
-import os
-
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 
@@ -95,40 +93,6 @@ class Server:
         token = _crypto.create_token(user["id"])
         self.logger.info(f"User '{user['username']}' logged in successfully.")
         return {"token": token}
-
-    def list_artifacts(self, session_id: str = None, project_id: str = None):
-        artifacts = self.librarian.structure_db.get_artifacts(
-            session_id=session_id, project_id=project_id
-        )
-        artifacts = [dict(artifact) for artifact in artifacts]
-        artifact_infos = []
-        for artifact in artifacts:
-            artifact_id = artifact.get("id", "")[:8]
-            filename = artifact.get("filename", "")
-            mime_type = artifact.get("mime_type", "")
-            size_bytes = artifact.get("size_bytes", 0)
-            created_at = artifact.get("created_at", "")
-            artifact_info = (
-                f"{artifact_id} | {filename} | {mime_type} | "
-                f"{size_bytes} bytes | {created_at}"
-            )
-            artifact_infos.append(artifact_info)
-        return artifact_infos
-
-    def delete_artifact(self, artifact: str) -> bool:
-        row = self.librarian.structure_db.get_artifact(artifact)
-        if not row:
-            self.logger.error(f"Artifact '{artifact}' not found.")
-            return False
-        filepath = row["filepath"]
-        self.librarian.structure_db.delete_artifact(artifact)
-        if filepath and os.path.exists(filepath):
-            try:
-                os.remove(filepath)
-            except Exception as e:
-                self.logger.error(f"Failed to delete file {filepath}: {e}")
-        self.logger.info(f"Artifact '{artifact}' deleted.")
-        return True
 
     def start(self):
         self.logger.info(f"Starting server on port {self.port}...")
