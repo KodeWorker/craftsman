@@ -7,6 +7,7 @@ import aiofiles
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
 
+from craftsman.configure import get_config
 from craftsman.logger import CraftsmanLogger
 from craftsman.memory.librarian import Librarian
 from craftsman.provider import Provider
@@ -336,6 +337,7 @@ class SessionsRouter:
         pattern = r"@(image|audio):([0-9a-f-]+)"
         if not re.search(pattern, content):
             return message
+        caps = get_config().get("provider", {}).get("capabilities", {})
         parts = []
         last = 0
         for m in re.finditer(pattern, content):
@@ -356,6 +358,19 @@ class SessionsRouter:
             async with aiofiles.open(artifact["filepath"], "rb") as f:
                 data = base64.b64encode(await f.read()).decode("utf-8")
             if media_type == "image":
+                vision = caps.get("vision", {})
+                if not vision.get("enabled", False):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Vision capability is not enabled.",
+                    )
+                img_fmt = mime.split("/")[-1]
+                allowed = vision.get("formats") or []
+                if allowed and img_fmt not in allowed:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Image format '{img_fmt}' is not supported.",
+                    )
                 parts.append(
                     {
                         "type": "image_url",
@@ -363,6 +378,18 @@ class SessionsRouter:
                     }
                 )
             elif media_type == "audio":
+                audio_cap = caps.get("audio", {})
+                if not audio_cap.get("enabled", False):
+                    raise HTTPException(
+                        status_code=400,
+                        detail="Audio capability is not enabled.",
+                    )
+                allowed = audio_cap.get("formats") or []
+                if allowed and fmt not in allowed:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Audio format '{fmt}' is not supported.",
+                    )
                 parts.append(
                     {
                         "type": "input_audio",

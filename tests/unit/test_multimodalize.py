@@ -6,10 +6,22 @@ import pytest
 
 from craftsman.router.sessions import SessionsRouter
 
+_CAPS_ENABLED = {
+    "provider": {
+        "capabilities": {
+            "vision": {"enabled": True, "formats": ["jpeg", "png", "webp"]},
+            "audio": {"enabled": True, "formats": ["mp3", "wav"]},
+        }
+    }
+}
+
 
 @pytest.fixture
 def router(mocker):
     mocker.patch("craftsman.router.sessions.CraftsmanLogger")
+    mocker.patch(
+        "craftsman.router.sessions.get_config", return_value=_CAPS_ENABLED
+    )
     return SessionsRouter(MagicMock(), MagicMock(), set())
 
 
@@ -133,3 +145,122 @@ def test_text_preserved_when_artifact_missing(router):
     msg = {"role": "user", "content": "prefix @image:aaaabbbbccdd0011"}
     result = arun(router.multimodalize_message(msg))
     assert result["content"] == [{"type": "text", "text": "prefix "}]
+
+
+# --- capability guard ---
+
+
+def test_vision_disabled_raises(mocker, tmp_path):
+    mocker.patch("craftsman.router.sessions.CraftsmanLogger")
+    mocker.patch(
+        "craftsman.router.sessions.get_config",
+        return_value={
+            "provider": {"capabilities": {"vision": {"enabled": False}}}
+        },
+    )
+    r = SessionsRouter(MagicMock(), MagicMock(), set())
+    img = tmp_path / "photo.jpg"
+    img.write_bytes(b"data")
+    r.librarian.structure_db.get_artifact.return_value = {
+        "mime_type": "image/jpeg",
+        "filepath": str(img),
+    }
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc_info:
+        arun(
+            r.multimodalize_message(
+                {"role": "user", "content": "@image:abc123"}
+            )
+        )
+    assert exc_info.value.status_code == 400
+    assert "Vision" in exc_info.value.detail
+
+
+def test_vision_unsupported_format_raises(mocker, tmp_path):
+    mocker.patch("craftsman.router.sessions.CraftsmanLogger")
+    mocker.patch(
+        "craftsman.router.sessions.get_config",
+        return_value={
+            "provider": {
+                "capabilities": {
+                    "vision": {"enabled": True, "formats": ["png"]}
+                }
+            }
+        },
+    )
+    r = SessionsRouter(MagicMock(), MagicMock(), set())
+    img = tmp_path / "photo.jpg"
+    img.write_bytes(b"data")
+    r.librarian.structure_db.get_artifact.return_value = {
+        "mime_type": "image/jpeg",
+        "filepath": str(img),
+    }
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc_info:
+        arun(
+            r.multimodalize_message(
+                {"role": "user", "content": "@image:abc123"}
+            )
+        )
+    assert exc_info.value.status_code == 400
+    assert "jpeg" in exc_info.value.detail
+
+
+def test_audio_disabled_raises(mocker, tmp_path):
+    mocker.patch("craftsman.router.sessions.CraftsmanLogger")
+    mocker.patch(
+        "craftsman.router.sessions.get_config",
+        return_value={
+            "provider": {"capabilities": {"audio": {"enabled": False}}}
+        },
+    )
+    r = SessionsRouter(MagicMock(), MagicMock(), set())
+    af = tmp_path / "sound.mp3"
+    af.write_bytes(b"data")
+    r.librarian.structure_db.get_artifact.return_value = {
+        "mime_type": "audio/mpeg",
+        "filepath": str(af),
+    }
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc_info:
+        arun(
+            r.multimodalize_message(
+                {"role": "user", "content": "@audio:abc123"}
+            )
+        )
+    assert exc_info.value.status_code == 400
+    assert "Audio" in exc_info.value.detail
+
+
+def test_audio_unsupported_format_raises(mocker, tmp_path):
+    mocker.patch("craftsman.router.sessions.CraftsmanLogger")
+    mocker.patch(
+        "craftsman.router.sessions.get_config",
+        return_value={
+            "provider": {
+                "capabilities": {
+                    "audio": {"enabled": True, "formats": ["wav"]}
+                }
+            }
+        },
+    )
+    r = SessionsRouter(MagicMock(), MagicMock(), set())
+    af = tmp_path / "sound.mp3"
+    af.write_bytes(b"data")
+    r.librarian.structure_db.get_artifact.return_value = {
+        "mime_type": "audio/mpeg",
+        "filepath": str(af),
+    }
+    from fastapi import HTTPException
+
+    with pytest.raises(HTTPException) as exc_info:
+        arun(
+            r.multimodalize_message(
+                {"role": "user", "content": "@audio:abc123"}
+            )
+        )
+    assert exc_info.value.status_code == 400
+    assert "mp3" in exc_info.value.detail

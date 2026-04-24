@@ -136,20 +136,36 @@ class ArtifactsClient(BaseClient):
             type_desc, limit_mb = "", 0
             if extension in self.support_image_formats:
                 type_desc = "image"
-                limit_mb = (
+                vision = (
                     self.config.get("provider", {})
                     .get("capabilities", {})
                     .get("vision", {})
-                    .get("max_size_mb", 10)
                 )
+                if not vision.get("enabled", False):
+                    print(
+                        Fore.YELLOW
+                        + "Vision capability is not enabled. "
+                        + f"Skipping '{file_path}'."
+                        + Style.RESET_ALL
+                    )
+                    continue
+                limit_mb = vision.get("max_size_mb", 10)
             elif extension in self.support_audio_formats:
                 type_desc = "audio"
-                limit_mb = (
+                audio = (
                     self.config.get("provider", {})
                     .get("capabilities", {})
                     .get("audio", {})
-                    .get("max_size_mb", 25)
                 )
+                if not audio.get("enabled", False):
+                    print(
+                        Fore.YELLOW
+                        + "Audio capability is not enabled. "
+                        + f"Skipping '{file_path}'."
+                        + Style.RESET_ALL
+                    )
+                    continue
+                limit_mb = audio.get("max_size_mb", 25)
 
             if size_mb > limit_mb:
                 print(
