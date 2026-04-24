@@ -139,7 +139,7 @@ warrant their own routers.
       `craftsman run "describe @image.jpg"`; client detects `@`-prefixed tokens,
       uploads the file, and replaces with `@image:<uuid>` / `@audio:<uuid>` token
 - [x] Update `ChatCompleter` to trigger file completion only on `@`-prefixed words
-- [ ] Display artifact_id ref in chat alongside the message
+- [x] Display artifact_id ref in chat alongside the message
 - [ ] *(low priority)* Drag-and-drop support — hook `Buffer.on_text_insert`,
       detect bracketed-paste paths (`file://`, `/`, `~/`), normalise and
       convert to `@filepath` syntax automatically

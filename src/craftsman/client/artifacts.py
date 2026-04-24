@@ -202,6 +202,12 @@ class ArtifactsClient(BaseClient):
                     f"@{file_path}",
                     f"@{type_desc}:{artifact_id}",
                 )
+                print(
+                    Fore.CYAN
+                    + f"Attached: {full_path.name} → "
+                    + f"@{type_desc}:{artifact_id[:8]}"
+                    + Style.RESET_ALL
+                )
                 self.logger.info(
                     f"Uploaded file '{file_path}' as artifact '{artifact_id}'."
                 )
