@@ -19,6 +19,7 @@ class Server:
 
         self.app = FastAPI()
         self.app.get("/health")(self.health_check)
+        self.app.post("/reset")(self.reset_provider)
         self.app.post("/subagent/run")(self.run_subagent)
         self.app.post("/users/login")(self.login_user)
 
@@ -31,6 +32,10 @@ class Server:
 
     async def health_check(self) -> dict:
         return {"status": "ok"}
+
+    async def reset_provider(self) -> dict:
+        self.provider.reset()
+        return {"status": "provider reset"}
 
     async def run_subagent(self, request: Request) -> dict:
         body = await request.json()

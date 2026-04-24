@@ -30,6 +30,16 @@ class Provider:
             "output_cost_per_token", 0.0
         )
 
+    def reset(self):
+        self.logger.debug("Resetting provider state...")
+        self.cert = Auth.get_password("LLM_SSL_CRT")
+        self.verify = bool(self.cert)
+        if self.cert:
+            os.environ["SSL_CERT_FILE"] = self.cert
+        api_key = Auth.get_password("LLM_API_KEY")
+        self.api_key = api_key if api_key else "dummy_api_key"
+        self.api_base = Auth.get_password("LLM_BASE_URL")
+
     async def completion(
         self,
         messages: list,

@@ -232,9 +232,7 @@ class Client(SessionsClient, ArtifactsClient):
             return InputMode.COMMAND
         return InputMode.MESSAGE
 
-    def chat(self, session_id: str = None):
-        self.logger.info(f"Connecting to server at {self.entry_point}...")
-
+    def _initalize_connection(self) -> bool:
         # health check loop to wait for server to be ready
         while True:
             try:
@@ -251,6 +249,29 @@ class Client(SessionsClient, ArtifactsClient):
                     f"Retrying in {self.retry_interval_sec} seconds..."
                 )
                 time.sleep(self.retry_interval_sec)
+
+        # reset provider state on the server
+        response = self._request("post", f"{self.entry_point}/reset")
+        if response.status_code == 200:
+            self.logger.info("Provider state reset successfully.")
+            return True
+        else:
+            print(
+                Fore.RED
+                + "Failed to reset provider state. Please check logs."
+                + Style.RESET_ALL
+            )
+            self.logger.error(
+                "Failed to reset provider state: "
+                f"{response.status_code} - {response.text}"
+            )
+            return False
+
+    def chat(self, session_id: str = None):
+        self.logger.info(f"Connecting to server at {self.entry_point}...")
+
+        if not self._initalize_connection():
+            return
 
         # fetch JWT token and set in header for subsequent requests
         token = self._jwt_token()
@@ -534,22 +555,8 @@ class Client(SessionsClient, ArtifactsClient):
     def run(self, prompt: str):
         self.logger.info(f"Connecting to server at {self.entry_point}...")
 
-        # health check loop to wait for server to be ready
-        while True:
-            try:
-                response = self._request("get", f"{self.entry_point}/health")
-                if response.status_code == 200:
-                    self.logger.info("Successfully connected to the server.")
-                    break
-            except requests.exceptions.ConnectionError:
-                print(
-                    Fore.YELLOW + "Server not ready yet..." + Style.RESET_ALL
-                )
-                self.logger.warning(
-                    f"Connection failed. "
-                    f"Retrying in {self.retry_interval_sec} seconds..."
-                )
-                time.sleep(self.retry_interval_sec)
+        if not self._initalize_connection():
+            return
 
         # fetch JWT token and set in header for subsequent requests
         token = self._jwt_token()
