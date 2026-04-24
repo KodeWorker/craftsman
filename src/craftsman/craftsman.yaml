@@ -51,7 +51,7 @@ provider:
   capabilities:
     vision:
       enabled: true
-      formats: [jpeg, png, webp, gif]
+      formats: [jpeg, png]
       # SigLIP encoder: token cost is resolution-based, not file-size-based
       # 10MB covers all phone photos (3-8MB); RAW/TIFF should be exported first
       max_size_mb: 10
