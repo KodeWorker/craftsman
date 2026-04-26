@@ -26,9 +26,9 @@ uv run craftsman auth get <provider>
 uv run craftsman auth delete [<provider>]
 
 # Server-side User control
-uv run craftsman user list [--port]
-uv run craftsman user register [--port]
-uv run craftsman user delete <username> [--port]
+uv run craftsman user list
+uv run craftsman user register [<username>]
+uv run craftsman user delete [<username>]
 # Client-side login
 uv run craftsman user login [--host] [--port]
 
@@ -39,6 +39,9 @@ uv run craftsman sess delete [<id|prefix|title>] [--host] [--port]
 # Artifact management
 uv run craftsman arti list [--host] [--port]
 uv run craftsman arti delete [<id|prefix>] [--host] [--port]
+
+# Server-side generate token
+uv run craftsman telegram-token [<username>]
 ```
 
 ## Docs
