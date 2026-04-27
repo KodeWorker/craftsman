@@ -13,7 +13,6 @@ class Auth:
     ]  # Extend this list as needed
     TELEGRAM_KEY_LIST = [
         "TELEGRAM_BOT_TOKEN",
-        "TELEGRAM_CHAT_ID",
     ]  # Extend this list as needed
 
     @staticmethod

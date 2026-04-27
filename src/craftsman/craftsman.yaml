@@ -64,10 +64,11 @@ provider:
       max_size_mb: 25
 
 telegram:
-  enabled: true
-  webhook_url: https://<tailscale-ip>:8443/telegram/webhook # Replace <tailscale-ip> with your Tailscale IP address
-  ssl_keyfile: ~/.craftsman/secrets/ssl_key.pem # Required for Telegram webhooks
-  ssl_certfile: ~/.craftsman/secrets/ssl_cert.pem # Required for Telegram webhooks
+  enabled: false
+  webhook_url: ""         # e.g. https://<tailscale-ip>:8443/telegram/webhook
+  ssl_certfile: ~/.craftsman/certs/telegram.crt
+  ssl_keyfile: ~/.craftsman/certs/telegram.key
+  allowed_chat_ids: []    # empty = allow all
 
 commands:
   - name: /help

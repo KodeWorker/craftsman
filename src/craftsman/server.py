@@ -125,6 +125,8 @@ class Server:
     def start(self):
         self.logger.info(f"Starting server on port {self.port}...")
         tg = self.telegram_bot
+        if tg.enabled and tg.webhook_url:
+            self.logger.info(f"Telegram webhook: {tg.webhook_url}")
         ssl_kwargs = {}
         if tg.enabled and tg.ssl_certfile and tg.ssl_keyfile:
             ssl_kwargs = {
