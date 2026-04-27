@@ -1,6 +1,7 @@
 import asyncio
 import json
 import os
+import signal
 import ssl
 from pathlib import Path
 
@@ -51,6 +52,16 @@ class TelegramClient:
 
     # ── Server API ───────────────────────────────────────────────────────
 
+    async def _reset_provider(self) -> None:
+        cfg = get_config().get("provider", {})
+        await self._http.post(
+            f"{self._entry_point}/reset",
+            json={
+                "api_base": cfg.get("api_base"),
+                "api_key": Auth.get_password("LLM_API_KEY"),
+            },
+        )
+
     async def _login(self) -> bool:
         username = Auth.get_password("USERNAME")
         password = Auth.get_password("PASSWORD")
@@ -67,6 +78,25 @@ class TelegramClient:
             return True
         print(f"Login failed: {resp.status_code} {resp.text}")
         return False
+
+    def _read_system_prompt(self) -> str:
+        for path in (
+            Path.cwd() / ".craftsman" / "system_prompt.md",
+            Path(os.path.expanduser(get_config()["workspace"]["root"]))
+            / "system_prompt.md",
+        ):
+            if path.exists():
+                return path.read_text().strip()
+        return ""
+
+    async def _set_system_prompt(self, session_id: str) -> None:
+        prompt = self._read_system_prompt()
+        if not prompt:
+            return
+        await self._http.put(
+            f"{self._entry_point}/sessions/{session_id}/system",
+            json={"system_prompt": prompt},
+        )
 
     async def _create_session(self) -> str | None:
         resp = await self._http.post(f"{self._entry_point}/sessions/")
@@ -121,12 +151,22 @@ class TelegramClient:
 
         print(f"Open t.me/{me.username} on your phone and send any message.")
 
+        # delete any registered webhook — getUpdates is silently ignored
+        # while a webhook is active
         try:
-            await bot.get_updates(offset=-1, timeout=1)
+            await bot.delete_webhook(drop_pending_updates=True)
         except Exception:
             pass
 
+        # drain stale updates and record the next offset
         offset = 0
+        try:
+            stale = await bot.get_updates(timeout=0)
+            if stale:
+                offset = stale[-1].update_id + 1
+        except Exception:
+            pass
+
         for _ in range(40):  # 40 × 3 s = 120 s timeout
             try:
                 updates = await bot.get_updates(
@@ -170,6 +210,12 @@ class TelegramClient:
             CommandHandler("artifacts", self._on_artifacts, filters=cf)
         )
         self._app.add_handler(
+            CommandHandler("clear", self._on_clear, filters=cf)
+        )
+        self._app.add_handler(
+            CommandHandler("compact", self._on_compact, filters=cf)
+        )
+        self._app.add_handler(
             CallbackQueryHandler(self._on_session_switch, pattern=r"^switch:")
         )
         self._app.add_handler(
@@ -184,7 +230,9 @@ class TelegramClient:
             "  /help — show this message\n"
             "  /new — end session; start fresh\n"
             "  /sessions — list recent sessions\n"
-            "  /artifacts — list artifacts in current session"
+            "  /artifacts — list artifacts in current session\n"
+            "  /clear — clear session history\n"
+            "  /compact — summarize and reduce context size"
         )
 
     async def _on_new(
@@ -196,6 +244,7 @@ class TelegramClient:
             return
         self._state["session_id"] = sid
         self._save_state()
+        await self._set_system_prompt(sid)
         await update.message.reply_text("New session started.")
 
     async def _on_sessions(
@@ -240,6 +289,48 @@ class TelegramClient:
         ]
         await update.message.reply_text("\n".join(lines))
 
+    async def _on_clear(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        sid = self._state["session_id"]
+        if not sid:
+            await update.message.reply_text("No active session.")
+            return
+        resp = await self._http.post(
+            f"{self._entry_point}/sessions/{sid}/clear"
+        )
+        if resp.status_code == 200:
+            await update.message.reply_text("Session history cleared.")
+        else:
+            await update.message.reply_text("Failed to clear session.")
+
+    async def _on_compact(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        sid = self._state["session_id"]
+        if not sid:
+            await update.message.reply_text("No active session.")
+            return
+        cfg_cmds = get_config().get("commands", [])
+        limit, keep_turns = next(
+            (
+                (c.get("limit", 1000), c.get("keep_turns", 5))
+                for c in cfg_cmds
+                if c["name"] == "/compact"
+            ),
+            (1000, 5),
+        )
+        resp = await self._http.post(
+            f"{self._entry_point}/sessions/{sid}/compact",
+            json={"summary_limit": limit, "keep_turns": keep_turns},
+        )
+        if resp.status_code == 200:
+            await update.message.reply_text(
+                resp.json().get("status", "Compacted.")
+            )
+        else:
+            await update.message.reply_text("Failed to compact session.")
+
     async def _on_session_switch(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
@@ -248,7 +339,23 @@ class TelegramClient:
         session_id = query.data.split(":", 1)[1]
         self._state["session_id"] = session_id
         self._save_state()
-        await query.edit_message_text(f"Switched to session {session_id[:8]}")
+
+        sessions = await self._get_sessions(limit=5)
+        last_input = next(
+            (
+                s.get("last_input", "")
+                for s in sessions
+                if s["session_id"] == session_id
+            ),
+            "",
+        )
+        preview = (
+            (last_input[:80] + "…") if len(last_input) > 80 else last_input
+        )
+        hint = f"\nLast: {preview}" if preview else ""
+        await query.edit_message_text(
+            f"Switched to session {session_id[:8]}{hint}"
+        )
 
     async def _on_text(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -298,6 +405,7 @@ class TelegramClient:
         try:
             if not await self._login():
                 return
+            await self._reset_provider()
 
             if not self._state["session_id"]:
                 sid = await self._create_session()
@@ -306,6 +414,7 @@ class TelegramClient:
                     return
                 self._state["session_id"] = sid
                 self._save_state()
+            await self._set_system_prompt(self._state["session_id"])
 
             self._app = (
                 Application.builder()
@@ -318,9 +427,18 @@ class TelegramClient:
                 f"Connected: chat_id={self._state['chat_id']},"
                 f" session={self._state['session_id'][:8]}"
             )
-            await self._app.run_polling(
-                allowed_updates=Update.ALL_TYPES,
-                drop_pending_updates=False,
-            )
+            async with self._app:
+                await self._app.updater.start_polling(
+                    allowed_updates=Update.ALL_TYPES,
+                    drop_pending_updates=False,
+                )
+                await self._app.start()
+                stop = asyncio.Event()
+                loop = asyncio.get_running_loop()
+                for sig in (signal.SIGINT, signal.SIGTERM):
+                    loop.add_signal_handler(sig, stop.set)
+                await stop.wait()
+                await self._app.updater.stop()
+                await self._app.stop()
         finally:
             await self._http.aclose()
