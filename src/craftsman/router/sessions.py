@@ -291,7 +291,7 @@ class SessionsRouter:
         cost = 0.0
         async for kind, text in self.provider.completion(
             system_msgs + head + [message],
-            max_tokens=summary_limit,
+            ctx_size=summary_limit,
         ):
             if kind == "meta":
                 up_tokens = text.get("prompt_tokens", 0)

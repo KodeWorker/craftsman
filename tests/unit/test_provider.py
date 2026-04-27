@@ -11,7 +11,7 @@ def provider(mocker):
             "provider": {
                 "model": "test/model",
                 "debug": False,
-                "max_tokens": 4096,
+                "ctx_size": 4096,
                 "input_cost_per_token": 0.001,
                 "output_cost_per_token": 0.002,
             }
@@ -35,7 +35,7 @@ def provider_debug(mocker):
             "provider": {
                 "model": "test/model",
                 "debug": True,
-                "max_tokens": 4096,
+                "ctx_size": 4096,
                 "input_cost_per_token": 0.0,
                 "output_cost_per_token": 0.0,
             }
@@ -205,7 +205,7 @@ async def test_completion_meta_cost(mocker, make_chunk, make_usage):
             "provider": {
                 "model": "test/model",
                 "debug": False,
-                "max_tokens": 4096,
+                "ctx_size": 4096,
                 "input_cost_per_token": 0.001,
                 "output_cost_per_token": 0.002,
             }

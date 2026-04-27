@@ -21,7 +21,7 @@ class Provider:
         self.api_key = None
         self.api_base = None
 
-        self.max_tokens = self.config["provider"].get("max_tokens", 4096)
+        self.ctx_size = self.config["provider"].get("ctx_size", 4096)
         self.input_cost_per_token = self.config["provider"].get(
             "input_cost_per_token", 0.0
         )
@@ -37,7 +37,7 @@ class Provider:
     async def completion(
         self,
         messages: list,
-        max_tokens: int = None,
+        ctx_size: int = None,
         cancel_event=None,
     ):
         response = await litellm.acompletion(
@@ -48,7 +48,7 @@ class Provider:
             ssl_verify=self.verify,
             stream=True,
             stream_options={"include_usage": True},
-            max_tokens=max_tokens,
+            max_tokens=ctx_size,
         )
 
         usage = None
@@ -78,7 +78,7 @@ class Provider:
             "meta",
             {
                 "model": self.model,
-                "ctx_total": self.max_tokens,
+                "ctx_total": self.ctx_size,
                 "prompt_tokens": getattr(usage, "prompt_tokens", 0),
                 "completion_tokens": getattr(usage, "completion_tokens", 0)
                 or 0,

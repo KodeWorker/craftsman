@@ -24,15 +24,20 @@ from craftsman.configure import get_config
 
 class TelegramClient:
     def __init__(self, host: str, port: int):
+        self.config = get_config()
         self._entry_point = f"http://{host}:{port}"
         self._token = Auth.get_password("TELEGRAM_BOT_TOKEN")
         self._state = self._load_state()
         self._jwt: str | None = None
         self._http: httpx.AsyncClient | None = None
         self._app: Application | None = None
-        self._model: str = ""
+        self._model: str = self.config.get("provider", {}).get(
+            "model", "unknown"
+        )
         self._ctx_used: int = 0
-        self._ctx_total: int = 0
+        self._ctx_total: int = self.config.get("provider", {}).get(
+            "ctx_size", 0
+        )
         self._prompt_tokens: int = 0
         self._completion_tokens: int = 0
         self._cost: float = 0.0
@@ -40,8 +45,7 @@ class TelegramClient:
     # ── State ────────────────────────────────────────────────────────────
 
     def _state_path(self) -> Path:
-        config = get_config()
-        root = Path(os.path.expanduser(config["workspace"]["root"]))
+        root = Path(os.path.expanduser(self.config["workspace"]["root"]))
         return root / "telegram.json"
 
     def _load_state(self) -> dict:
@@ -59,7 +63,7 @@ class TelegramClient:
     # ── Server API ───────────────────────────────────────────────────────
 
     async def _reset_provider(self) -> None:
-        cfg = get_config().get("provider", {})
+        cfg = self.config.get("provider", {})
         await self._http.post(
             f"{self._entry_point}/reset",
             json={
@@ -88,7 +92,7 @@ class TelegramClient:
     def _read_system_prompt(self) -> str:
         for path in (
             Path.cwd() / ".craftsman" / "system_prompt.md",
-            Path(os.path.expanduser(get_config()["workspace"]["root"]))
+            Path(os.path.expanduser(self.config["workspace"]["root"]))
             / "system_prompt.md",
         ):
             if path.exists():
@@ -350,7 +354,7 @@ class TelegramClient:
         if not sid:
             await update.message.reply_text("No active session.")
             return
-        cfg_cmds = get_config().get("commands", [])
+        cfg_cmds = self.config.get("commands", [])
         limit, keep_turns = next(
             (
                 (c.get("limit", 1000), c.get("keep_turns", 5))
