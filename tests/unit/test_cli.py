@@ -33,6 +33,8 @@ def mock_makedirs(mocker):
 def mock_auth(mocker):
     mock_cls = mocker.patch("craftsman.cli.Auth")
     mock_cls.LLM_KEY_LIST = ["LLM_API_KEY", "LLM_SSL_CRT"]
+    mock_cls.USER_KEY_LIST = ["USERNAME", "PASSWORD"]
+    mock_cls.TELEGRAM_KEY_LIST = ["TELEGRAM_BOT_TOKEN"]
     mock_cls.get_password.return_value = None
     return mock_cls
 
@@ -233,3 +235,18 @@ def test_arti_delete_failure_no_confirmation(runner, mock_client):
 
 def test_arti_group_in_help(runner):
     assert "arti" in runner.invoke(main, ["--help"]).output
+
+
+# --- telegram ---
+
+
+def test_telegram_in_help(runner):
+    assert "telegram" in runner.invoke(main, ["--help"]).output
+
+
+def test_telegram_command_runs_client(runner, mocker):
+    mock_client_cls = mocker.patch("craftsman.telegram_bot.TelegramClient")
+    mock_run = mocker.patch("asyncio.run")
+    runner.invoke(main, ["telegram", "--host", "localhost", "--port", "6969"])
+    mock_client_cls.assert_called_once_with(host="localhost", port=6969)
+    mock_run.assert_called_once()
