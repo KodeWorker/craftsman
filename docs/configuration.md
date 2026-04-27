@@ -61,6 +61,63 @@ uv run craftsman user login
 
 Credentials are stored in the system keyring. `craftsman chat` and `craftsman run` fetch a JWT token automatically on start and refresh it transparently on expiry.
 
+## Telegram Bot Setup
+
+### Prerequisites
+
+- Tailscale installed on the server machine
+- Bot token from [@BotFather](https://t.me/BotFather)
+
+### Steps
+
+**1. Register bot token in keyring:**
+
+```bash
+uv run craftsman auth set TELEGRAM_BOT_TOKEN
+```
+
+**2. Generate self-signed TLS cert (CN = your Tailscale IP):**
+
+```bash
+uv run craftsman tailscale-cert <tailscale-ip>
+# writes ~/.craftsman/certs/telegram.crt and telegram.key
+```
+
+**3. Edit `~/.craftsman/craftsman.yaml`:**
+
+```yaml
+telegram:
+  enabled: true
+  webhook_url: "https://<tailscale-ip>:8443/telegram/webhook"
+  ssl_certfile: ~/.craftsman/certs/telegram.crt
+  ssl_keyfile: ~/.craftsman/certs/telegram.key
+  allowed_chat_ids: []  # empty = allow all
+```
+
+**4. Register a craftsman user and generate a link token:**
+
+```bash
+uv run craftsman user register <username>
+uv run craftsman user telegram-token <username>
+# prints a one-time token valid for 10 minutes
+```
+
+**5. Start the server on port 8443:**
+
+```bash
+uv run craftsman server --port 8443
+```
+
+**6. In Telegram, send to your bot:**
+
+```
+/start <token>
+```
+
+Account is now linked. Start chatting.
+
+---
+
 ## Auth Credentials
 
 Credentials are stored in the system keyring (not in config files).
