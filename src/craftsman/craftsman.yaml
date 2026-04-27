@@ -63,11 +63,6 @@ provider:
       # file-size-based); 25MB → ~2710 tokens (~2% of 131K context)
       max_size_mb: 25
 
-telegram:
-  enabled: false
-  webhook_url: ""         # public HTTPS URL; required
-  allowed_chat_ids: []    # empty = allow all
-
 commands:
   - name: /help
     description: Show this help message.

@@ -87,19 +87,14 @@ Credentials are stored in the system keyring. `craftsman chat` and `craftsman ru
 
 ## Telegram Bot Setup
 
+Each user runs their own bot client on their own machine. No public HTTPS
+endpoint required — the client long-polls Telegram directly.
+
 ### Prerequisites
 
-- Public HTTPS endpoint (ngrok for dev, VPS for production)
 - Bot token from [@BotFather](https://t.me/BotFather)
-
-### Security Warning
-
-Tunnel services (ngrok, Cloudflare Tunnel, localtunnel) terminate TLS on
-their servers — the operator can read all webhook traffic, including
-conversation content. **Do not use tunnel services in production.**
-
-For production: run craftsman on a VPS with a public IP. Let Caddy or
-Certbot manage a real TLS certificate. No third party sees your traffic.
+- A running craftsman server (`craftsman server`)
+- A registered craftsman user (`craftsman user register`)
 
 ### Steps
 
@@ -109,42 +104,42 @@ Certbot manage a real TLS certificate. No third party sees your traffic.
 uv run craftsman auth set TELEGRAM_BOT_TOKEN
 ```
 
-**2. Expose server via public HTTPS (ngrok for dev):**
+**2. Save craftsman credentials (if not already done):**
 
 ```bash
-ngrok http <port>
+uv run craftsman user login
 ```
 
-**3. Edit `~/.craftsman/craftsman.yaml`:**
-
-```yaml
-telegram:
-  enabled: true
-  webhook_url: "https://yourdomain.com/telegram/webhook"
-  allowed_chat_ids: []  # empty = allow all
-```
-
-**4. Register a craftsman user and generate a link token:**
+**3. Start the bot client:**
 
 ```bash
-uv run craftsman user register <username>
-uv run craftsman user telegram-token <username>
-# prints a one-time token valid for 10 minutes
+uv run craftsman telegram [--host localhost] [--port 6969]
 ```
 
-**5. Start the server:**
-
-```bash
-uv run craftsman server --port <port>
-```
-
-**6. In Telegram, send to your bot:**
+**First run only** — pairing handshake:
 
 ```
-/start <token>
+Open t.me/<your-bot-username> on your phone and send any message.
+Paired with chat_id 123456789. Auto-connect saved.
 ```
 
-Account is now linked. Start chatting.
+The bot captures your `chat_id` from the first message and saves it to
+`~/.craftsman/telegram.json`. Subsequent runs auto-connect without the
+handshake.
+
+**4. Start chatting.** Send any text to the bot. Available commands:
+
+```
+/help      — show command list
+/new       — end session; start fresh
+/sessions  — list recent sessions (tap to switch)
+/artifacts — list artifacts in current session
+```
+
+### Resetting the pairing
+
+Delete `~/.craftsman/telegram.json` to force a new pairing handshake on
+the next `craftsman telegram` run.
 
 ---
 

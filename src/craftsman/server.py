@@ -9,7 +9,6 @@ from craftsman.provider import Provider
 from craftsman.router.artifacts import ArtifactsRouter
 from craftsman.router.deps import _crypto
 from craftsman.router.sessions import SessionsRouter
-from craftsman.telegram_bot import TelegramBot
 
 
 class Server:
@@ -19,21 +18,12 @@ class Server:
         self.provider = Provider()
         self.librarian = Librarian()
         self.active_sessions = set()
-        self.telegram_bot = TelegramBot(self.librarian, self.provider)
 
         self.app = FastAPI(lifespan=self.lifespan)
         self.app.get("/health")(self.health_check)
         self.app.post("/reset")(self.reset_provider)
         self.app.post("/subagent/run")(self.run_subagent)
         self.app.post("/users/login")(self.login_user)
-        if self.telegram_bot.enabled:
-            bot = self.telegram_bot
-
-            async def _telegram_webhook(request: Request) -> dict:
-                data = await request.json()
-                return await bot.process_update(data)
-
-            self.app.post("/telegram/webhook")(_telegram_webhook)
 
         self.sessions_router = SessionsRouter(
             self.provider, self.librarian, self.active_sessions
@@ -89,9 +79,7 @@ class Server:
 
         finally:
             self.librarian.clear_session(session_id)  # discard
-            self.active_sessions.discard(
-                session_id
-            )  # remove from active sessions if present
+            self.active_sessions.discard(session_id)
 
     async def login_user(self, request: Request) -> dict:
         body = await request.json()
@@ -116,18 +104,8 @@ class Server:
 
     @asynccontextmanager
     async def lifespan(self, app):
-        if self.telegram_bot.enabled:
-            await self.telegram_bot.initialize()
-            await self.telegram_bot.app.bot.set_webhook(
-                url=self.telegram_bot.webhook_url
-            )
         yield
-        if self.telegram_bot.enabled:
-            await self.telegram_bot.shutdown()
 
     def start(self):
         self.logger.info(f"Starting server on port {self.port}...")
-        tg = self.telegram_bot
-        if tg.enabled and tg.webhook_url:
-            self.logger.info(f"Telegram webhook: {tg.webhook_url}")
         uvicorn.run(self.app, host="127.0.0.1", port=self.port)

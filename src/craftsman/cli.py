@@ -81,6 +81,18 @@ def run(prompt, host: str = "localhost", port: int = 6969):
 
 
 @main.command()
+@click.option("--host", default="localhost", help="Server host")
+@click.option("--port", default=6969, help="Server port")
+def telegram(host: str = "localhost", port: int = 6969):
+    """Runs the Telegram bot client (long-poll mode)."""
+    import asyncio
+
+    from craftsman.telegram_bot import TelegramClient
+
+    asyncio.run(TelegramClient(host=host, port=port).run())
+
+
+@main.command()
 @click.option("--port", default=6969, help="Port to listen on")
 def dev(port: int = 6969):
     """Starts both server and client for development."""
@@ -232,19 +244,6 @@ def user_login():
     Auth.set_password("USERNAME", username)
     Auth.set_password("PASSWORD", password)
     click.echo("User credentials saved.")
-
-
-@user.command(name="telegram-token")
-@click.argument("username")
-def user_telegram_token(username: str):
-    """Generates a one-time Telegram link token for a user."""
-    db = StructureDB()
-    user = db.get_user(username)
-    if not user:
-        click.echo(f"User '{username}' not found.")
-        return
-    token = db.create_telegram_link_token(user["id"])
-    click.echo(f"Token (valid 10 min): {token}")
 
 
 # --- Session Management Commands ---

@@ -16,7 +16,8 @@ dependencies = [
     "pyjwt>=2.12.1",
     "bcrypt>=5.0.0",
     "aiofiles>=25.1.0",
-    "python-telegram-bot[webhooks]>=22.7",
+    "python-telegram-bot>=22.7",
+    "httpx>=0.28",
 ]
 
 [project.scripts]
