@@ -234,6 +234,76 @@ def user_login():
     click.echo("User credentials saved.")
 
 
+# --- Telegram Commands ---
+
+
+@main.command(name="tailscale-cert")
+@click.argument("ip")
+def tailscale_cert(ip: str):
+    """Generates a self-signed cert for Telegram webhook (Tailscale IP)."""
+    import datetime
+    import ipaddress
+    from pathlib import Path
+
+    from cryptography import x509
+    from cryptography.hazmat.primitives import hashes, serialization
+    from cryptography.hazmat.primitives.asymmetric import rsa
+    from cryptography.x509.oid import NameOID
+
+    config = get_config().get("telegram", {})
+    cert_path = Path(os.path.expanduser(config["ssl_certfile"]))
+    key_path = Path(os.path.expanduser(config["ssl_keyfile"]))
+    cert_path.parent.mkdir(parents=True, exist_ok=True)
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+
+    key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
+    key_path.write_bytes(
+        key.private_bytes(
+            serialization.Encoding.PEM,
+            serialization.PrivateFormat.TraditionalOpenSSL,
+            serialization.NoEncryption(),
+        )
+    )
+
+    subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, ip)])
+    cert = (
+        x509.CertificateBuilder()
+        .subject_name(subject)
+        .issuer_name(subject)
+        .public_key(key.public_key())
+        .serial_number(x509.random_serial_number())
+        .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
+        .not_valid_after(
+            datetime.datetime.now(datetime.timezone.utc)
+            + datetime.timedelta(days=3650)
+        )
+        .add_extension(
+            x509.SubjectAlternativeName(
+                [x509.IPAddress(ipaddress.ip_address(ip))]
+            ),
+            critical=False,
+        )
+        .sign(key, hashes.SHA256())
+    )
+    cert_path.write_bytes(cert.public_bytes(serialization.Encoding.PEM))
+
+    click.echo(f"cert: {cert_path}")
+    click.echo(f"key:  {key_path}")
+
+
+@user.command(name="telegram-token")
+@click.argument("username")
+def user_telegram_token(username: str):
+    """Generates a one-time Telegram link token for a user."""
+    db = StructureDB()
+    user = db.get_user(username)
+    if not user:
+        click.echo(f"User '{username}' not found.")
+        return
+    token = db.create_telegram_link_token(user["id"])
+    click.echo(f"Token (valid 10 min): {token}")
+
+
 # --- Session Management Commands ---
 
 

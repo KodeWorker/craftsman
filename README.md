@@ -42,6 +42,7 @@ uv run craftsman arti delete [<id|prefix>] [--host] [--port]
 
 # Server-side generate token
 uv run craftsman telegram-token [<username>]
+uv run craftsman tailscale-cert <tailscale-ip>
 ```
 
 ## Docs

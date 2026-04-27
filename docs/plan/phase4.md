@@ -158,12 +158,11 @@ device on the tailnet (including the phone running Telegram).
 **1. Generate self-signed cert (CN must match the IP in `webhook_url`):**
 
 ```bash
-openssl req -newkey rsa:2048 -sha256 -nodes \
-  -keyout ~/.craftsman/certs/telegram.key \
-  -x509 -days 3650 \
-  -out ~/.craftsman/certs/telegram.crt \
-  -subj "/CN=<tailscale-ip>"
+uv run craftsman tailscale-cert <tailscale-ip>
 ```
+
+Uses `cryptography` Python package — no `openssl` system dep required.
+Outputs `~/.craftsman/certs/telegram.crt` and `~/.craftsman/certs/telegram.key`.
 
 **2. Set config:**
 
@@ -204,6 +203,7 @@ Allowed ports: 443, 80, 88, 8443 — use 8443 to avoid conflicts with Caddy.
 | Package | Purpose |
 |---------|---------|
 | `python-telegram-bot[webhooks]` | async Bot API wrapper |
+| `cryptography` | self-signed cert generation (`tailscale-cert` command) |
 | `pydub` | OGG/OPUS → WAV transcoding |
 | `ffmpeg` | system dep; pydub shells out to it |
 
@@ -243,6 +243,7 @@ Allowed ports: 443, 80, 88, 8443 — use 8443 to avoid conflicts with Caddy.
 
 #### CLI
 - [ ] `craftsman users telegram-token <username>` — generate link token
+- [ ] `craftsman tailscale-cert <ip>` — generate self-signed cert via `cryptography`; saves to `~/.craftsman/certs/`
 - [ ] `craftsman server` — print webhook URL on startup when enabled
 
 ---
