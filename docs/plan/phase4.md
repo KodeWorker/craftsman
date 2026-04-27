@@ -152,29 +152,19 @@ Token stored in keyring as `TELEGRAM_BOT_TOKEN` — not in yaml.
 Telegram requires HTTPS. TLS is terminated by a reverse proxy — the
 craftsman server runs plain HTTP internally.
 
-**Option A — Caddy (already running):**
-
-```
-reverse_proxy /telegram/webhook localhost:<port>
-```
-
-Set `webhook_url` to your Caddy domain:
-```yaml
-webhook_url: "https://yourdomain.com/telegram/webhook"
-```
-
-**Option B — ngrok (local dev):**
+Use any public HTTPS endpoint that proxies to the server. ngrok is the
+simplest option:
 
 ```bash
 ngrok http <port>
 ```
 
-Set `webhook_url` to the ngrok HTTPS URL:
+Set `webhook_url` to the public HTTPS URL:
 ```yaml
 webhook_url: "https://abc123.ngrok.io/telegram/webhook"
 ```
 
-Server starts plain HTTP — no TLS config needed.
+Server runs plain HTTP — TLS terminated by the proxy.
 
 ### Dependencies
 

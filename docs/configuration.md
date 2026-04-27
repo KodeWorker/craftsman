@@ -36,6 +36,30 @@ uv run craftsman auth set LLM_API_KEY
 uv run craftsman auth set LLM_SSL_CRT   # optional, for self-signed certs
 ```
 
+## Provider Setup
+
+Set `api_base` in `~/.craftsman/craftsman.yaml` to point at your LLM backend:
+
+| Setup | `api_base` |
+|---|---|
+| llama.cpp direct (HTTP) | `http://localhost:<port>` |
+| llama.cpp via Caddy (HTTPS) | `https://<host>` |
+| Remote OpenAI-compatible API | `https://<host>` |
+
+```yaml
+provider:
+  api_base: ""   # set to your LLM backend URL
+```
+
+**If using Caddy with `tls internal`** (self-signed CA), register the CA cert
+path so litellm trusts it:
+
+```bash
+uv run craftsman auth set LLM_SSL_CRT
+# enter path to Caddy root CA:
+# ~/.local/share/caddy/pki/authorities/local/root.crt
+```
+
 ## Session Management
 
 ```bash
@@ -65,8 +89,17 @@ Credentials are stored in the system keyring. `craftsman chat` and `craftsman ru
 
 ### Prerequisites
 
-- Public HTTPS endpoint via Caddy reverse proxy or ngrok
+- Public HTTPS endpoint (ngrok for dev, VPS for production)
 - Bot token from [@BotFather](https://t.me/BotFather)
+
+### Security Warning
+
+Tunnel services (ngrok, Cloudflare Tunnel, localtunnel) terminate TLS on
+their servers — the operator can read all webhook traffic, including
+conversation content. **Do not use tunnel services in production.**
+
+For production: run craftsman on a VPS with a public IP. Let Caddy or
+Certbot manage a real TLS certificate. No third party sees your traffic.
 
 ### Steps
 
@@ -76,14 +109,8 @@ Credentials are stored in the system keyring. `craftsman chat` and `craftsman ru
 uv run craftsman auth set TELEGRAM_BOT_TOKEN
 ```
 
-**2. Set up HTTPS reverse proxy:**
+**2. Expose server via public HTTPS (ngrok for dev):**
 
-Caddy (if already running):
-```
-reverse_proxy /telegram/webhook localhost:<port>
-```
-
-ngrok (local dev):
 ```bash
 ngrok http <port>
 ```

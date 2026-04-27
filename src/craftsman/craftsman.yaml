@@ -42,7 +42,7 @@ crypto:
   duration_hr: 8 # hours before encrypted data expires
 
 provider:
-  api_base: http://localhost:8000
+  api_base: "" # required if not using llama.cpp locally
   debug: true # true: show reasoning steps
   # llama.cpp uses openai/<model-name> for compatibility
   model: openai/gemma-4-E4B-it
@@ -65,7 +65,7 @@ provider:
 
 telegram:
   enabled: false
-  webhook_url: ""         # HTTPS URL via Caddy or ngrok reverse proxy
+  webhook_url: ""         # public HTTPS URL; required
   allowed_chat_ids: []    # empty = allow all
 
 commands:

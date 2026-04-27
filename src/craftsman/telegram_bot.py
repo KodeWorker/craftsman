@@ -1,3 +1,5 @@
+import ssl
+
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update
 from telegram.constants import ChatAction
 from telegram.ext import (
@@ -8,6 +10,7 @@ from telegram.ext import (
     MessageHandler,
     filters,
 )
+from telegram.request import HTTPXRequest
 
 from craftsman.auth import Auth
 from craftsman.configure import get_config
@@ -19,7 +22,13 @@ class TelegramBot:
         self.enabled = config.get("enabled", False)
         self.webhook_url = config.get("webhook_url", "")
         token = Auth.get_password("TELEGRAM_BOT_TOKEN")
-        self.app = Application.builder().token(token).build()
+        tg_request = HTTPXRequest(
+            http_version="1.1",
+            httpx_kwargs={"verify": ssl.create_default_context()},
+        )
+        self.app = (
+            Application.builder().token(token).request(tg_request).build()
+        )
         self.librarian = librarian
         self.provider = provider
         self._register_handlers()
@@ -40,6 +49,11 @@ class TelegramBot:
         self.app.add_handler(MessageHandler(filters.TEXT, self._on_text))
 
     async def initialize(self):
+        cfg = get_config().get("provider", {})
+        self.provider.reset(
+            api_base=cfg.get("api_base"),
+            api_key=Auth.get_password("LLM_API_KEY"),
+        )
         await self.app.initialize()
         await self.app.start()  # starts update queue workers
 
@@ -47,8 +61,7 @@ class TelegramBot:
         await self.app.stop()
         await self.app.shutdown()
 
-    async def process_update(self, request) -> dict:
-        data = await request.json()
+    async def process_update(self, data: dict) -> dict:
         update = Update.de_json(data, self.app.bot)
         await self.app.process_update(update)
         return {"ok": True}

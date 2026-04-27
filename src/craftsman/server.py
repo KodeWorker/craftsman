@@ -27,9 +27,13 @@ class Server:
         self.app.post("/subagent/run")(self.run_subagent)
         self.app.post("/users/login")(self.login_user)
         if self.telegram_bot.enabled:
-            self.app.post("/telegram/webhook")(
-                self.telegram_bot.process_update
-            )
+            bot = self.telegram_bot
+
+            async def _telegram_webhook(request: Request) -> dict:
+                data = await request.json()
+                return await bot.process_update(data)
+
+            self.app.post("/telegram/webhook")(_telegram_webhook)
 
         self.sessions_router = SessionsRouter(
             self.provider, self.librarian, self.active_sessions
