@@ -65,7 +65,9 @@ provider:
 
 telegram:
   enabled: true
-  webhook_url: https://yourdomain.com/telegram_webhook # Set this to your server's public URL for Telegram integration
+  webhook_url: https://<tailscale-ip>:8443/telegram/webhook # Replace <tailscale-ip> with your Tailscale IP address
+  ssl_keyfile: ~/.craftsman/secrets/ssl_key.pem # Required for Telegram webhooks
+  ssl_certfile: ~/.craftsman/secrets/ssl_cert.pem # Required for Telegram webhooks
 
 commands:
   - name: /help

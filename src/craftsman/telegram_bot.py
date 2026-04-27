@@ -15,10 +15,12 @@ from craftsman.configure import get_config
 
 class TelegramBot:
     def __init__(self, librarian, provider):
-        config = get_config()
-        self.enabled = config["telegram"].get("enabled", False)
-        self.webhook_url = config["telegram"]["webhook_url"]
-        token = Auth.get_password("TOKEN")
+        config = get_config().get("telegram", {})
+        self.enabled = config.get("enabled", False)
+        self.webhook_url = config.get("webhook_url", "")
+        self.ssl_certfile = config.get("ssl_certfile", "")
+        self.ssl_keyfile = config.get("ssl_keyfile", "")
+        token = Auth.get_password("TELEGRAM_BOT_TOKEN")
         self.app = Application.builder().token(token).build()
         self.librarian = librarian
         self.provider = provider
