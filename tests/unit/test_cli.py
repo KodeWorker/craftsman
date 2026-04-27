@@ -245,7 +245,7 @@ def test_telegram_in_help(runner):
 
 
 def test_telegram_command_runs_client(runner, mocker):
-    mock_client_cls = mocker.patch("craftsman.telegram_bot.TelegramClient")
+    mock_client_cls = mocker.patch("craftsman.client.telegram.TelegramClient")
     mock_run = mocker.patch("asyncio.run")
     runner.invoke(main, ["telegram", "--host", "localhost", "--port", "6969"])
     mock_client_cls.assert_called_once_with(host="localhost", port=6969)

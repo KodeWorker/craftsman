@@ -3,7 +3,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from craftsman.telegram_bot import TelegramClient
+from craftsman.client.telegram import TelegramClient
 
 _CONFIG = {
     "workspace": {"root": "/tmp/tg-test"},
@@ -16,9 +16,9 @@ _CONFIG = {
 def client(mocker, tmp_path):
     cfg = dict(_CONFIG)
     cfg["workspace"] = {"root": str(tmp_path)}
-    mocker.patch("craftsman.telegram_bot.get_config", return_value=cfg)
+    mocker.patch("craftsman.client.telegram.get_config", return_value=cfg)
     mocker.patch(
-        "craftsman.telegram_bot.Auth.get_password", return_value="tok"
+        "craftsman.client.telegram.Auth.get_password", return_value="tok"
     )
     return TelegramClient(host="localhost", port=6969)
 
@@ -34,9 +34,9 @@ def test_load_state_reads_existing_file(mocker, tmp_path):
     state = {"chat_id": 999, "session_id": "sid-abc"}
     cfg = dict(_CONFIG)
     cfg["workspace"] = {"root": str(tmp_path)}
-    mocker.patch("craftsman.telegram_bot.get_config", return_value=cfg)
+    mocker.patch("craftsman.client.telegram.get_config", return_value=cfg)
     mocker.patch(
-        "craftsman.telegram_bot.Auth.get_password", return_value="tok"
+        "craftsman.client.telegram.Auth.get_password", return_value="tok"
     )
     (tmp_path / "telegram.json").write_text(json.dumps(state))
     c = TelegramClient(host="localhost", port=6969)

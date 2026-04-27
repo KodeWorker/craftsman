@@ -87,7 +87,7 @@ def telegram(host: str = "localhost", port: int = 6969):
     """Runs the Telegram bot client (long-poll mode)."""
     import asyncio
 
-    from craftsman.telegram_bot import TelegramClient
+    from craftsman.client.telegram import TelegramClient
 
     asyncio.run(TelegramClient(host=host, port=port).run())
 
