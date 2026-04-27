@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
   id            TEXT PRIMARY KEY,
   username      TEXT NOT NULL UNIQUE,
   password_hash TEXT NOT NULL,
+  telegram_id   TEXT UNIQUE,
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -127,6 +128,20 @@ CREATE TABLE IF NOT EXISTS cron_jobs (
     last_run   TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
+
+CREATE TABLE IF NOT EXISTS telegram_chats (
+    chat_id    TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id),
+    session_id TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS telegram_link_tokens (
+    token      TEXT PRIMARY KEY,
+    user_id    TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
 """
 
 
@@ -216,6 +231,61 @@ class StructureDB:
 
     def delete_user(self, username: str) -> None:
         self.conn.execute("DELETE FROM users WHERE username = ?", (username,))
+        self.conn.commit()
+
+    def link_telegram_user(self, telegram_id: str, user_id: str) -> None:
+        self.conn.execute(
+            "UPDATE users SET telegram_id = ? WHERE id = ?",
+            (telegram_id, user_id),
+        )
+        self.conn.commit()
+
+    def get_user_by_telegram_id(self, telegram_id: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM users WHERE telegram_id = ?", (telegram_id,)
+        ).fetchone()
+
+    def create_telegram_link_token(
+        self, user_id: str, ttl_minutes: int = 10
+    ) -> str:
+        token = str(uuid.uuid4())
+        self.conn.execute(
+            "INSERT INTO telegram_link_tokens (token, user_id, expires_at)"
+            " VALUES (?, ?, datetime('now', ? || ' minutes'))",
+            (token, user_id, str(ttl_minutes)),
+        )
+        self.conn.commit()
+        return token
+
+    def consume_telegram_link_token(self, token: str) -> str | None:
+        row = self.conn.execute(
+            "SELECT user_id FROM telegram_link_tokens"
+            " WHERE token = ? AND expires_at > datetime('now')",
+            (token,),
+        ).fetchone()
+        if row is None:
+            return None
+        self.conn.execute(
+            "DELETE FROM telegram_link_tokens WHERE token = ?", (token,)
+        )
+        self.conn.commit()
+        return row["user_id"]
+
+    def get_telegram_chat(self, chat_id: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM telegram_chats WHERE chat_id = ?", (chat_id,)
+        ).fetchone()
+
+    def upsert_telegram_chat(
+        self, chat_id: str, user_id: str, session_id: str
+    ) -> None:
+        self.conn.execute(
+            "INSERT INTO telegram_chats (chat_id, user_id, session_id)"
+            " VALUES (?, ?, ?)"
+            " ON CONFLICT(chat_id) DO UPDATE"
+            " SET session_id = excluded.session_id",
+            (chat_id, user_id, session_id),
+        )
         self.conn.commit()
 
     # --- sessions ---
