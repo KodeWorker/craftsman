@@ -92,6 +92,49 @@ System prompt loaded from `.craftsman/system_prompt.md` or
 - [x] `docs/configuration.md` — Telegram Bot Setup section
 - [x] `docs/plan/phase4.md` — finalized
 
-### Deferred
-- [ ] Media handlers (photo, document, audio, voice) — Phase 4.x
+### Not implemented
 - [ ] Paired/mirroring mode — not planned
+
+---
+
+## Media Handling (TODO)
+
+### Overview
+
+Client downloads Telegram file, uploads to server artifact pipeline, injects
+`@image:<uuid>` / `@audio:<uuid>` token into the completion request — same
+path as `@file` attachments in `craftsman chat`.
+
+### Supported Types
+
+| Telegram type | Disposition |
+|---------------|-------------|
+| `photo` | JPEG → artifact upload (vision) |
+| `document` (image mime) | original format → artifact upload |
+| `audio` | MP3/M4A → artifact upload (audio) |
+| `voice` | OGG/OPUS → transcode WAV → artifact upload |
+| `video_note` | reject with message |
+
+Transcoding: `pydub` + `ffmpeg` (system dep).
+
+### Capability Guard
+
+If `capabilities.vision.enabled` is false and a photo arrives, reply with
+a capabilities-disabled message instead of crashing. Same for audio.
+
+### Dependencies
+
+| Package | Purpose |
+|---------|---------|
+| `pydub` | OGG/OPUS → WAV transcoding |
+| `ffmpeg` | system dep; pydub shells out to it |
+
+### Checklist
+
+- [ ] Photo handler — download JPEG → artifact upload → inject `@image:<uuid>`
+- [ ] Document handler — check mime type, upload if image → inject token
+- [ ] Audio handler — MP3/M4A → artifact upload → inject `@audio:<uuid>`
+- [ ] Voice handler — download OGG → transcode WAV via pydub → artifact upload
+- [ ] `video_note` handler — reply with rejection message
+- [ ] Capability guard for vision and audio
+- [ ] Add `pydub` to `pyproject.toml` dependencies

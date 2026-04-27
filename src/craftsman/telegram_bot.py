@@ -30,6 +30,12 @@ class TelegramClient:
         self._jwt: str | None = None
         self._http: httpx.AsyncClient | None = None
         self._app: Application | None = None
+        self._model: str = ""
+        self._ctx_used: int = 0
+        self._ctx_total: int = 0
+        self._prompt_tokens: int = 0
+        self._completion_tokens: int = 0
+        self._cost: float = 0.0
 
     # ── State ────────────────────────────────────────────────────────────
 
@@ -134,8 +140,20 @@ class TelegramClient:
                     continue
                 try:
                     chunk = json.loads(line)
-                    if chunk.get("kind") == "content":
+                    kind = chunk.get("kind")
+                    if kind == "content":
                         chunks.append(chunk["text"])
+                    elif kind == "meta":
+                        self._model = chunk.get("model", self._model)
+                        self._ctx_used = chunk.get("ctx_used", self._ctx_used)
+                        self._ctx_total = chunk.get(
+                            "ctx_total", self._ctx_total
+                        )
+                        self._prompt_tokens += chunk.get("prompt_tokens", 0)
+                        self._completion_tokens += chunk.get(
+                            "completion_tokens", 0
+                        )
+                        self._cost += chunk.get("cost", 0.0)
                 except json.JSONDecodeError:
                     pass
         return "".join(chunks)
@@ -216,6 +234,9 @@ class TelegramClient:
             CommandHandler("compact", self._on_compact, filters=cf)
         )
         self._app.add_handler(
+            CommandHandler("status", self._on_status, filters=cf)
+        )
+        self._app.add_handler(
             CallbackQueryHandler(self._on_session_switch, pattern=r"^switch:")
         )
         self._app.add_handler(
@@ -232,7 +253,8 @@ class TelegramClient:
             "  /sessions — list recent sessions\n"
             "  /artifacts — list artifacts in current session\n"
             "  /clear — clear session history\n"
-            "  /compact — summarize and reduce context size"
+            "  /compact — summarize and reduce context size\n"
+            "  /status — show model, session, token and cost info"
         )
 
     async def _on_new(
@@ -288,6 +310,23 @@ class TelegramClient:
             for a in artifacts
         ]
         await update.message.reply_text("\n".join(lines))
+
+    async def _on_status(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        sid = self._state["session_id"]
+
+        def _fmt(n: int) -> str:
+            return f"{n/1000:.1f}K" if n >= 1000 else str(n)
+
+        await update.message.reply_text(
+            f"model: {self._model or '(unknown)'}\n"
+            f"session: {sid[:8] if sid else '(none)'}\n"
+            f"ctx: {_fmt(self._ctx_used)}/{_fmt(self._ctx_total)}\n"
+            f"tokens: {_fmt(self._prompt_tokens)}↑ "
+            f"{_fmt(self._completion_tokens)}↓\n"
+            f"cost: ${self._cost:.4f}"
+        )
 
     async def _on_clear(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE

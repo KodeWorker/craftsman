@@ -50,6 +50,7 @@ handshake.
 /artifacts — list artifacts in current session
 /clear     — clear session history
 /compact   — summarize and reduce context size
+/status    — show model, session, token and cost info
 ```
 
 ## Resetting the Pairing
