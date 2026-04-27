@@ -115,8 +115,7 @@ class Server:
         if self.telegram_bot.enabled:
             await self.telegram_bot.initialize()
             await self.telegram_bot.app.bot.set_webhook(
-                url=self.telegram_bot.webhook_url,
-                certificate=open(self.telegram_bot.ssl_certfile, "rb"),
+                url=self.telegram_bot.webhook_url
             )
         yield
         if self.telegram_bot.enabled:
@@ -127,11 +126,4 @@ class Server:
         tg = self.telegram_bot
         if tg.enabled and tg.webhook_url:
             self.logger.info(f"Telegram webhook: {tg.webhook_url}")
-        ssl_kwargs = {}
-        if tg.enabled and tg.ssl_certfile and tg.ssl_keyfile:
-            ssl_kwargs = {
-                "ssl_certfile": tg.ssl_certfile,
-                "ssl_keyfile": tg.ssl_keyfile,
-            }
-        host = "0.0.0.0" if tg.enabled else "127.0.0.1"
-        uvicorn.run(self.app, host=host, port=self.port, **ssl_kwargs)
+        uvicorn.run(self.app, host="127.0.0.1", port=self.port)

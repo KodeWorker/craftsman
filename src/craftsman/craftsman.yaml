@@ -65,9 +65,7 @@ provider:
 
 telegram:
   enabled: false
-  webhook_url: ""         # e.g. https://<tailscale-ip>:8443/telegram/webhook
-  ssl_certfile: ~/.craftsman/certs/telegram.crt
-  ssl_keyfile: ~/.craftsman/certs/telegram.key
+  webhook_url: ""         # HTTPS URL via Caddy or ngrok reverse proxy
   allowed_chat_ids: []    # empty = allow all
 
 commands:

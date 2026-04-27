@@ -65,7 +65,7 @@ Credentials are stored in the system keyring. `craftsman chat` and `craftsman ru
 
 ### Prerequisites
 
-- Tailscale installed on the server machine
+- Public HTTPS endpoint via Caddy reverse proxy or ngrok
 - Bot token from [@BotFather](https://t.me/BotFather)
 
 ### Steps
@@ -76,11 +76,16 @@ Credentials are stored in the system keyring. `craftsman chat` and `craftsman ru
 uv run craftsman auth set TELEGRAM_BOT_TOKEN
 ```
 
-**2. Generate self-signed TLS cert (CN = your Tailscale IP):**
+**2. Set up HTTPS reverse proxy:**
 
+Caddy (if already running):
+```
+reverse_proxy /telegram/webhook localhost:<port>
+```
+
+ngrok (local dev):
 ```bash
-uv run craftsman tailscale-cert <tailscale-ip>
-# writes ~/.craftsman/certs/telegram.crt and telegram.key
+ngrok http <port>
 ```
 
 **3. Edit `~/.craftsman/craftsman.yaml`:**
@@ -88,9 +93,7 @@ uv run craftsman tailscale-cert <tailscale-ip>
 ```yaml
 telegram:
   enabled: true
-  webhook_url: "https://<tailscale-ip>:8443/telegram/webhook"
-  ssl_certfile: ~/.craftsman/certs/telegram.crt
-  ssl_keyfile: ~/.craftsman/certs/telegram.key
+  webhook_url: "https://yourdomain.com/telegram/webhook"
   allowed_chat_ids: []  # empty = allow all
 ```
 
@@ -102,10 +105,10 @@ uv run craftsman user telegram-token <username>
 # prints a one-time token valid for 10 minutes
 ```
 
-**5. Start the server on port 8443:**
+**5. Start the server:**
 
 ```bash
-uv run craftsman server --port 8443
+uv run craftsman server --port <port>
 ```
 
 **6. In Telegram, send to your bot:**

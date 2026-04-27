@@ -142,68 +142,45 @@ CREATE TABLE IF NOT EXISTS telegram_link_tokens (
 telegram:
   enabled: false
   webhook_url: ""         # HTTPS URL Telegram posts updates to; required
-  ssl_certfile: ""        # path to self-signed cert (.crt)
-  ssl_keyfile: ""         # path to private key (.key)
   allowed_chat_ids: []    # empty = allow all
 ```
 
 Token stored in keyring as `TELEGRAM_BOT_TOKEN` — not in yaml.
 
-### Deployment: Tailscale + Self-Signed Cert
+### Deployment: Reverse Proxy (Caddy / ngrok)
 
-Telegram requires HTTPS but the server need not be publicly exposed.
-Tailscale provides a stable private IP (`100.x.x.x`) reachable from any
-device on the tailnet (including the phone running Telegram).
+Telegram requires HTTPS. TLS is terminated by a reverse proxy — the
+craftsman server runs plain HTTP internally.
 
-**1. Generate self-signed cert (CN must match the IP in `webhook_url`):**
+**Option A — Caddy (already running):**
+
+```
+reverse_proxy /telegram/webhook localhost:<port>
+```
+
+Set `webhook_url` to your Caddy domain:
+```yaml
+webhook_url: "https://yourdomain.com/telegram/webhook"
+```
+
+**Option B — ngrok (local dev):**
 
 ```bash
-uv run craftsman tailscale-cert <tailscale-ip>
+ngrok http <port>
 ```
 
-Uses `cryptography` Python package — no `openssl` system dep required.
-Outputs `~/.craftsman/certs/telegram.crt` and `~/.craftsman/certs/telegram.key`.
-
-**2. Set config:**
-
+Set `webhook_url` to the ngrok HTTPS URL:
 ```yaml
-telegram:
-  enabled: true
-  webhook_url: "https://<tailscale-ip>:8443/telegram/webhook"
-  ssl_certfile: "~/.craftsman/certs/telegram.crt"
-  ssl_keyfile:  "~/.craftsman/certs/telegram.key"
+webhook_url: "https://abc123.ngrok.io/telegram/webhook"
 ```
 
-**3. Register webhook — upload cert so Telegram trusts it:**
-
-```python
-await bot.set_webhook(
-    url=self.webhook_url,
-    certificate=open(ssl_certfile, "rb"),
-)
-```
-
-**4. Start uvicorn on port 8443 with TLS:**
-
-```python
-uvicorn.run(
-    self.app,
-    host="0.0.0.0",
-    port=8443,
-    ssl_keyfile=ssl_keyfile,
-    ssl_certfile=ssl_certfile,
-)
-```
-
-Telegram accepts self-signed certs only when uploaded at `set_webhook` time.
-Allowed ports: 443, 80, 88, 8443 — use 8443 to avoid conflicts with Caddy.
+Server starts plain HTTP — no TLS config needed.
 
 ### Dependencies
 
 | Package | Purpose |
 |---------|---------|
 | `python-telegram-bot[webhooks]` | async Bot API wrapper |
-| `cryptography` | self-signed cert generation (`tailscale-cert` command) |
 | `pydub` | OGG/OPUS → WAV transcoding |
 | `ffmpeg` | system dep; pydub shells out to it |
 
@@ -243,7 +220,6 @@ Allowed ports: 443, 80, 88, 8443 — use 8443 to avoid conflicts with Caddy.
 
 #### CLI
 - [ ] `craftsman users telegram-token <username>` — generate link token
-- [ ] `craftsman tailscale-cert <ip>` — generate self-signed cert via `cryptography`; saves to `~/.craftsman/certs/`
 - [ ] `craftsman server` — print webhook URL on startup when enabled
 
 ---

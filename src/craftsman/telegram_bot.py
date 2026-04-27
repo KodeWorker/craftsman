@@ -18,8 +18,6 @@ class TelegramBot:
         config = get_config().get("telegram", {})
         self.enabled = config.get("enabled", False)
         self.webhook_url = config.get("webhook_url", "")
-        self.ssl_certfile = config.get("ssl_certfile", "")
-        self.ssl_keyfile = config.get("ssl_keyfile", "")
         token = Auth.get_password("TELEGRAM_BOT_TOKEN")
         self.app = Application.builder().token(token).build()
         self.librarian = librarian
@@ -49,9 +47,11 @@ class TelegramBot:
         await self.app.stop()
         await self.app.shutdown()
 
-    async def process_update(self, data: dict):
+    async def process_update(self, request) -> dict:
+        data = await request.json()
         update = Update.de_json(data, self.app.bot)
         await self.app.process_update(update)
+        return {"ok": True}
 
     async def _on_help(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
