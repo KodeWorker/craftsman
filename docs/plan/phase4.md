@@ -72,7 +72,7 @@ Telegram does not support streaming.
 |---------|--------|
 | `/start <token>` | Link account; create initial session |
 | `/new` | End session; start fresh |
-| `/sessions` | List 5 most recent sessions |
+| `/sessions` | List 5 most recent sessions with inline keyboard; tap to switch active session |
 | `/artifacts` | List artifacts in current session |
 | `/help` | Show command list |
 
@@ -175,7 +175,8 @@ telegram:
 - [ ] `TelegramBot` class
 - [ ] `/start <token>` handler — consume token, bind `telegram_id`, create session
 - [ ] `/new` handler
-- [ ] `/sessions` handler
+- [ ] `/sessions` handler — reply with `InlineKeyboardMarkup`; each button `callback_data=switch:<session_id>`
+- [ ] `CallbackQueryHandler` for `switch:*` — update `telegram_chats.session_id`, confirm to user
 - [ ] `/artifacts` handler
 - [ ] `/help` handler
 - [ ] Text message handler — resolve user/session, call completion, reply
