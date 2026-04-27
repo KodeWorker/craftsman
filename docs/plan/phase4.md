@@ -141,10 +141,63 @@ CREATE TABLE IF NOT EXISTS telegram_link_tokens (
 ```yaml
 telegram:
   enabled: false
-  token: ""          # or keyring key TELEGRAM_BOT_TOKEN
-  webhook_url: ""    # public HTTPS URL; required
-  allowed_chat_ids: []  # empty = allow all
+  webhook_url: ""         # HTTPS URL Telegram posts updates to; required
+  ssl_certfile: ""        # path to self-signed cert (.crt)
+  ssl_keyfile: ""         # path to private key (.key)
+  allowed_chat_ids: []    # empty = allow all
 ```
+
+Token stored in keyring as `TELEGRAM_BOT_TOKEN` — not in yaml.
+
+### Deployment: Tailscale + Self-Signed Cert
+
+Telegram requires HTTPS but the server need not be publicly exposed.
+Tailscale provides a stable private IP (`100.x.x.x`) reachable from any
+device on the tailnet (including the phone running Telegram).
+
+**1. Generate self-signed cert (CN must match the IP in `webhook_url`):**
+
+```bash
+openssl req -newkey rsa:2048 -sha256 -nodes \
+  -keyout ~/.craftsman/certs/telegram.key \
+  -x509 -days 3650 \
+  -out ~/.craftsman/certs/telegram.crt \
+  -subj "/CN=<tailscale-ip>"
+```
+
+**2. Set config:**
+
+```yaml
+telegram:
+  enabled: true
+  webhook_url: "https://<tailscale-ip>:8443/telegram/webhook"
+  ssl_certfile: "~/.craftsman/certs/telegram.crt"
+  ssl_keyfile:  "~/.craftsman/certs/telegram.key"
+```
+
+**3. Register webhook — upload cert so Telegram trusts it:**
+
+```python
+await bot.set_webhook(
+    url=self.webhook_url,
+    certificate=open(ssl_certfile, "rb"),
+)
+```
+
+**4. Start uvicorn on port 8443 with TLS:**
+
+```python
+uvicorn.run(
+    self.app,
+    host="0.0.0.0",
+    port=8443,
+    ssl_keyfile=ssl_keyfile,
+    ssl_certfile=ssl_certfile,
+)
+```
+
+Telegram accepts self-signed certs only when uploaded at `set_webhook` time.
+Allowed ports: 443, 80, 88, 8443 — use 8443 to avoid conflicts with Caddy.
 
 ### Dependencies
 
