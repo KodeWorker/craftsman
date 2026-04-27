@@ -256,7 +256,9 @@ class Client(SessionsClient, ArtifactsClient):
             "post",
             f"{self.entry_point}/reset",
             json={
-                "api_base": Auth.get_password("LLM_BASE_URL"),
+                "api_base": self.config.get("provider", {}).get(
+                    "api_base", None
+                ),
                 "api_key": Auth.get_password("LLM_API_KEY"),
             },
         )

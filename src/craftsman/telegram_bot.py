@@ -8,9 +8,16 @@ from telegram.ext import (
     filters,
 )
 
+from craftsman.auth import Auth
+from craftsman.configure import get_config
+
 
 class TelegramBot:
-    def __init__(self, token, librarian, provider):
+    def __init__(self, librarian, provider):
+        config = get_config()
+        self.enabled = config["telegram"].get("enabled", False)
+        self.webhook_url = config["telegram"]["webhook_url"]
+        token = Auth.get_password("TOKEN")
         self.app = Application.builder().token(token).build()
         self.librarian = librarian
         self.provider = provider

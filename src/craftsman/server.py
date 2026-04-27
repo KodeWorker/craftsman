@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 
@@ -7,6 +9,7 @@ from craftsman.provider import Provider
 from craftsman.router.artifacts import ArtifactsRouter
 from craftsman.router.deps import _crypto
 from craftsman.router.sessions import SessionsRouter
+from craftsman.telegram_bot import TelegramBot
 
 
 class Server:
@@ -16,12 +19,17 @@ class Server:
         self.provider = Provider()
         self.librarian = Librarian()
         self.active_sessions = set()
+        self.telegram_bot = TelegramBot(self.librarian, self.provider)
 
-        self.app = FastAPI()
+        self.app = FastAPI(lifespan=self.lifespan)
         self.app.get("/health")(self.health_check)
         self.app.post("/reset")(self.reset_provider)
         self.app.post("/subagent/run")(self.run_subagent)
         self.app.post("/users/login")(self.login_user)
+        if self.telegram_bot.enabled:
+            self.app.post("/telegram/webhook")(
+                self.telegram_bot.process_update
+            )
 
         self.sessions_router = SessionsRouter(
             self.provider, self.librarian, self.active_sessions
@@ -101,6 +109,17 @@ class Server:
         token = _crypto.create_token(user["id"])
         self.logger.info(f"User '{user['username']}' logged in successfully.")
         return {"token": token}
+
+    @asynccontextmanager
+    async def lifespan(self, app):
+        if self.telegram_bot.enabled:
+            await self.telegram_bot.initialize()
+            await self.telegram_bot.app.bot.set_webhook(
+                url=self.telegram_bot.webhook_url
+            )
+        yield
+        if self.telegram_bot.enabled:
+            await self.telegram_bot.shutdown()
 
     def start(self):
         self.logger.info(f"Starting server on port {self.port}...")

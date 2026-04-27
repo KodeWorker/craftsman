@@ -32,7 +32,6 @@ not overwrite an existing config.
 Set credentials before starting the server:
 
 ```bash
-uv run craftsman auth set LLM_BASE_URL
 uv run craftsman auth set LLM_API_KEY
 uv run craftsman auth set LLM_SSL_CRT   # optional, for self-signed certs
 ```
@@ -68,6 +67,7 @@ Credentials are stored in the system keyring (not in config files).
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `LLM_BASE_URL` | Base URL of the OpenAI-compatible server (client) | _(empty)_ |
 | `LLM_API_KEY` | API key (client) | _(empty)_ |
 | `LLM_SSL_CRT` | Path to SSL certificate for self-signed servers (server) | _(empty)_ |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot API token from BotFather | _(empty)_ |
+| `TELEGRAM_CHAT_ID` | Comma-separated list of allowed chat IDs; empty = allow all | _(empty)_ |

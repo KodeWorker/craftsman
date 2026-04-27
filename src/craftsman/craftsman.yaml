@@ -42,6 +42,7 @@ crypto:
   duration_hr: 8 # hours before encrypted data expires
 
 provider:
+  api_base: http://localhost:8000
   debug: true # true: show reasoning steps
   # llama.cpp uses openai/<model-name> for compatibility
   model: openai/gemma-4-E4B-it
@@ -61,6 +62,10 @@ provider:
       # Gemma 4 audio encoder: 10MB MP3 → ~1085 tokens (duration-based, not
       # file-size-based); 25MB → ~2710 tokens (~2% of 131K context)
       max_size_mb: 25
+
+telegram:
+  enabled: true
+  webhook_url: https://yourdomain.com/telegram_webhook # Set this to your server's public URL for Telegram integration
 
 commands:
   - name: /help

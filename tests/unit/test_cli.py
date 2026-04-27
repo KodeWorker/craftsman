@@ -32,7 +32,7 @@ def mock_makedirs(mocker):
 @pytest.fixture
 def mock_auth(mocker):
     mock_cls = mocker.patch("craftsman.cli.Auth")
-    mock_cls.LLM_KEY_LIST = ["LLM_BASE_URL", "LLM_API_KEY", "LLM_SSL_CRT"]
+    mock_cls.LLM_KEY_LIST = ["LLM_API_KEY", "LLM_SSL_CRT"]
     mock_cls.get_password.return_value = None
     return mock_cls
 

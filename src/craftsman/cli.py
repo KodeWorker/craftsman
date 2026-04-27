@@ -104,7 +104,7 @@ def auth():
 @auth.command(name="list")
 def auth_list():
     """Lists all authenticated agents."""
-    for key in Auth.LLM_KEY_LIST:
+    for key in Auth.LLM_KEY_LIST + Auth.TELEGRAM_KEY_LIST:
         password = Auth.get_password(key)
         if password is not None:
             click.echo(f"{key}: {len(password) * '*'}")
@@ -146,7 +146,7 @@ def auth_delete(key: str = None):
         else:
             click.echo(f"Password for {key} is not set.")
     else:
-        for cred in Auth.LLM_KEY_LIST:
+        for cred in Auth.LLM_KEY_LIST + Auth.TELEGRAM_KEY_LIST:
             if Auth.get_password(cred) is not None:
                 Auth.delete_password(cred)
                 click.echo(f"Password for {cred} deleted.")

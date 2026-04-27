@@ -39,7 +39,7 @@ Early-stage autonomous agent framework. CLI + server functional; client/vector/g
 | Module | Status | Purpose |
 |--------|--------|---------|
 | `cli.py` | Done | Click entrypoint, wires all commands |
-| `auth.py` | Done | Keyring wrapper; credentials: `LLM_BASE_URL`, `LLM_API_KEY`, `LLM_SSL_CRT` |
+| `auth.py` | Done | Keyring wrapper; credentials: `LLM_API_KEY`, `LLM_SSL_CRT` |
 | `server.py` | Done | FastAPI server; streaming completion, session management |
 | `provider.py` | Done | LiteLLM wrapper; streams `(kind, text)` tuples |
 | `memory/structure.py` | Done | SQLite layer; all tables per `docs/schema.md` |
