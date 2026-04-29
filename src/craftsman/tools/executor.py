@@ -1,7 +1,6 @@
-import json
-import time
+import httpx
 
-from craftsman.memory.structure import StructureDB
+from craftsman.router.tools import REMOTE_TOOLS
 from craftsman.tools.bash_tools import (
     bash_cat,
     bash_df,
@@ -24,7 +23,7 @@ from craftsman.tools.text_tools import (
     text_search,
 )
 
-_DISPATCH = {
+_LOCAL_DISPATCH = {
     "bash:ls": bash_ls,
     "bash:cat": bash_cat,
     "bash:grep": bash_grep,
@@ -44,48 +43,43 @@ _DISPATCH = {
 
 
 class ToolExecutor:
-    def __init__(self, db: StructureDB):
-        self.db = db
+    def __init__(
+        self,
+        http_client: httpx.AsyncClient,
+        base_url: str,
+        token: str,
+    ):
+        self.http = http_client
+        self.base_url = base_url.rstrip("/")
+        self.token = token
 
     async def execute(
         self, name: str, args: dict, session_id: str | None = None
     ) -> dict:
-        fn = _DISPATCH.get(name)
-        if fn is None:
-            return {"error": f"Unknown tool: {name}"}
+        if name in _LOCAL_DISPATCH:
+            try:
+                return await _LOCAL_DISPATCH[name](args)
+            except Exception as e:
+                return {"error": str(e)}
 
-        start = time.monotonic()
-        is_error = False
+        if name in REMOTE_TOOLS:
+            return await self._invoke_remote(name, args, session_id)
+
+        return {"error": f"Unknown tool: {name}"}
+
+    async def _invoke_remote(
+        self, name: str, args: dict, session_id: str | None
+    ) -> dict:
         try:
-            result = await fn(args)
-            if "error" in result:
-                is_error = True
+            resp = await self.http.post(
+                f"{self.base_url}/tools/invoke",
+                json={"name": name, "args": args, "session_id": session_id},
+                headers={"Authorization": f"Bearer {self.token}"},
+            )
+            resp.raise_for_status()
+            return resp.json()
         except Exception as e:
-            result = {"error": str(e)}
-            is_error = True
-
-        duration_ms = int((time.monotonic() - start) * 1000)
-
-        try:
-            self.db.increment_tool_call_count(name)
-        except Exception:
-            pass
-
-        try:
-            tool_row = self.db.get_tool(name)
-            if tool_row and tool_row["audited"]:
-                self.db.log_tool_invocation(
-                    session_id=session_id,
-                    tool_name=name,
-                    args=json.dumps(args),
-                    result=json.dumps(result),
-                    duration_ms=duration_ms,
-                    is_error=is_error,
-                )
-        except Exception:
-            pass
-
-        return result
+            return {"error": str(e)}
 
     async def commit_pending(self, file: str, tmp: str) -> dict:
         try:

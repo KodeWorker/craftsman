@@ -242,8 +242,10 @@ Implement concrete execution for `memory:*`, `plan:*`, `task:*`,
   get_scratchpad` only; no vector DB yet (Phase 6)
 - Task state machine enforced in code — invalid transitions return
   `{"error": "Invalid transition: X -> Y"}`, never silently succeed
-- `schedule:at` validates ISO 8601 datetime before calling
-  `StructureDB.schedule_job`
+- `schedule:at` validates ISO 8601 datetime, then normalizes to UTC before
+  storing: naive datetimes are treated as machine-local time and converted
+  via `datetime.astimezone(timezone.utc)`. Agents reason in local time;
+  SQLite `datetime('now')` compares in UTC — normalization bridges the gap.
 - `cron:create` validates cron expression via `croniter`
 - `plan:create` always attaches `session_id`
 

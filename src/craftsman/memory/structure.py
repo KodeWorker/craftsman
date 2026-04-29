@@ -710,3 +710,17 @@ class StructureDB:
     def delete_cron_job(self, cron_id: str) -> None:
         self.conn.execute("DELETE FROM cron_jobs WHERE id = ?", (cron_id,))
         self.conn.commit()
+
+    def list_scheduled_jobs(self) -> list[sqlite3.Row]:
+        return self.conn.execute(
+            "SELECT * FROM scheduled_jobs"
+            " WHERE status = 'pending' ORDER BY run_at ASC"
+        ).fetchall()
+
+    def cancel_scheduled_job(self, job_id: str) -> bool:
+        cur = self.conn.execute(
+            "DELETE FROM scheduled_jobs WHERE id = ? AND status = 'pending'",
+            (job_id,),
+        )
+        self.conn.commit()
+        return cur.rowcount > 0
