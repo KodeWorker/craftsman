@@ -75,9 +75,13 @@ tools:
   #             bash:stat, bash:ps, bash:df, bash:du)
   bash:
     enabled: true
+    cat:
+      max_lines: 200 # lines returned per bash:cat call before tail-truncation
   # text tools (text:read, text:search, text:replace, text:insert, text:delete)
   text:
     enabled: true
+    read:
+      max_lines: 200 # lines returned per text:read call before tail-truncation
   # memory tools (memory:store, memory:retrieve, memory:forget)
   memory:
     enabled: true

@@ -203,13 +203,13 @@ Implement concrete execution for `bash:*` and `text:*` tools in
 
 ### Checklist
 
-- [ ] `src/craftsman/tools/executor.py` — dispatch table, error wrapping,
+- [x] `src/craftsman/tools/executor.py` — dispatch table, error wrapping,
       call count increment, conditional audit log
-- [ ] `src/craftsman/tools/bash_tools.py` — all 10 bash tools
-- [ ] `src/craftsman/tools/text_tools.py` — all 5 text tools
-- [ ] `tests/unit/tools/test_bash_tools.py` — truncation, shlex, bad path
-- [ ] `tests/unit/tools/test_text_tools.py` — atomic write, .bak, line numbers
-- [ ] `tests/unit/tools/test_executor.py` — audited tool writes invocation
+- [x] `src/craftsman/tools/bash_tools.py` — all 10 bash tools
+- [x] `src/craftsman/tools/text_tools.py` — all 5 text tools
+- [x] `tests/unit/tools/test_bash_tools.py` — truncation, shlex, bad path
+- [x] `tests/unit/tools/test_text_tools.py` — atomic write, .bak, line numbers
+- [x] `tests/unit/tools/test_executor.py` — audited tool writes invocation
       record; non-audited tool does not; error path also writes record with
       `is_error=1`
 

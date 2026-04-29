@@ -4,6 +4,14 @@ import json
 from craftsman.configure import get_config
 from craftsman.memory.structure import StructureDB
 
+# Read configurable defaults once at import so the LLM sees the same limits
+# that the runtime will enforce.
+_cfg = get_config().get("tools", {})
+_CAT_MAX_LINES: int = _cfg.get("bash", {}).get("cat", {}).get("max_lines", 200)
+_READ_MAX_LINES: int = (
+    _cfg.get("text", {}).get("read", {}).get("max_lines", 200)
+)
+
 # Each entry: name, description, category, audited, parameters dict.
 # `schema` stored in DB is json.dumps(parameters).
 # audited=True  → write/action tools; every invocation logged to tool_invocations
@@ -147,7 +155,7 @@ _TOOLS: list[dict] = [
                 "max_lines": {
                     "type": "integer",
                     "description": "Maximum lines to return",
-                    "default": 200,
+                    "default": _CAT_MAX_LINES,
                 },
             },
             "required": ["file"],
@@ -339,7 +347,7 @@ _TOOLS: list[dict] = [
                 "max_lines": {
                     "type": "integer",
                     "description": "Maximum lines per page",
-                    "default": 200,
+                    "default": _READ_MAX_LINES,
                 },
             },
             "required": ["file"],
