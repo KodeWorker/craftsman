@@ -1,4 +1,6 @@
 from craftsman.tools.text_tools import (
+    commit_tmp,
+    discard_tmp,
     text_delete,
     text_insert,
     text_read,
@@ -35,7 +37,7 @@ async def test_read_truncates_to_tail(tmp_path):
     assert result["omitted"] == 40
     assert len(result["lines"]) == 10
     assert result["lines"][-1]["text"] == "line49"
-    assert result["lines"][0]["n"] == 41  # first kept line number
+    assert result["lines"][0]["n"] == 41
 
 
 async def test_search_finds_matches(tmp_path):
@@ -68,33 +70,80 @@ async def test_search_no_match(tmp_path):
     assert result["total_matches"] == 0
 
 
-async def test_replace_success(tmp_path):
+# --- text:replace ---
+
+
+async def test_replace_returns_pending(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     f = tmp_path / "test.txt"
     f.write_text("hello world")
     result = await text_replace(
         {"file": str(f), "old_string": "world", "new_string": "there"}
     )
-    assert "error" not in result
+    assert result["status"] == "pending"
+    assert result["tmp"].endswith(".tmp")
+    assert result["file"] == str(f)
+    assert f.read_text() == "hello world"  # unchanged until commit
+
+
+async def test_replace_tmp_in_craftsman_dir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    f = tmp_path / "test.txt"
+    f.write_text("hello world")
+    result = await text_replace(
+        {"file": str(f), "old_string": "world", "new_string": "there"}
+    )
+    assert (tmp_path / ".craftsman" / "test.txt.tmp").exists()
+    discard_tmp(result["tmp"])
+
+
+async def test_replace_commit_applies_change(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    f = tmp_path / "test.txt"
+    f.write_text("hello world")
+    result = await text_replace(
+        {"file": str(f), "old_string": "world", "new_string": "there"}
+    )
+    commit_tmp(result["file"], result["tmp"])
     assert f.read_text() == "hello there"
 
 
-async def test_replace_creates_bak(tmp_path):
+async def test_replace_commit_creates_bak_in_craftsman_dir(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
     f = tmp_path / "test.txt"
     f.write_text("hello world")
-    await text_replace(
+    result = await text_replace(
         {"file": str(f), "old_string": "world", "new_string": "there"}
     )
-    assert (tmp_path / "test.txt.bak").exists()
-    assert (tmp_path / "test.txt.bak").read_text() == "hello world"
+    commit_tmp(result["file"], result["tmp"])
+    bak = tmp_path / ".craftsman" / "test.txt.bak"
+    assert bak.exists()
+    assert bak.read_text() == "hello world"
 
 
-async def test_replace_atomic_no_tmp_file(tmp_path):
+async def test_replace_commit_removes_tmp(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     f = tmp_path / "test.txt"
     f.write_text("hello world")
-    await text_replace(
+    result = await text_replace(
         {"file": str(f), "old_string": "world", "new_string": "there"}
     )
-    assert not (tmp_path / "test.txt.craftsman.tmp").exists()
+    commit_tmp(result["file"], result["tmp"])
+    assert not (tmp_path / ".craftsman" / "test.txt.tmp").exists()
+
+
+async def test_replace_discard_removes_tmp(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    f = tmp_path / "test.txt"
+    f.write_text("hello world")
+    result = await text_replace(
+        {"file": str(f), "old_string": "world", "new_string": "there"}
+    )
+    discard_tmp(result["tmp"])
+    assert f.read_text() == "hello world"
+    assert not (tmp_path / ".craftsman" / "test.txt.tmp").exists()
 
 
 async def test_replace_not_found_error(tmp_path):
@@ -104,7 +153,7 @@ async def test_replace_not_found_error(tmp_path):
         {"file": str(f), "old_string": "xyz", "new_string": "abc"}
     )
     assert "error" in result
-    assert f.read_text() == "hello world"  # unchanged
+    assert f.read_text() == "hello world"
 
 
 async def test_replace_ambiguous_error(tmp_path):
@@ -114,43 +163,83 @@ async def test_replace_ambiguous_error(tmp_path):
         {"file": str(f), "old_string": "foo", "new_string": "bar"}
     )
     assert "error" in result
-    assert f.read_text() == "foo foo"  # unchanged
+    assert f.read_text() == "foo foo"
 
 
-async def test_insert_lines(tmp_path):
+# --- text:insert ---
+
+
+async def test_insert_returns_pending(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     f = tmp_path / "test.txt"
     f.write_text("a\nb\nc\n")
     result = await text_insert(
         {"file": str(f), "line_num": 2, "lines": ["x", "y"]}
     )
-    assert "error" not in result
-    assert f.read_text() == "a\nx\ny\nb\nc\n"
+    assert result["status"] == "pending"
     assert result["lines_inserted"] == 2
+    assert f.read_text() == "a\nb\nc\n"  # unchanged until commit
 
 
-async def test_insert_creates_bak(tmp_path):
+async def test_insert_commit_applies_change(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    f = tmp_path / "test.txt"
+    f.write_text("a\nb\nc\n")
+    result = await text_insert(
+        {"file": str(f), "line_num": 2, "lines": ["x", "y"]}
+    )
+    commit_tmp(result["file"], result["tmp"])
+    assert f.read_text() == "a\nx\ny\nb\nc\n"
+
+
+async def test_insert_commit_creates_bak_in_craftsman_dir(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
     f = tmp_path / "test.txt"
     f.write_text("a\nb\n")
-    await text_insert({"file": str(f), "line_num": 1, "lines": ["z"]})
-    assert (tmp_path / "test.txt.bak").exists()
+    result = await text_insert({"file": str(f), "line_num": 1, "lines": ["z"]})
+    commit_tmp(result["file"], result["tmp"])
+    assert (tmp_path / ".craftsman" / "test.txt.bak").exists()
 
 
-async def test_delete_lines(tmp_path):
+# --- text:delete ---
+
+
+async def test_delete_returns_pending(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
     f = tmp_path / "test.txt"
     f.write_text("a\nb\nc\nd\n")
     result = await text_delete(
         {"file": str(f), "line_start": 2, "line_end": 3}
     )
-    assert "error" not in result
-    assert f.read_text() == "a\nd\n"
+    assert result["status"] == "pending"
     assert result["lines_deleted"] == 2
+    assert f.read_text() == "a\nb\nc\nd\n"  # unchanged until commit
 
 
-async def test_delete_creates_bak(tmp_path):
+async def test_delete_commit_applies_change(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    f = tmp_path / "test.txt"
+    f.write_text("a\nb\nc\nd\n")
+    result = await text_delete(
+        {"file": str(f), "line_start": 2, "line_end": 3}
+    )
+    commit_tmp(result["file"], result["tmp"])
+    assert f.read_text() == "a\nd\n"
+
+
+async def test_delete_commit_creates_bak_in_craftsman_dir(
+    tmp_path, monkeypatch
+):
+    monkeypatch.chdir(tmp_path)
     f = tmp_path / "test.txt"
     f.write_text("a\nb\nc\n")
-    await text_delete({"file": str(f), "line_start": 1, "line_end": 1})
-    assert (tmp_path / "test.txt.bak").exists()
+    result = await text_delete(
+        {"file": str(f), "line_start": 1, "line_end": 1}
+    )
+    commit_tmp(result["file"], result["tmp"])
+    assert (tmp_path / ".craftsman" / "test.txt.bak").exists()
 
 
 async def test_delete_invalid_range(tmp_path):
@@ -160,4 +249,4 @@ async def test_delete_invalid_range(tmp_path):
         {"file": str(f), "line_start": 2, "line_end": 10}
     )
     assert "error" in result
-    assert f.read_text() == "a\nb\nc\n"  # unchanged
+    assert f.read_text() == "a\nb\nc\n"
