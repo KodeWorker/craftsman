@@ -131,10 +131,10 @@ a capabilities-disabled message instead of crashing. Same for audio.
 
 ### Checklist
 
-- [ ] Photo handler — download JPEG → artifact upload → inject `@image:<uuid>`
-- [ ] Document handler — check mime type, upload if image → inject token
-- [ ] Audio handler — MP3/M4A → artifact upload → inject `@audio:<uuid>`
-- [ ] Voice handler — download OGG → transcode WAV via pydub → artifact upload
-- [ ] `video_note` handler — reply with rejection message
-- [ ] Capability guard for vision and audio
-- [ ] Add `pydub` to `pyproject.toml` dependencies
+- [x] Photo handler — download JPEG → artifact upload → inject `@image:<uuid>`
+- [x] Document handler — check mime type, upload if image → inject token
+- [x] Audio handler — MP3/M4A → artifact upload → inject `@audio:<uuid>`
+- [x] Voice handler — download OGG → transcode WAV via pydub → artifact upload
+- [x] `video_note` handler — reply with rejection message
+- [x] Capability guard for vision and audio
+- [x] Add `pydub` to `pyproject.toml` dependencies

@@ -28,7 +28,7 @@ Early-stage autonomous agent framework. CLI + server functional; client/vector/g
 ### Entry point
 
 `src/craftsman/cli.py` — Click CLI with four command groups:
-- Top-level: `init`, `server`, `chat`, `run`, `dev`
+- Top-level: `init`, `server`, `chat`, `run`, `dev`, `telegram`
 - `auth` subgroup: `list`, `set`, `get`, `delete`
 - `sess` subgroup: `list`, `delete`
 - `arti` subgroup: `list`, `delete`
@@ -39,7 +39,7 @@ Early-stage autonomous agent framework. CLI + server functional; client/vector/g
 | Module | Status | Purpose |
 |--------|--------|---------|
 | `cli.py` | Done | Click entrypoint, wires all commands |
-| `auth.py` | Done | Keyring wrapper; credentials: `LLM_API_KEY`, `LLM_SSL_CRT` |
+| `auth.py` | Done | Keyring wrapper; credentials: `LLM_API_KEY`, `LLM_SSL_CRT`, `TELEGRAM_BOT_TOKEN` |
 | `server.py` | Done | FastAPI server; streaming completion, session management |
 | `provider.py` | Done | LiteLLM wrapper; streams `(kind, text)` tuples |
 | `memory/structure.py` | Done | SQLite layer; all tables per `docs/schema.md` |
@@ -50,6 +50,7 @@ Early-stage autonomous agent framework. CLI + server functional; client/vector/g
 | `client/sessions.py` | Done | SessionsClient: list, pick, find, delete sessions |
 | `client/artifacts.py` | Done | ArtifactsClient: list, pick, delete, upload `@file` references |
 | `client/chat.py` | Done | Client (chat + run): streaming display, slash commands, completer |
+| `client/telegram.py` | Done | TelegramClient: long-poll bot, session management, media handling |
 | `client/completer.py` | Done | prompt_toolkit completer and lexer for `@file` and `/command` |
 | `crypto.py` | Done | JWT token creation/verification; bcrypt password hashing; secret key management |
 | `router/deps.py` | Done | FastAPI dependencies; `get_current_user` JWT guard; `_crypto` singleton |
