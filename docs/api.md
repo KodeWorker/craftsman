@@ -100,14 +100,21 @@ Response:
 
 Request:
 ```json
-{ "message": { "role": "user", "content": "..." } }
+{
+  "message": { "role": "user", "content": "..." },
+  "tools": ["bash:grep", "bash:ls"]
+}
 ```
+
+`tools` is an optional list of tool names to expose to the LLM. The server
+looks up their schemas from the `tools` table. Omit to run without tools.
 
 Response: NDJSON stream.
 
 ```json
 { "kind": "content", "text": "..." }
 { "kind": "reasoning", "text": "..." }
+{ "kind": "tool_call", "id": "...", "name": "bash:grep", "args": { "pattern": "error", "path": "/tmp" } }
 { "kind": "error", "text": "..." }
 {
   "kind": "meta",
@@ -120,6 +127,31 @@ Response: NDJSON stream.
   "cost": 0.0
 }
 ```
+
+When the LLM returns tool calls the stream emits `tool_call` events and ends
+(no `content` in the same response). The client executes the tools and posts
+results to `/sessions/{id}/tool_result`.
+
+### POST /sessions/{id}/tool_result
+
+Submits tool execution results from the client. The server stores them as
+`role="tool"` messages and calls the LLM again, streaming the next response.
+
+Request:
+```json
+{
+  "tool_results": [
+    {
+      "tool_call_id": "call_abc123",
+      "tool_name": "bash:grep",
+      "result": { "lines": ["foo.py:12: error: ..."] }
+    }
+  ]
+}
+```
+
+Response: same NDJSON stream as `/completion` — may contain further
+`tool_call` events or a final `content` response.
 
 ### POST /sessions/{id}/compact
 
@@ -188,6 +220,18 @@ Query params: `session_id` (optional), `project_id` (optional). Both trigger an 
 
 ```json
 { "status": "Artifact deleted successfully." }
+```
+
+---
+
+## POST /tools/seed
+
+Seeds the tool registry from the server's built-in schema list, filtered by
+the `tools` section of `craftsman.yaml`. Safe to call on every client
+startup (uses INSERT OR REPLACE).
+
+```json
+{ "status": "ok" }
 ```
 
 ---
