@@ -1,9 +1,15 @@
 import asyncio
+import io
 import json
 import os
 import signal
 import ssl
 from pathlib import Path
+
+try:
+    from pydub import AudioSegment as _AudioSegment
+except ImportError:
+    _AudioSegment = None
 
 import httpx
 from telegram import Bot, InlineKeyboardButton, InlineKeyboardMarkup, Update
@@ -62,9 +68,20 @@ class TelegramClient:
 
     # ── Server API ───────────────────────────────────────────────────────
 
+    async def _request(
+        self, method: str, url: str, **kwargs
+    ) -> httpx.Response:
+        resp = await getattr(self._http, method)(url, **kwargs)
+        if resp.status_code == 401:
+            if not await self._login():
+                return resp
+            resp = await getattr(self._http, method)(url, **kwargs)
+        return resp
+
     async def _reset_provider(self) -> None:
         cfg = self.config.get("provider", {})
-        await self._http.post(
+        await self._request(
+            "post",
             f"{self._entry_point}/reset",
             json={
                 "api_base": cfg.get("api_base"),
@@ -103,19 +120,21 @@ class TelegramClient:
         prompt = self._read_system_prompt()
         if not prompt:
             return
-        await self._http.put(
+        await self._request(
+            "put",
             f"{self._entry_point}/sessions/{session_id}/system",
             json={"system_prompt": prompt},
         )
 
     async def _create_session(self) -> str | None:
-        resp = await self._http.post(f"{self._entry_point}/sessions/")
+        resp = await self._request("post", f"{self._entry_point}/sessions/")
         if resp.status_code == 200:
             return resp.json().get("session_id")
         return None
 
     async def _get_sessions(self, limit: int = 5) -> list:
-        resp = await self._http.get(
+        resp = await self._request(
+            "get",
             f"{self._entry_point}/sessions/",
             params={"limit": limit},
         )
@@ -124,7 +143,8 @@ class TelegramClient:
         return []
 
     async def _get_artifacts(self, session_id: str) -> list:
-        resp = await self._http.get(
+        resp = await self._request(
+            "get",
             f"{self._entry_point}/artifacts/",
             params={"session_id": session_id},
         )
@@ -133,13 +153,12 @@ class TelegramClient:
         return []
 
     async def _complete(self, session_id: str, text: str) -> str:
-        chunks: list[str] = []
-        async with self._http.stream(
-            "POST",
-            f"{self._entry_point}/sessions/{session_id}/completion",
-            json={"message": {"role": "user", "content": text}},
-        ) as resp:
-            async for line in resp.aiter_lines():
+        url = f"{self._entry_point}/sessions/{session_id}/completion"
+        body = {"message": {"role": "user", "content": text}}
+
+        async def _drain(stream_resp: httpx.Response) -> list[str]:
+            chunks: list[str] = []
+            async for line in stream_resp.aiter_lines():
                 if not line:
                     continue
                 try:
@@ -160,7 +179,15 @@ class TelegramClient:
                         self._cost += chunk.get("cost", 0.0)
                 except json.JSONDecodeError:
                     pass
-        return "".join(chunks)
+            return chunks
+
+        async with self._http.stream("POST", url, json=body) as resp:
+            if resp.status_code == 401:
+                if not await self._login():
+                    return ""
+                async with self._http.stream("POST", url, json=body) as resp:
+                    return "".join(await _drain(resp))
+            return "".join(await _drain(resp))
 
     # ── Pairing ──────────────────────────────────────────────────────────
 
@@ -217,6 +244,45 @@ class TelegramClient:
         print("Pairing timed out — no message received.")
         return False
 
+    # ── Capability / upload helpers ──────────────────────────────────────
+
+    def _caps(self, kind: str) -> dict:
+        return (
+            self.config.get("provider", {})
+            .get("capabilities", {})
+            .get(kind, {})
+        )
+
+    async def _upload_bytes(
+        self, data: bytes, filename: str, mime_type: str
+    ) -> str | None:
+        resp = await self._request(
+            "post",
+            f"{self._entry_point}/artifacts/",
+            files={"file": (filename, data, mime_type)},
+            data={"session_id": self._state["session_id"]},
+        )
+        if resp.status_code == 200:
+            return resp.json().get("artifact_id")
+        return None
+
+    async def _complete_and_reply(
+        self,
+        update: Update,
+        context: ContextTypes.DEFAULT_TYPE,
+        text: str,
+    ) -> None:
+        await context.bot.send_chat_action(
+            chat_id=update.effective_chat.id, action=ChatAction.TYPING
+        )
+        response = await self._complete(self._state["session_id"], text)
+        if not response:
+            await update.message.reply_text("(no response from server)")
+            return
+        max_len = 4096
+        for i in range(0, len(response), max_len):
+            await update.message.reply_text(response[i : i + max_len])
+
     # ── Handlers ─────────────────────────────────────────────────────────
 
     def _register_handlers(self) -> None:
@@ -246,6 +312,21 @@ class TelegramClient:
         self._app.add_handler(
             MessageHandler(cf & filters.TEXT & ~filters.COMMAND, self._on_text)
         )
+        self._app.add_handler(
+            MessageHandler(cf & filters.PHOTO, self._on_photo)
+        )
+        self._app.add_handler(
+            MessageHandler(cf & filters.Document.ALL, self._on_document)
+        )
+        self._app.add_handler(
+            MessageHandler(cf & filters.AUDIO, self._on_audio)
+        )
+        self._app.add_handler(
+            MessageHandler(cf & filters.VOICE, self._on_voice)
+        )
+        self._app.add_handler(
+            MessageHandler(cf & filters.VIDEO_NOTE, self._on_video_note)
+        )
 
     async def _on_help(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
@@ -258,7 +339,10 @@ class TelegramClient:
             "  /artifacts — list artifacts in current session\n"
             "  /clear — clear session history\n"
             "  /compact — summarize and reduce context size\n"
-            "  /status — show model, session, token and cost info"
+            "  /status — show model, session, token and cost info\n\n"
+            "Media support:\n"
+            "  photos and image documents → vision\n"
+            "  audio files and voice messages → audio"
         )
 
     async def _on_new(
@@ -339,8 +423,8 @@ class TelegramClient:
         if not sid:
             await update.message.reply_text("No active session.")
             return
-        resp = await self._http.post(
-            f"{self._entry_point}/sessions/{sid}/clear"
+        resp = await self._request(
+            "post", f"{self._entry_point}/sessions/{sid}/clear"
         )
         if resp.status_code == 200:
             await update.message.reply_text("Session history cleared.")
@@ -363,7 +447,8 @@ class TelegramClient:
             ),
             (1000, 5),
         )
-        resp = await self._http.post(
+        resp = await self._request(
+            "post",
             f"{self._entry_point}/sessions/{sid}/compact",
             json={"summary_limit": limit, "keep_turns": keep_turns},
         )
@@ -403,25 +488,179 @@ class TelegramClient:
     async def _on_text(
         self, update: Update, context: ContextTypes.DEFAULT_TYPE
     ) -> None:
-        sid = self._state["session_id"]
-        if not sid:
+        if not self._state["session_id"]:
             await update.message.reply_text(
                 "No active session. Send /new to start one."
             )
             return
+        await self._complete_and_reply(update, context, update.message.text)
 
-        await context.bot.send_chat_action(
-            chat_id=update.effective_chat.id, action=ChatAction.TYPING
-        )
+    # ── Media handlers ────────────────────────────────────────────────────
 
-        response = await self._complete(sid, update.message.text)
-        if not response:
-            await update.message.reply_text("(no response from server)")
+    async def _on_photo(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        vision = self._caps("vision")
+        if not vision.get("enabled", False):
+            await update.message.reply_text(
+                "Vision is not enabled for this provider."
+            )
+            return
+        if not self._state["session_id"]:
+            await update.message.reply_text(
+                "No active session. Send /new to start one."
+            )
+            return
+        photo = update.message.photo[-1]
+        tg_file = await context.bot.get_file(photo.file_id)
+        data = bytes(await tg_file.download_as_bytearray())
+        max_mb = vision.get("max_size_mb", 10)
+        if len(data) > max_mb * 1024 * 1024:
+            await update.message.reply_text(
+                f"Photo exceeds the {max_mb}MB size limit."
+            )
+            return
+        artifact_id = await self._upload_bytes(data, "photo.jpg", "image/jpeg")
+        if not artifact_id:
+            await update.message.reply_text("Failed to upload photo.")
+            return
+        msg = f"@image:{artifact_id}"
+        if update.message.caption:
+            msg = f"{msg} {update.message.caption}"
+        await self._complete_and_reply(update, context, msg)
+
+    async def _on_document(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        doc = update.message.document
+        mime = doc.mime_type or ""
+        if not mime.startswith("image/"):
+            await update.message.reply_text(
+                "Only image documents are supported."
+            )
+            return
+        vision = self._caps("vision")
+        if not vision.get("enabled", False):
+            await update.message.reply_text(
+                "Vision is not enabled for this provider."
+            )
+            return
+        if not self._state["session_id"]:
+            await update.message.reply_text(
+                "No active session. Send /new to start one."
+            )
+            return
+        tg_file = await context.bot.get_file(doc.file_id)
+        data = bytes(await tg_file.download_as_bytearray())
+        max_mb = vision.get("max_size_mb", 10)
+        if len(data) > max_mb * 1024 * 1024:
+            await update.message.reply_text(
+                f"Document exceeds the {max_mb}MB size limit."
+            )
+            return
+        subtype = mime.split("/")[-1]
+        filename = doc.file_name or f"image.{subtype}"
+        artifact_id = await self._upload_bytes(data, filename, mime)
+        if not artifact_id:
+            await update.message.reply_text("Failed to upload document.")
+            return
+        msg = f"@image:{artifact_id}"
+        if update.message.caption:
+            msg = f"{msg} {update.message.caption}"
+        await self._complete_and_reply(update, context, msg)
+
+    async def _on_audio(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        audio_cfg = self._caps("audio")
+        if not audio_cfg.get("enabled", False):
+            await update.message.reply_text(
+                "Audio is not enabled for this provider."
+            )
+            return
+        if not self._state["session_id"]:
+            await update.message.reply_text(
+                "No active session. Send /new to start one."
+            )
+            return
+        audio = update.message.audio
+        mime = audio.mime_type or "audio/mpeg"
+        tg_file = await context.bot.get_file(audio.file_id)
+        data = bytes(await tg_file.download_as_bytearray())
+        max_mb = audio_cfg.get("max_size_mb", 25)
+        if len(data) > max_mb * 1024 * 1024:
+            await update.message.reply_text(
+                f"Audio file exceeds the {max_mb}MB size limit."
+            )
+            return
+        filename = audio.file_name or "audio.mp3"
+        artifact_id = await self._upload_bytes(data, filename, mime)
+        if not artifact_id:
+            await update.message.reply_text("Failed to upload audio.")
+            return
+        msg = f"@audio:{artifact_id}"
+        if update.message.caption:
+            msg = f"{msg} {update.message.caption}"
+        await self._complete_and_reply(update, context, msg)
+
+    async def _on_voice(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        if _AudioSegment is None:
+            await update.message.reply_text(
+                "Voice messages require pydub. "
+                "Install with: pip install pydub"
+            )
+            return
+        audio_cfg = self._caps("audio")
+        if not audio_cfg.get("enabled", False):
+            await update.message.reply_text(
+                "Audio is not enabled for this provider."
+            )
+            return
+        if not self._state["session_id"]:
+            await update.message.reply_text(
+                "No active session. Send /new to start one."
+            )
+            return
+        voice = update.message.voice
+        tg_file = await context.bot.get_file(voice.file_id)
+        ogg_data = bytes(await tg_file.download_as_bytearray())
+        max_mb = audio_cfg.get("max_size_mb", 25)
+        if len(ogg_data) > max_mb * 1024 * 1024:
+            await update.message.reply_text(
+                f"Voice message exceeds the {max_mb}MB size limit."
+            )
             return
 
-        max_len = 4096
-        for i in range(0, len(response), max_len):
-            await update.message.reply_text(response[i : i + max_len])
+        def _transcode() -> bytes:
+            seg = _AudioSegment.from_ogg(io.BytesIO(ogg_data))
+            buf = io.BytesIO()
+            seg.export(buf, format="wav")
+            return buf.getvalue()
+
+        loop = asyncio.get_running_loop()
+        try:
+            wav_data = await loop.run_in_executor(None, _transcode)
+        except Exception as exc:
+            await update.message.reply_text(
+                f"Failed to transcode voice message: {exc}"
+            )
+            return
+        artifact_id = await self._upload_bytes(
+            wav_data, "voice.wav", "audio/wav"
+        )
+        if not artifact_id:
+            await update.message.reply_text("Failed to upload voice message.")
+            return
+        await self._complete_and_reply(
+            update, context, f"@audio:{artifact_id}"
+        )
+
+    async def _on_video_note(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        await update.message.reply_text("Video notes are not supported.")
 
     # ── Entry point ──────────────────────────────────────────────────────
 

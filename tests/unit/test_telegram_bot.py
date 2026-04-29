@@ -316,6 +316,282 @@ async def test_pair_timeout_returns_false(client):
     assert client._state["chat_id"] == 0
 
 
+# ── _upload_bytes ─────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_upload_bytes_returns_artifact_id(client):
+    client._state["session_id"] = "sid-1"
+    client._http = MagicMock()
+    client._http.post = AsyncMock(
+        return_value=MagicMock(
+            status_code=200,
+            json=lambda: {"artifact_id": "art-uuid"},
+        )
+    )
+    result = await client._upload_bytes(b"data", "file.jpg", "image/jpeg")
+    assert result == "art-uuid"
+    client._http.post.assert_called_once()
+    call_kwargs = client._http.post.call_args
+    assert call_kwargs.kwargs["data"] == {"session_id": "sid-1"}
+
+
+@pytest.mark.asyncio
+async def test_upload_bytes_returns_none_on_failure(client):
+    client._state["session_id"] = "sid-1"
+    client._http = MagicMock()
+    client._http.post = AsyncMock(
+        return_value=MagicMock(status_code=500, json=lambda: {})
+    )
+    result = await client._upload_bytes(b"data", "file.jpg", "image/jpeg")
+    assert result is None
+
+
+# ── _on_photo ─────────────────────────────────────────────────────────────
+
+_CFG_VISION = {
+    "workspace": {"root": "/tmp/tg-test"},
+    "provider": {
+        "model": "test-model",
+        "ctx_size": 8192,
+        "capabilities": {
+            "vision": {"enabled": True, "formats": ["jpg"], "max_size_mb": 10},
+            "audio": {
+                "enabled": True,
+                "formats": ["wav", "mp3"],
+                "max_size_mb": 25,
+            },
+        },
+    },
+    "commands": [],
+}
+
+
+@pytest.fixture
+def client_caps(mocker, tmp_path):
+    cfg = dict(_CFG_VISION)
+    cfg["workspace"] = {"root": str(tmp_path)}
+    mocker.patch("craftsman.client.telegram.get_config", return_value=cfg)
+    mocker.patch(
+        "craftsman.client.telegram.Auth.get_password", return_value="tok"
+    )
+    return TelegramClient(host="localhost", port=6969)
+
+
+def _make_tg_file(data: bytes):
+    tg_file = MagicMock()
+    tg_file.download_as_bytearray = AsyncMock(return_value=bytearray(data))
+    return tg_file
+
+
+@pytest.mark.asyncio
+async def test_on_photo_vision_disabled(client):
+    update = MagicMock()
+    update.message.reply_text = AsyncMock()
+    await client._on_photo(update, MagicMock())
+    text = update.message.reply_text.call_args[0][0]
+    assert "not enabled" in text
+
+
+@pytest.mark.asyncio
+async def test_on_photo_no_session(client_caps):
+    client_caps._state["session_id"] = ""
+    update = MagicMock()
+    update.message.reply_text = AsyncMock()
+    await client_caps._on_photo(update, MagicMock())
+    text = update.message.reply_text.call_args[0][0]
+    assert "No active session" in text
+
+
+@pytest.mark.asyncio
+async def test_on_photo_uploads_and_completes(client_caps):
+    client_caps._state["session_id"] = "sid-1"
+    photo_data = b"x" * 100
+    tg_file = _make_tg_file(photo_data)
+    context = MagicMock()
+    context.bot.get_file = AsyncMock(return_value=tg_file)
+    context.bot.send_chat_action = AsyncMock()
+
+    update = MagicMock()
+    update.effective_chat.id = 1
+    update.message.photo = [MagicMock(file_id="fid")]
+    update.message.caption = "describe this"
+    update.message.reply_text = AsyncMock()
+
+    with (
+        patch.object(
+            client_caps, "_upload_bytes", new=AsyncMock(return_value="art-1")
+        ),
+        patch.object(
+            client_caps, "_complete", new=AsyncMock(return_value="A photo!")
+        ),
+    ):
+        await client_caps._on_photo(update, context)
+
+    update.message.reply_text.assert_called_once_with("A photo!")
+
+
+@pytest.mark.asyncio
+async def test_on_photo_exceeds_size_limit(client_caps):
+    client_caps._state["session_id"] = "sid-1"
+    photo_data = b"x" * (11 * 1024 * 1024)  # 11MB > 10MB limit
+    tg_file = _make_tg_file(photo_data)
+    context = MagicMock()
+    context.bot.get_file = AsyncMock(return_value=tg_file)
+
+    update = MagicMock()
+    update.message.photo = [MagicMock(file_id="fid")]
+    update.message.caption = None
+    update.message.reply_text = AsyncMock()
+
+    await client_caps._on_photo(update, context)
+    text = update.message.reply_text.call_args[0][0]
+    assert "exceeds" in text
+
+
+# ── _on_document ──────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_on_document_non_image_rejected(client_caps):
+    client_caps._state["session_id"] = "sid-1"
+    update = MagicMock()
+    update.message.document.mime_type = "application/pdf"
+    update.message.reply_text = AsyncMock()
+    await client_caps._on_document(update, MagicMock())
+    text = update.message.reply_text.call_args[0][0]
+    assert "Only image" in text
+
+
+@pytest.mark.asyncio
+async def test_on_document_image_uploads(client_caps):
+    client_caps._state["session_id"] = "sid-1"
+    tg_file = _make_tg_file(b"imgdata")
+    context = MagicMock()
+    context.bot.get_file = AsyncMock(return_value=tg_file)
+    context.bot.send_chat_action = AsyncMock()
+
+    update = MagicMock()
+    update.effective_chat.id = 1
+    update.message.document.mime_type = "image/png"
+    update.message.document.file_id = "fid"
+    update.message.document.file_name = "shot.png"
+    update.message.caption = None
+    update.message.reply_text = AsyncMock()
+
+    with (
+        patch.object(
+            client_caps, "_upload_bytes", new=AsyncMock(return_value="art-2")
+        ),
+        patch.object(
+            client_caps, "_complete", new=AsyncMock(return_value="Nice image")
+        ),
+    ):
+        await client_caps._on_document(update, context)
+
+    update.message.reply_text.assert_called_once_with("Nice image")
+
+
+# ── _on_audio ─────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_on_audio_disabled(client):
+    update = MagicMock()
+    update.message.reply_text = AsyncMock()
+    await client._on_audio(update, MagicMock())
+    text = update.message.reply_text.call_args[0][0]
+    assert "not enabled" in text
+
+
+@pytest.mark.asyncio
+async def test_on_audio_uploads_and_completes(client_caps):
+    client_caps._state["session_id"] = "sid-1"
+    tg_file = _make_tg_file(b"mp3data")
+    context = MagicMock()
+    context.bot.get_file = AsyncMock(return_value=tg_file)
+    context.bot.send_chat_action = AsyncMock()
+
+    update = MagicMock()
+    update.effective_chat.id = 1
+    update.message.audio.file_id = "fid"
+    update.message.audio.mime_type = "audio/mpeg"
+    update.message.audio.file_name = "song.mp3"
+    update.message.caption = None
+    update.message.reply_text = AsyncMock()
+
+    with (
+        patch.object(
+            client_caps, "_upload_bytes", new=AsyncMock(return_value="art-3")
+        ),
+        patch.object(
+            client_caps, "_complete", new=AsyncMock(return_value="Audio reply")
+        ),
+    ):
+        await client_caps._on_audio(update, context)
+
+    update.message.reply_text.assert_called_once_with("Audio reply")
+
+
+# ── _on_voice ─────────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_on_voice_no_pydub(client_caps, mocker):
+    mocker.patch("craftsman.client.telegram._AudioSegment", None)
+    update = MagicMock()
+    update.message.reply_text = AsyncMock()
+    await client_caps._on_voice(update, MagicMock())
+    text = update.message.reply_text.call_args[0][0]
+    assert "pydub" in text
+
+
+@pytest.mark.asyncio
+async def test_on_voice_transcodes_and_uploads(client_caps, mocker):
+    client_caps._state["session_id"] = "sid-1"
+    tg_file = _make_tg_file(b"oggdata")
+    context = MagicMock()
+    context.bot.get_file = AsyncMock(return_value=tg_file)
+    context.bot.send_chat_action = AsyncMock()
+
+    update = MagicMock()
+    update.effective_chat.id = 1
+    update.message.voice.file_id = "fid"
+    update.message.reply_text = AsyncMock()
+
+    mock_seg = MagicMock()
+    mock_seg.export = MagicMock(
+        side_effect=lambda buf, format: buf.write(b"wavdata")
+    )
+    mock_audio_seg = MagicMock()
+    mock_audio_seg.from_ogg = MagicMock(return_value=mock_seg)
+    mocker.patch("craftsman.client.telegram._AudioSegment", mock_audio_seg)
+
+    with (
+        patch.object(
+            client_caps, "_upload_bytes", new=AsyncMock(return_value="art-4")
+        ),
+        patch.object(
+            client_caps, "_complete", new=AsyncMock(return_value="Voice reply")
+        ),
+    ):
+        await client_caps._on_voice(update, context)
+
+    update.message.reply_text.assert_called_once_with("Voice reply")
+
+
+# ── _on_video_note ────────────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_on_video_note_rejects(client):
+    update = MagicMock()
+    update.message.reply_text = AsyncMock()
+    await client._on_video_note(update, MagicMock())
+    text = update.message.reply_text.call_args[0][0]
+    assert "not supported" in text
+
+
 # ── helpers ───────────────────────────────────────────────────────────────
 
 

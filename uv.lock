@@ -382,6 +382,7 @@ dependencies = [
     { name = "keyring" },
     { name = "litellm" },
     { name = "prompt-toolkit" },
+    { name = "pydub" },
     { name = "pyjwt" },
     { name = "python-multipart" },
     { name = "python-telegram-bot" },
@@ -407,6 +408,7 @@ requires-dist = [
     { name = "keyring", specifier = ">=25.7.0" },
     { name = "litellm", specifier = ">=1.83.0" },
     { name = "prompt-toolkit", specifier = ">=3.0.0" },
+    { name = "pydub", specifier = ">=0.25" },
     { name = "pyjwt", specifier = ">=2.12.1" },
     { name = "python-multipart", specifier = ">=0.0.26" },
     { name = "python-telegram-bot", specifier = ">=22.7" },
@@ -1372,6 +1374,15 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/00/fc/a7c16d85211ea9accddc693b7d049f20b0c06440d9264d1e1c074394ee6c/pydantic_core-2.46.1-graalpy312-graalpy250_312_native-macosx_11_0_arm64.whl", hash = "sha256:2b1801ba99876984d0a03362782819238141c4d0f3f67f69093663691332fc35", size = 1939925, upload-time = "2026-04-15T14:50:36.188Z" },
     { url = "https://files.pythonhosted.org/packages/2e/23/87841169d77820ddabeb81d82002c95dcb82163846666d74f5bdeeaec750/pydantic_core-2.46.1-graalpy312-graalpy250_312_native-manylinux_2_17_aarch64.manylinux2014_aarch64.whl", hash = "sha256:b7fd82a91a20ed6d54fa8c91e7a98255b1ff45bf09b051bfe7fe04eb411e232e", size = 1995313, upload-time = "2026-04-15T14:50:22.538Z" },
     { url = "https://files.pythonhosted.org/packages/ea/96/b46609359a354fa9cd336fc5d93334f1c358b756cc81e4b397347a88fa6f/pydantic_core-2.46.1-graalpy312-graalpy250_312_native-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:0f135bf07c92c93def97008bc4496d16934da9efefd7204e5f22a2c92523cb1f", size = 2151197, upload-time = "2026-04-15T14:51:22.925Z" },
+]
+
+[[package]]
+name = "pydub"
+version = "0.25.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/fe/9a/e6bca0eed82db26562c73b5076539a4a08d3cffd19c3cc5913a3e61145fd/pydub-0.25.1.tar.gz", hash = "sha256:980a33ce9949cab2a569606b65674d748ecbca4f0796887fd6f46173a7b0d30f", size = 38326, upload-time = "2021-03-10T02:09:54.659Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/a6/53/d78dc063216e62fc55f6b2eebb447f6a4b0a59f55c8406376f76bf959b08/pydub-0.25.1-py2.py3-none-any.whl", hash = "sha256:65617e33033874b59d87db603aa1ed450633288aefead953b30bded59cb599a6", size = 32327, upload-time = "2021-03-10T02:09:53.503Z" },
 ]
 
 [[package]]
