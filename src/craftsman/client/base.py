@@ -56,6 +56,9 @@ class BaseClient:
             self.logger.error("Failed to obtain JWT token.")
             return None
 
+    def _seed_tools(self) -> None:
+        self._request("post", f"{self.entry_point}/tools/seed")
+
     # wire requests through this method to handle 401
     # and retry with JWT token if needed
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:

@@ -96,7 +96,19 @@ CREATE TABLE IF NOT EXISTS tools (
     description TEXT NOT NULL,
     category    TEXT NOT NULL,
     schema      TEXT NOT NULL,
+    audited     INTEGER NOT NULL DEFAULT 0,
     call_count  INTEGER NOT NULL DEFAULT 0,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS tool_invocations (
+    id          TEXT PRIMARY KEY,
+    session_id  TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+    tool_name   TEXT NOT NULL,
+    args        TEXT NOT NULL,
+    result      TEXT NOT NULL,
+    duration_ms INTEGER NOT NULL,
+    is_error    INTEGER NOT NULL DEFAULT 0,
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -540,12 +552,38 @@ class StructureDB:
         description: str,
         category: str,
         schema: str,
+        audited: bool = False,
     ) -> None:
         self.conn.execute(
             "INSERT OR REPLACE INTO tools"
-            " (name, description, category, schema)"
-            " VALUES (?, ?, ?, ?)",
-            (name, description, category, schema),
+            " (name, description, category, schema, audited)"
+            " VALUES (?, ?, ?, ?, ?)",
+            (name, description, category, schema, int(audited)),
+        )
+        self.conn.commit()
+
+    def log_tool_invocation(
+        self,
+        session_id: str | None,
+        tool_name: str,
+        args: str,
+        result: str,
+        duration_ms: int,
+        is_error: bool = False,
+    ) -> None:
+        self.conn.execute(
+            "INSERT INTO tool_invocations"
+            " (id, session_id, tool_name, args, result, duration_ms, is_error)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                str(uuid.uuid4()),
+                session_id,
+                tool_name,
+                args,
+                result,
+                duration_ms,
+                int(is_error),
+            ),
         )
         self.conn.commit()
 

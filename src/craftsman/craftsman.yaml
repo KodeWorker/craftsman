@@ -63,6 +63,36 @@ provider:
       # file-size-based); 25MB → ~2710 tokens (~2% of 131K context)
       max_size_mb: 25
 
+tools:
+  # Category-level switches — set enabled: false to disable an entire category.
+  # meta tools (tool:list, tool:describe, tool:find, tool:compose, tool:revoke)
+  # When enabled: only meta tools are exposed to the LLM; it discovers others
+  # via tool:find at runtime (dynamic registry — keeps prompt small).
+  # When disabled: all enabled tools are exposed to the LLM upfront.
+  meta:
+    enabled: true
+  # bash tools (bash:ls, bash:cat, bash:grep, bash:find, bash:head, bash:tail,
+  #             bash:stat, bash:ps, bash:df, bash:du)
+  bash:
+    enabled: true
+  # text tools (text:read, text:search, text:replace, text:insert, text:delete)
+  text:
+    enabled: true
+  # memory tools (memory:store, memory:retrieve, memory:forget)
+  memory:
+    enabled: true
+  # schedule tools (schedule:at, schedule:list, schedule:cancel,
+  #                 cron:create, cron:list, cron:remove)
+  schedule:
+    enabled: true
+  # plan tools (plan:create, plan:done, task:create, task:start,
+  #             task:verify, task:done, task:fail, task:list)
+  plan:
+    enabled: true
+  # Individual tools to disable within an otherwise-enabled category.
+  # Example: disabled: [bash:ps, bash:df, bash:du]
+  disabled: []
+
 commands:
   - name: /help
     description: Show this help message.
