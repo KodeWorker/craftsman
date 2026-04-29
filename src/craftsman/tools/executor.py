@@ -15,6 +15,8 @@ from craftsman.tools.bash_tools import (
     bash_tail,
 )
 from craftsman.tools.text_tools import (
+    commit_tmp,
+    discard_tmp,
     text_delete,
     text_insert,
     text_read,
@@ -84,3 +86,14 @@ class ToolExecutor:
             pass
 
         return result
+
+    async def commit_pending(self, file: str, tmp: str) -> dict:
+        try:
+            bak = commit_tmp(file, tmp)
+            return {"status": "committed", "backup": bak}
+        except Exception as e:
+            return {"error": str(e)}
+
+    async def discard_pending(self, tmp: str) -> dict:
+        discard_tmp(tmp)
+        return {"status": "discarded"}

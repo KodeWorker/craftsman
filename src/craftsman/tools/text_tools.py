@@ -66,24 +66,44 @@ async def text_search(args: dict) -> dict:
     return {"matches": matches, "total_matches": len(matches)}
 
 
-def _backup_and_write(file: str, content: str) -> str:
-    bak = file + ".bak"
-    shutil.copy2(file, bak)
-    tmp = file + ".craftsman.tmp"
+def _craftsman_path(file: str, suffix: str) -> str:
+    cwd = os.getcwd()
+    abs_file = os.path.abspath(file)
+    try:
+        rel = os.path.relpath(abs_file, cwd)
+    except ValueError:
+        rel = abs_file.lstrip(os.sep)
+    path = os.path.join(cwd, ".craftsman", rel + suffix)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    return path
+
+
+def _write_tmp(file: str, content: str) -> str:
+    tmp = _craftsman_path(file, ".tmp")
     with open(tmp, "w") as f:
         f.write(content)
-    os.replace(tmp, file)
-    return bak
+    return tmp
 
 
-def _backup_and_writelines(file: str, lines: list[str]) -> str:
-    bak = file + ".bak"
-    shutil.copy2(file, bak)
-    tmp = file + ".craftsman.tmp"
+def _write_tmp_lines(file: str, lines: list[str]) -> str:
+    tmp = _craftsman_path(file, ".tmp")
     with open(tmp, "w") as f:
         f.writelines(lines)
+    return tmp
+
+
+def commit_tmp(file: str, tmp: str) -> str:
+    bak = _craftsman_path(file, ".bak")
+    shutil.copy2(file, bak)
     os.replace(tmp, file)
     return bak
+
+
+def discard_tmp(tmp: str) -> None:
+    try:
+        os.remove(tmp)
+    except FileNotFoundError:
+        pass
 
 
 async def text_replace(args: dict) -> dict:
@@ -97,8 +117,8 @@ async def text_replace(args: dict) -> dict:
         return {"error": f"String not found in {file}"}
     if count > 1:
         return {"error": f"String found {count} times — must be unique"}
-    bak = _backup_and_write(file, content.replace(old, new, 1))
-    return {"status": "replaced", "backup": bak}
+    tmp = _write_tmp(file, content.replace(old, new, 1))
+    return {"status": "pending", "tmp": tmp, "file": file}
 
 
 async def text_insert(args: dict) -> dict:
@@ -109,11 +129,12 @@ async def text_insert(args: dict) -> dict:
         lines = f.readlines()
     to_insert = [ln if ln.endswith("\n") else ln + "\n" for ln in new_lines]
     lines[line_num - 1 : line_num - 1] = to_insert
-    bak = _backup_and_writelines(file, lines)
+    tmp = _write_tmp_lines(file, lines)
     return {
-        "status": "inserted",
+        "status": "pending",
+        "tmp": tmp,
+        "file": file,
         "lines_inserted": len(new_lines),
-        "backup": bak,
     }
 
 
@@ -131,9 +152,10 @@ async def text_delete(args: dict) -> dict:
             )
         }
     new_lines = lines[: line_start - 1] + lines[line_end:]
-    bak = _backup_and_writelines(file, new_lines)
+    tmp = _write_tmp_lines(file, new_lines)
     return {
-        "status": "deleted",
+        "status": "pending",
+        "tmp": tmp,
+        "file": file,
         "lines_deleted": line_end - line_start + 1,
-        "backup": bak,
     }
