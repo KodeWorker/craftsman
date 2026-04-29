@@ -1,5 +1,3 @@
-from contextlib import asynccontextmanager
-
 import uvicorn
 from fastapi import FastAPI, HTTPException, Request
 
@@ -19,7 +17,7 @@ class Server:
         self.librarian = Librarian()
         self.active_sessions = set()
 
-        self.app = FastAPI(lifespan=self.lifespan)
+        self.app = FastAPI()
         self.app.get("/health")(self.health_check)
         self.app.post("/reset")(self.reset_provider)
         self.app.post("/subagent/run")(self.run_subagent)
@@ -101,10 +99,6 @@ class Server:
         token = _crypto.create_token(user["id"])
         self.logger.info(f"User '{user['username']}' logged in successfully.")
         return {"token": token}
-
-    @asynccontextmanager
-    async def lifespan(self, app):
-        yield
 
     def start(self):
         self.logger.info(f"Starting server on port {self.port}...")
