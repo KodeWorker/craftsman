@@ -299,6 +299,8 @@ class Client(SessionsClient, ArtifactsClient):
             self.logger.error("Failed to obtain authentication token.")
             return
 
+        self._seed_tools()
+
         if not session_id:
             response = self._request("post", f"{self.entry_point}/sessions/")
             session_id = response.json().get("session_id", "")
@@ -583,6 +585,8 @@ class Client(SessionsClient, ArtifactsClient):
             )
             self.logger.error("Failed to obtain authentication token.")
             return
+
+        self._seed_tools()
 
         # Create a new session for this subagent task
         response = self._request("post", f"{self.entry_point}/sessions/")

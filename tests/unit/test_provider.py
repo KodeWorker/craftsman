@@ -275,3 +275,154 @@ async def test_completion_passes_messages_to_litellm(
     messages = [{"role": "user", "content": "test"}]
     await _collect(provider.completion(messages))
     assert called_with["messages"] == messages
+
+
+# --- tool_call parsing ---
+
+
+async def test_parser_tool_call_single_chunk(
+    provider, make_chunk, make_tool_call_delta
+):
+    tc = make_tool_call_delta(
+        index=0,
+        id="call_abc",
+        name="bash:grep",
+        arguments='{"pattern":"error"}',
+    )
+    chunk = make_chunk(tool_calls=[tc], finish_reason="tool_calls")
+    results = await _collect(provider.model_response_parser(_stream(chunk)))
+    assert results == [
+        (
+            "tool_call",
+            {
+                "id": "call_abc",
+                "name": "bash:grep",
+                "arguments_raw": '{"pattern":"error"}',
+            },
+        )
+    ]
+
+
+async def test_parser_tool_call_fragments_across_chunks(
+    provider, make_chunk, make_tool_call_delta
+):
+    tc1 = make_tool_call_delta(
+        index=0, id="call_xyz", name="bash:g", arguments=""
+    )
+    tc2 = make_tool_call_delta(index=0, id=None, name="rep", arguments='{"pa')
+    tc3 = make_tool_call_delta(
+        index=0, id=None, name=None, arguments='ttern":"x"}'
+    )
+    c1 = make_chunk(tool_calls=[tc1])
+    c2 = make_chunk(tool_calls=[tc2])
+    c3 = make_chunk(tool_calls=[tc3], finish_reason="tool_calls")
+    results = await _collect(
+        provider.model_response_parser(_stream(c1, c2, c3))
+    )
+    assert results == [
+        (
+            "tool_call",
+            {
+                "id": "call_xyz",
+                "name": "bash:grep",
+                "arguments_raw": '{"pattern":"x"}',
+            },
+        )
+    ]
+
+
+async def test_parser_tool_call_multiple_tools(
+    provider, make_chunk, make_tool_call_delta
+):
+    tc0 = make_tool_call_delta(
+        index=0, id="call_1", name="bash:ls", arguments='{"path":"/"}'
+    )
+    tc1 = make_tool_call_delta(
+        index=1, id="call_2", name="bash:grep", arguments='{"pattern":"x"}'
+    )
+    chunk = make_chunk(tool_calls=[tc0, tc1], finish_reason="tool_calls")
+    results = await _collect(provider.model_response_parser(_stream(chunk)))
+    tool_calls = [v for k, v in results if k == "tool_call"]
+    assert len(tool_calls) == 2
+    assert tool_calls[0]["id"] == "call_1"
+    assert tool_calls[1]["id"] == "call_2"
+
+
+async def test_parser_tool_call_no_content_emitted(
+    provider, make_chunk, make_tool_call_delta
+):
+    tc = make_tool_call_delta(
+        index=0, id="call_abc", name="bash:ls", arguments="{}"
+    )
+    chunk = make_chunk(tool_calls=[tc], finish_reason="tool_calls")
+    results = await _collect(provider.model_response_parser(_stream(chunk)))
+    assert not any(k == "content" for k, _ in results)
+
+
+async def test_completion_passes_tools_to_litellm(
+    provider, mocker, make_chunk
+):
+    chunk = make_chunk(content="ok")
+    called_with = {}
+
+    async def fake_acompletion(**kwargs):
+        called_with.update(kwargs)
+
+        async def _stream():
+            yield chunk
+
+        return _stream()
+
+    mocker.patch("craftsman.provider.litellm").acompletion = fake_acompletion
+
+    tools = [{"name": "bash:grep", "parameters": {}}]
+    await _collect(provider.completion([], tools=tools))
+    assert called_with.get("tools") == tools
+    assert called_with.get("tool_choice") == "auto"
+
+
+async def test_completion_no_tools_omits_tools_kwarg(
+    provider, mocker, make_chunk
+):
+    chunk = make_chunk(content="ok")
+    called_with = {}
+
+    async def fake_acompletion(**kwargs):
+        called_with.update(kwargs)
+
+        async def _stream():
+            yield chunk
+
+        return _stream()
+
+    mocker.patch("craftsman.provider.litellm").acompletion = fake_acompletion
+
+    await _collect(provider.completion([]))
+    assert "tools" not in called_with
+    assert "tool_choice" not in called_with
+
+
+async def test_completion_yields_tool_call_from_stream(
+    provider, mocker, make_chunk, make_tool_call_delta
+):
+    tc = make_tool_call_delta(
+        index=0, id="call_1", name="bash:ls", arguments='{"path":"/"}'
+    )
+    c1 = make_chunk(tool_calls=[tc], finish_reason="tool_calls")
+
+    async def fake_acompletion(**kwargs):
+        async def _stream():
+            yield c1
+
+        return _stream()
+
+    mocker.patch("craftsman.provider.litellm").acompletion = fake_acompletion
+
+    results = await _collect(provider.completion([]))
+    tool_calls = [v for k, v in results if k == "tool_call"]
+    assert len(tool_calls) == 1
+    assert tool_calls[0] == {
+        "id": "call_1",
+        "name": "bash:ls",
+        "arguments_raw": '{"path":"/"}',
+    }

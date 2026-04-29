@@ -10,18 +10,23 @@ new capabilities at runtime.
 
 ## Architecture
 
+Tool execution is **client-side**. The server handles LLM calls and context
+storage; the client drives the agentic loop.
+
 ```
-craftsman chat / telegram
-      │
-      ▼
-sessions.py  ◄──── agentic loop (5.6)
-      │  ▲
-      │  └── tool result messages injected back into context
-      ▼
+craftsman chat / telegram  (client)
+  │  1. POST /sessions/{id}/completion  {message, tools:[names]}
+  │  4. POST /sessions/{id}/tool_result {tool_results:[...]}
+  │  (repeat 1/4 until content)
+  ▼
+sessions.py  (server)
+  │  2. calls LLM with tool schemas from DB
+  │  3. on tool_call: streams tool_call events, stores assistant msg, ends stream
+  │     on content: streams content as usual
+  ▼
 provider.py  ─── yields ("tool_call", {...}) chunks (5.2)
-      │
-      ▼
-ToolExecutor (5.3 / 5.4 / 5.5)
+
+ToolExecutor  (client-side, 5.3 / 5.4 / 5.5)
   ├── bash_tools.py    bash:ls, bash:grep, ...
   ├── text_tools.py    text:read, text:replace, ...
   ├── memory_tools.py  memory:store, memory:retrieve, ...
@@ -30,8 +35,10 @@ ToolExecutor (5.3 / 5.4 / 5.5)
   └── meta_tools.py    tool:list, tool:find, tool:revoke, ...
 ```
 
-DB schema for `tools`, `tool_macros`, `plans`, `tasks`, `scheduled_jobs`,
-and `cron_jobs` is **already in place** in `memory/structure.py`.
+Registry seeded via `POST /tools/seed` called by the client on startup.
+DB schema for `tools`, `tool_invocations`, `tool_macros`, `plans`, `tasks`,
+`scheduled_jobs`, and `cron_jobs` is **already in place** in
+`memory/structure.py`.
 
 ---
 
@@ -61,9 +68,11 @@ concrete registry to query against.
 
 | Path | Change |
 |------|--------|
-| `src/craftsman/tools/__init__.py` | new package |
-| `src/craftsman/tools/registry.py` | `TOOL_SCHEMAS` list + `seed_registry(db)` |
-| `src/craftsman/server.py` | call `seed_registry(db)` at startup |
+| `src/craftsman/tools/registry.py` | `_TOOLS` list + `seed_registry(db)` |
+| `src/craftsman/server.py` | `POST /tools/seed` endpoint → calls `seed_registry` |
+| `src/craftsman/client/base.py` | `_seed_tools()` helper → `POST /tools/seed` |
+| `src/craftsman/client/chat.py` | call `_seed_tools()` after JWT setup in `chat()` and `run()` |
+| `src/craftsman/client/telegram.py` | `_seed_tools()` called after `_reset_provider()` |
 
 ### Design notes
 
@@ -103,13 +112,14 @@ concrete registry to query against.
 
 ### Checklist
 
-- [ ] `src/craftsman/tools/__init__.py`
-- [ ] `src/craftsman/tools/registry.py` — all 30+ schemas with `audited` flag
-- [ ] `docs/schema.md` + `memory/structure.py` — `tool_invocations` table +
-      `log_tool_invocation(session_id, tool_name, args, result, duration_ms, is_error)`
-- [ ] `server.py` — `seed_registry` called at startup
-- [ ] `tests/unit/tools/test_registry.py` — name uniqueness, required fields,
-      idempotent re-seed, `audited` flag present on every entry
+- [x] `src/craftsman/tools/registry.py` — 37 schemas with `audited` flag
+- [x] `docs/schema.md` + `memory/structure.py` — `tool_invocations` table +
+      `audited` column on `tools` + `log_tool_invocation` method
+- [x] `server.py` — `POST /tools/seed` endpoint
+- [x] `client/base.py` — `_seed_tools()` helper
+- [x] `client/chat.py` — `_seed_tools()` called in `chat()` and `run()`
+- [x] `client/telegram.py` — `_seed_tools()` called in `run()`
+- [x] `tests/unit/tools/test_registry.py` — 8 tests passing
 
 ### Verify
 
@@ -148,11 +158,11 @@ deltas, accumulate them across chunks, and yield `("tool_call", {...})` tuples.
 
 ### Checklist
 
-- [ ] `completion()` accepts `tools` and `tool_choice` params
-- [ ] `model_response_parser()` accumulates tool_call deltas by index
-- [ ] Yields `("tool_call", {...})` after full accumulation
-- [ ] `finish_reason == "tool_calls"` handled
-- [ ] `tests/unit/test_provider.py` — delta accumulation across chunks,
+- [x] `completion()` accepts `tools` and `tool_choice` params
+- [x] `model_response_parser()` accumulates tool_call deltas by index
+- [x] Yields `("tool_call", {...})` after full accumulation
+- [x] `finish_reason == "tool_calls"` handled
+- [x] `tests/unit/test_provider.py` — delta accumulation across chunks,
       mixed content+tool_call stream, missing fields don't crash
 
 ### Verify
@@ -308,49 +318,85 @@ uv run pytest tests/unit/tools/test_meta_tools.py
 
 ---
 
-## 5.6 — Session Agentic Loop
+## 5.6 — Agentic Loop (client-driven)
 
-Wire the provider's `("tool_call", ...)` output into a multi-turn loop
-inside `SessionsRouter` so the LLM invokes tools and receives results before
-streaming the final answer.
+Client drives the tool loop. Server detects tool_calls, streams them to the
+client, and stores the assistant message. Client executes tools locally and
+sends results back. Loop repeats until the LLM returns content.
 
 ### Files
 
 | Path | Change |
 |------|--------|
-| `src/craftsman/router/sessions.py` | replace single completion call with agentic loop; accept `tool_executor` |
-| `src/craftsman/server.py` | instantiate `ToolExecutor`; inject into `SessionsRouter` |
+| `src/craftsman/router/sessions.py` | (1) accept `tools` list in completion request body; (2) on tool_call: stream events + store assistant msg + end stream; (3) new `POST /{session_id}/tool_result` endpoint |
+| `src/craftsman/client/chat.py` | client-side agentic loop: execute tools, POST results, re-run completion |
+| `src/craftsman/client/telegram.py` | same loop in `_complete` |
+
+### Completion request body (updated)
+
+```json
+{
+  "message": {"role": "user", "content": "..."},
+  "tools": ["bash:grep", "bash:ls"]
+}
+```
+
+Server looks up schemas for the listed tool names from the DB and passes
+them to `litellm.acompletion` as `tools=`.
+
+### Active tool list logic (client-side, per request)
+
+```
+if meta category enabled:
+    send only meta tools  → LLM discovers everything else via tool:find
+                            tool:find injects the requested schema for next turn
+else:
+    send all enabled tools → LLM sees full list upfront (no discovery)
+```
+
+This keeps the active tool count small when meta is on, and falls back to
+the full list when it's off.
+
+### Tool result endpoint
+
+`POST /sessions/{id}/tool_result`
+```json
+{
+  "tool_results": [
+    {"tool_call_id": "call_abc", "tool_name": "bash:ls", "result": {...}}
+  ]
+}
+```
+Server stores each as `role="tool"` message, calls LLM again, streams
+response. The client loop repeats until a content response arrives.
 
 ### Design notes
 
-- Build active tool list before each completion: non-revoked DB tools +
-  schema-injected tools from session state (set by `tool:find`)
-- Loop (max 10 iterations — configurable via server config):
-  1. `provider.completion(context, tools=active_tools)`
-  2. Tool_call chunks → dispatch via `ToolExecutor.execute()` → push
-     assistant tool_calls message + `{"role": "tool", ...}` result messages
-     onto context → continue loop
-  3. Content chunk → stream to client → break
-- Stream `{"kind": "tool_call", "name": ..., "args": {...}}` and
-  `{"kind": "tool_result", "name": ..., "result": {...}}` NDJSON events
+- Client sends `tools: [names]` with each completion; server builds
+  OpenAI-format schemas from DB + injected tools from session state
+- Server streams `{"kind": "tool_call", "id": ..., "name": ..., "args": {...}}`
+  then ends stream (no content in the same response)
+- Client collects all tool_call events, executes via `ToolExecutor`, then
+  `POST /sessions/{id}/tool_result`
+- Client loop guard: max 10 iterations (configurable in client config)
 - Store tool-call messages with `role = "tool"` in `messages` table
-- Safety: on max iterations emit `{"kind": "error", "text": "Max tool
-  iterations reached"}` and stop
 
 ### Checklist
 
-- [ ] `server.py` — instantiate and inject `ToolExecutor`
-- [ ] `sessions.py` — agentic loop with active tool list construction
-- [ ] Tool_call + tool_result NDJSON events streamed to client
-- [ ] Tool messages stored in DB with `role = "tool"`
-- [ ] Max iteration guard
-- [ ] `tests/unit/test_sessions_tool_loop.py` — mock provider, verify loop,
-      verify context injection, verify max-iteration termination
+- [ ] `sessions.py` — accept `tools` list; on tool_call stream events +
+      store assistant msg; `POST /tool_result` endpoint
+- [ ] `client/chat.py` — client agentic loop
+- [ ] `client/telegram.py` — same loop in `_complete`
+- [ ] Tool role messages stored in DB
+- [ ] `tests/unit/test_sessions_tool_loop.py` — mock provider tool_call
+      stream, verify events streamed + assistant msg stored
+- [ ] `tests/unit/test_client_tool_loop.py` — mock server responses,
+      verify execute + POST tool_result + loop termination
 
 ### Verify
 
 ```bash
-uv run pytest tests/unit/test_sessions_tool_loop.py
+uv run pytest tests/unit/test_sessions_tool_loop.py tests/unit/test_client_tool_loop.py
 # Integration:
 uv run craftsman dev   # chat: "list files in /tmp"
 ```

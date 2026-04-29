@@ -39,8 +39,10 @@ class Provider:
         messages: list,
         ctx_size: int = None,
         cancel_event=None,
+        tools: list[dict] | None = None,
+        tool_choice: str = "auto",
     ):
-        response = await litellm.acompletion(
+        kwargs = dict(
             model=self.model,
             api_key=self.api_key,
             api_base=self.api_base,
@@ -50,6 +52,10 @@ class Provider:
             stream_options={"include_usage": True},
             max_tokens=ctx_size,
         )
+        if tools:
+            kwargs["tools"] = tools
+            kwargs["tool_choice"] = tool_choice
+        response = await litellm.acompletion(**kwargs)
 
         usage = None
         async for kind, text in self.model_response_parser(
@@ -99,6 +105,8 @@ class Provider:
         think_end_tag: str = "</think>",
     ):
         in_think = False
+        pending_tool_calls: dict[int, dict] = {}
+
         async for chunk in response:
             if cancel_event and cancel_event.is_set():
                 await response.aclose()
@@ -109,7 +117,45 @@ class Provider:
             if not chunk.choices:
                 continue
 
-            delta = chunk.choices[0].delta
+            choice = chunk.choices[0]
+            delta = choice.delta
+            finish_reason = getattr(choice, "finish_reason", None)
+
+            tc_deltas = getattr(delta, "tool_calls", None)
+            if tc_deltas:
+                for tc in tc_deltas:
+                    idx = tc.index
+                    if idx not in pending_tool_calls:
+                        pending_tool_calls[idx] = {
+                            "id": "",
+                            "name": "",
+                            "arguments": "",
+                        }
+                    if getattr(tc, "id", None):
+                        pending_tool_calls[idx]["id"] = tc.id
+                    fn = getattr(tc, "function", None)
+                    if fn:
+                        if getattr(fn, "name", None):
+                            pending_tool_calls[idx]["name"] += fn.name
+                        if getattr(fn, "arguments", None):
+                            pending_tool_calls[idx][
+                                "arguments"
+                            ] += fn.arguments
+
+            if finish_reason == "tool_calls":
+                for idx in sorted(pending_tool_calls):
+                    tc = pending_tool_calls[idx]
+                    yield (
+                        "tool_call",
+                        {
+                            "id": tc["id"],
+                            "name": tc["name"],
+                            "arguments_raw": tc["arguments"],
+                        },
+                    )
+                pending_tool_calls.clear()
+                continue
+
             if getattr(delta, think_tag, None):
                 yield ("reasoning", getattr(delta, think_tag))
                 continue

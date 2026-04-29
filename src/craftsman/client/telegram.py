@@ -78,6 +78,9 @@ class TelegramClient:
             resp = await getattr(self._http, method)(url, **kwargs)
         return resp
 
+    async def _seed_tools(self) -> None:
+        await self._request("post", f"{self._entry_point}/tools/seed")
+
     async def _reset_provider(self) -> None:
         cfg = self.config.get("provider", {})
         await self._request(
@@ -688,6 +691,7 @@ class TelegramClient:
             if not await self._login():
                 return
             await self._reset_provider()
+            await self._seed_tools()
 
             if not self._state["session_id"]:
                 sid = await self._create_session()

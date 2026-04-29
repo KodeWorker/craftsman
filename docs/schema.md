@@ -97,9 +97,22 @@ CREATE TABLE tasks (
 CREATE TABLE tools (
   name        TEXT PRIMARY KEY,
   description TEXT NOT NULL,
-  category    TEXT NOT NULL,  -- meta, bash, text, web, memory, schedule
-  schema      TEXT NOT NULL,  -- JSON schema
+  category    TEXT NOT NULL,   -- meta, bash, text, web, memory, schedule, plan
+  schema      TEXT NOT NULL,   -- JSON parameters schema (OpenAI function-calling format)
+  audited     INTEGER NOT NULL DEFAULT 0,  -- 1 = log every invocation to tool_invocations
   call_count  INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+-- Audit log for write/action tool invocations
+CREATE TABLE tool_invocations (
+  id          TEXT PRIMARY KEY,  -- UUID
+  session_id  TEXT REFERENCES sessions(id) ON DELETE SET NULL,
+  tool_name   TEXT NOT NULL,
+  args        TEXT NOT NULL,     -- JSON
+  result      TEXT NOT NULL,     -- JSON
+  duration_ms INTEGER NOT NULL,
+  is_error    INTEGER NOT NULL DEFAULT 0,
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

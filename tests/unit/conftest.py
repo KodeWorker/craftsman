@@ -20,12 +20,31 @@ def session_id(in_memory_db):
 
 @pytest.fixture
 def make_chunk():
-    def _make(content=None, reasoning_content=None, usage=None):
+    def _make(
+        content=None,
+        reasoning_content=None,
+        usage=None,
+        tool_calls=None,
+        finish_reason=None,
+    ):
         delta = types.SimpleNamespace(
-            content=content, reasoning_content=reasoning_content
+            content=content,
+            reasoning_content=reasoning_content,
+            tool_calls=tool_calls,
         )
-        choice = types.SimpleNamespace(delta=delta)
+        choice = types.SimpleNamespace(
+            delta=delta, finish_reason=finish_reason
+        )
         return types.SimpleNamespace(choices=[choice], usage=usage)
+
+    return _make
+
+
+@pytest.fixture
+def make_tool_call_delta():
+    def _make(index=0, id=None, name=None, arguments=""):
+        fn = types.SimpleNamespace(name=name, arguments=arguments)
+        return types.SimpleNamespace(index=index, id=id, function=fn)
 
     return _make
 
