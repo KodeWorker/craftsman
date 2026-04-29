@@ -16,6 +16,9 @@ dependencies = [
     "pyjwt>=2.12.1",
     "bcrypt>=5.0.0",
     "aiofiles>=25.1.0",
+    "python-telegram-bot>=22.7",
+    "httpx>=0.28",
+    "pydub>=0.25",
 ]
 
 [project.scripts]
@@ -39,6 +42,13 @@ dev = [
     "httpx>=0.28",
 ]
 
+[tool.isort]
+profile = "black"
+line_length = 79
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning:pydub",
+]

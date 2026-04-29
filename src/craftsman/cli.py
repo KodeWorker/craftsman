@@ -4,6 +4,7 @@ import shutil
 from importlib.resources import files
 
 import click
+from prompt_toolkit.shortcuts import choice
 
 from craftsman.auth import Auth
 from craftsman.client.chat import Client
@@ -80,6 +81,18 @@ def run(prompt, host: str = "localhost", port: int = 6969):
 
 
 @main.command()
+@click.option("--host", default="localhost", help="Server host")
+@click.option("--port", default=6969, help="Server port")
+def telegram(host: str = "localhost", port: int = 6969):
+    """Runs the Telegram bot client (long-poll mode)."""
+    import asyncio
+
+    from craftsman.client.telegram import TelegramClient
+
+    asyncio.run(TelegramClient(host=host, port=port).run())
+
+
+@main.command()
 @click.option("--port", default=6969, help="Port to listen on")
 def dev(port: int = 6969):
     """Starts both server and client for development."""
@@ -103,7 +116,7 @@ def auth():
 @auth.command(name="list")
 def auth_list():
     """Lists all authenticated agents."""
-    for key in Auth.LLM_KEY_LIST:
+    for key in Auth.LLM_KEY_LIST + Auth.TELEGRAM_KEY_LIST:
         password = Auth.get_password(key)
         if password is not None:
             click.echo(f"{key}: {len(password) * '*'}")
@@ -145,7 +158,7 @@ def auth_delete(key: str = None):
         else:
             click.echo(f"Password for {key} is not set.")
     else:
-        for cred in Auth.LLM_KEY_LIST:
+        for cred in Auth.LLM_KEY_LIST + Auth.TELEGRAM_KEY_LIST:
             if Auth.get_password(cred) is not None:
                 Auth.delete_password(cred)
                 click.echo(f"Password for {cred} deleted.")
@@ -167,13 +180,21 @@ def user():
 
 @user.command(name="list")
 def user_list():
+    """
+    Lists all users in the system.
+    """
     for u in StructureDB().list_users():
         click.echo(f"{u['id'][:8]}  {u['username']}  {u['created_at']}")
 
 
 @user.command(name="register")
-def user_register():
-    username = click.prompt("Username")
+@click.argument("username", required=False)
+def user_register(username: str = None):
+    """
+    Registers a new user. If username is not provided, prompts for it.
+    """
+    if not username:
+        username = click.prompt("Username")
     password = click.prompt("Password", hide_input=True)
     confirmed = click.prompt("Confirm password", hide_input=True)
     if password != confirmed:
@@ -188,9 +209,21 @@ def user_register():
 
 
 @user.command(name="delete")
-@click.argument("username")
-def user_delete(username: str):
+@click.argument("username", required=False)
+def user_delete(username: str = None):
+    """
+    Deletes a user. If username is not provided, chooses from a list of users.
+    """
     db = StructureDB()
+    if not username:
+        users = db.list_users()
+        options = [
+            (u["username"], f"{u['id'][:8]} | {u['username']}") for u in users
+        ]
+        if not options:
+            click.echo("No users to delete.")
+            return
+        username = choice(message="Select a user to delete:", options=options)
     if not db.get_user(username):
         click.echo(f"User '{username}' does not exist.")
         return
@@ -203,6 +236,9 @@ def user_delete(username: str):
 
 @user.command(name="login")
 def user_login():
+    """
+    Logs in a user by prompting for username and password.
+    """
     username = click.prompt("Username")
     password = click.prompt("Password", hide_input=True)
     Auth.set_password("USERNAME", username)
@@ -242,10 +278,13 @@ def sess_list(
 @sess.command(name="delete")
 @click.option("--host", default="localhost", help="Server host")
 @click.option("--port", default=6969, help="Server port")
+@click.argument("session", required=False)
 def sess_delete(
     session: str = None, host: str = "localhost", port: int = 6969
 ):
-    """Deletes session by ID, prefix, or title."""
+    """Deletes session by ID, prefix, or title.
+    If no session is specified, chooses from a list of sessions.
+    """
     client = Client(host=host, port=port)
     if client.delete_session(session):
         click.echo(f"Session '{session}' deleted successfully.")
@@ -274,10 +313,13 @@ def arti_list(host: str = "localhost", port: int = 6969):
 @arti.command(name="delete")
 @click.option("--host", default="localhost", help="Server host")
 @click.option("--port", default=6969, help="Server port")
+@click.argument("artifact", required=False)
 def arti_delete(
     artifact: str = None, host: str = "localhost", port: int = 6969
 ):
-    """Deletes artifact by ID or prefix."""
+    """Deletes artifact by ID or prefix.
+    If no artifact is specified, chooses from a list of artifacts.
+    """
     client = Client(host=host, port=port)
     if client.delete_artifact(artifact):
         click.echo(f"Artifact '{artifact}' deleted successfully.")

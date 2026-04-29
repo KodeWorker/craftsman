@@ -4,7 +4,6 @@ import keyring
 class Auth:
     SERVICE_NAME = "craftsman"
     LLM_KEY_LIST = [
-        "LLM_BASE_URL",
         "LLM_API_KEY",
         "LLM_SSL_CRT",
     ]  # Extend this list as needed
@@ -12,14 +11,23 @@ class Auth:
         "USERNAME",
         "PASSWORD",
     ]  # Extend this list as needed
+    TELEGRAM_KEY_LIST = [
+        "TELEGRAM_BOT_TOKEN",
+    ]  # Extend this list as needed
 
     @staticmethod
     def __validate_key(key: str):
-        if key not in Auth.LLM_KEY_LIST + Auth.USER_KEY_LIST:
+        if (
+            key
+            not in Auth.LLM_KEY_LIST
+            + Auth.USER_KEY_LIST
+            + Auth.TELEGRAM_KEY_LIST
+        ):
+            all_keys = ", ".join(
+                Auth.LLM_KEY_LIST + Auth.USER_KEY_LIST + Auth.TELEGRAM_KEY_LIST
+            )
             raise ValueError(
-                f"Key {key} is not recognized."
-                f" Valid keys are: "
-                f"{', '.join(Auth.LLM_KEY_LIST + Auth.USER_KEY_LIST)}"
+                f"Key {key} is not recognized. Valid keys are: {all_keys}"
             )
 
     @staticmethod

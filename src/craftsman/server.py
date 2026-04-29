@@ -77,9 +77,7 @@ class Server:
 
         finally:
             self.librarian.clear_session(session_id)  # discard
-            self.active_sessions.discard(
-                session_id
-            )  # remove from active sessions if present
+            self.active_sessions.discard(session_id)
 
     async def login_user(self, request: Request) -> dict:
         body = await request.json()
