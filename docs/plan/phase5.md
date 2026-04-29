@@ -158,11 +158,11 @@ deltas, accumulate them across chunks, and yield `("tool_call", {...})` tuples.
 
 ### Checklist
 
-- [ ] `completion()` accepts `tools` and `tool_choice` params
-- [ ] `model_response_parser()` accumulates tool_call deltas by index
-- [ ] Yields `("tool_call", {...})` after full accumulation
-- [ ] `finish_reason == "tool_calls"` handled
-- [ ] `tests/unit/test_provider.py` — delta accumulation across chunks,
+- [x] `completion()` accepts `tools` and `tool_choice` params
+- [x] `model_response_parser()` accumulates tool_call deltas by index
+- [x] Yields `("tool_call", {...})` after full accumulation
+- [x] `finish_reason == "tool_calls"` handled
+- [x] `tests/unit/test_provider.py` — delta accumulation across chunks,
       mixed content+tool_call stream, missing fields don't crash
 
 ### Verify
