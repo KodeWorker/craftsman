@@ -1,3 +1,4 @@
+import asyncio
 import json
 import os
 import threading
@@ -20,6 +21,9 @@ from craftsman.client.artifacts import ArtifactsClient
 from craftsman.client.base import _AT_FILE_STYLE
 from craftsman.client.completer import AtFileLexer, ChatCompleter
 from craftsman.client.sessions import SessionsClient
+from craftsman.tools.constants import REMOTE_TOOLS
+from craftsman.tools.executor import _LOCAL_DISPATCH
+from craftsman.tools.text_tools import commit_tmp, discard_tmp
 
 
 class InputMode(Enum):
@@ -149,6 +153,9 @@ class Client(SessionsClient, ArtifactsClient):
                     ),
                     (1000, 5),
                 )
+                spinner_stop, spinner_thread = self._start_spinner(
+                    "Compacting..."
+                )
                 response = self._request(
                     "post",
                     f"{self.entry_point}/sessions/{session_id}/compact",
@@ -157,6 +164,9 @@ class Client(SessionsClient, ArtifactsClient):
                         "keep_turns": keep_turns,
                     },
                 )
+                spinner_stop.set()
+                spinner_thread.join()
+                print()
                 if response.status_code == 200:
                     data = response.json()
                     status = data.get("status", "")
@@ -276,6 +286,247 @@ class Client(SessionsClient, ArtifactsClient):
                 f"{response.status_code} - {response.text}"
             )
             return False
+
+    def _start_spinner(self, message: str = "Thinking..."):
+        stop = threading.Event()
+        thread = threading.Thread(
+            target=self._spin, args=(stop, message), daemon=True
+        )
+        thread.start()
+        return stop, thread
+
+    def _call_tool(self, name: str, args: dict, session_id: str) -> dict:
+        if name in _LOCAL_DISPATCH:
+            try:
+                return asyncio.run(_LOCAL_DISPATCH[name](args))
+            except Exception as e:
+                return {"error": str(e)}
+        if name in REMOTE_TOOLS:
+            try:
+                resp = self._request(
+                    "post",
+                    f"{self.entry_point}/tools/invoke",
+                    json={
+                        "name": name,
+                        "args": args,
+                        "session_id": session_id,
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json()
+            except Exception as e:
+                return {"error": str(e)}
+        return {"error": f"Unknown tool: {name}"}
+
+    def _confirm_pending(self, tool_name: str, result: dict) -> dict:
+        file_path = result.get("file", "unknown")
+        tmp = result.get("tmp", "")
+        print(
+            Fore.YELLOW
+            + f"[pending] {tool_name} → {file_path}"
+            + Style.RESET_ALL
+        )
+        try:
+            answer = input(
+                "[y] approve / [n] reject (add reason after 'n'): "
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            discard_tmp(tmp)
+            return {"status": "rejected", "reason": "cancelled"}
+        if answer.lower() == "y":
+            try:
+                bak = commit_tmp(file_path, tmp)
+                return {
+                    "status": "committed",
+                    "file": file_path,
+                    "backup": bak,
+                }
+            except Exception as e:
+                return {"error": str(e)}
+        parts = answer.split(maxsplit=1)
+        reason = parts[1] if len(parts) > 1 else ""
+        discard_tmp(tmp)
+        return {"status": "rejected", "reason": reason or "user rejected"}
+
+    def _do_stream(
+        self,
+        response,
+        session_id: str,
+        spinner_stop: threading.Event,
+        spinner_thread: threading.Thread,
+    ) -> tuple:
+        tool_calls: list[dict] = []
+        meta: dict = {}
+        first_chunk = True
+        in_reasoning = False
+        printed_label = False
+
+        try:
+            for line in response.iter_lines():
+                if not line:
+                    continue
+                chunk = json.loads(line)
+                kind = chunk.get("kind")
+
+                if first_chunk:
+                    print()
+                    spinner_stop.set()
+                    if spinner_thread.is_alive():
+                        spinner_thread.join()
+                    first_chunk = False
+
+                if kind == "meta":
+                    meta = chunk
+                    print()
+                    self._update_banner(
+                        model=chunk.get("model", ""),
+                        session=session_id[:8],
+                        ctx_used=self.ctx_used + chunk.get("ctx_used", 0),
+                        ctx_total=chunk.get("ctx_total", 0),
+                        upload_tokens=self.upload_tokens
+                        + chunk.get("prompt_tokens", 0),
+                        download_tokens=self.download_tokens
+                        + chunk.get("completion_tokens", 0),
+                        cost=self.cost + chunk.get("cost", 0.0),
+                    )
+                elif kind == "tool_call":
+                    args_str = json.dumps(chunk.get("args", {}))
+                    print(
+                        Style.DIM
+                        + f"[tool] {chunk['name']} {args_str}"
+                        + Style.RESET_ALL
+                    )
+                    tool_calls.append(chunk)
+                elif kind == "reasoning":
+                    if not in_reasoning:
+                        print(
+                            Style.DIM + "reasoning:\n" + Style.RESET_ALL,
+                            end="",
+                            flush=True,
+                        )
+                        in_reasoning = True
+                    print(
+                        Style.DIM + chunk["text"] + Style.RESET_ALL,
+                        end="",
+                        flush=True,
+                    )
+                elif kind == "content":
+                    if in_reasoning:
+                        print()
+                        in_reasoning = False
+                    if not printed_label:
+                        print(
+                            Fore.MAGENTA + "assistant:\n" + Style.RESET_ALL,
+                            end="",
+                            flush=True,
+                        )
+                        printed_label = True
+                    print(chunk["text"], end="", flush=True)
+                elif kind == "error":
+                    print(
+                        Fore.RED
+                        + chunk.get("text", "Unknown error")
+                        + Style.RESET_ALL
+                    )
+        except KeyboardInterrupt:
+            response.close()
+            spinner_stop.set()
+            print(Fore.RED + "\n[cancelled]" + Style.RESET_ALL)
+            return None, meta
+
+        if not spinner_stop.is_set():
+            spinner_stop.set()
+            if spinner_thread.is_alive():
+                spinner_thread.join()
+
+        return tool_calls, meta
+
+    def _agentic_loop(self, session_id: str, message: dict) -> None:
+        tools = self.config.get("chat", {}).get("tools", ["all"])
+        max_loops = self.config.get("chat", {}).get("max_tool_loops", 10)
+
+        spinner_stop, spinner_thread = self._start_spinner("Thinking...")
+        response = self._request(
+            "post",
+            f"{self.entry_point}/sessions/{session_id}/completion",
+            json={"message": message, "tools": tools},
+            stream=True,
+        )
+        if response.status_code != 200:
+            spinner_stop.set()
+            spinner_thread.join()
+            print(
+                Fore.RED
+                + "Error from server. Please check logs."
+                + Style.RESET_ALL
+            )
+            self.logger.error(
+                f"Error from server: {response.status_code} - {response.text}"
+            )
+            return
+
+        # pass 0 = initial completion; passes 1..max_loops = tool rounds
+        for tool_round in range(max_loops + 1):
+            tool_calls, meta = self._do_stream(
+                response, session_id, spinner_stop, spinner_thread
+            )
+            if tool_calls is None:
+                return
+
+            self.ctx_used += meta.get("ctx_used", 0)
+            self.upload_tokens += meta.get("prompt_tokens", 0)
+            self.download_tokens += meta.get("completion_tokens", 0)
+            self.cost += meta.get("cost", 0.0)
+
+            if not tool_calls:
+                return
+
+            if tool_round >= max_loops:
+                print(
+                    Fore.YELLOW
+                    + f"[max tool loops ({max_loops}) reached]"
+                    + Style.RESET_ALL
+                )
+                return
+
+            tool_results = []
+            for tc in tool_calls:
+                name = tc["name"]
+                args = tc.get("args", {})
+                print(Style.DIM + f"  → executing {name}" + Style.RESET_ALL)
+                result = self._call_tool(name, args, session_id)
+                if result.get("status") == "pending":
+                    result = self._confirm_pending(name, result)
+                status_str = result.get("status") or json.dumps(result)[:80]
+                print(Style.DIM + f"  ← {status_str}" + Style.RESET_ALL)
+                tool_results.append(
+                    {
+                        "tool_call_id": tc["id"],
+                        "tool_name": name,
+                        "result": result,
+                    }
+                )
+
+            spinner_stop, spinner_thread = self._start_spinner("Thinking...")
+            response = self._request(
+                "post",
+                f"{self.entry_point}/sessions/{session_id}/tool_result",
+                json={"tool_results": tool_results, "tools": tools},
+                stream=True,
+            )
+            if response.status_code != 200:
+                spinner_stop.set()
+                spinner_thread.join()
+                print(
+                    Fore.RED
+                    + "Error from server. Please check logs."
+                    + Style.RESET_ALL
+                )
+                self.logger.error(
+                    f"Error from tool_result: "
+                    f"{response.status_code} - {response.text}"
+                )
+                return
 
     def chat(self, session_id: str = None):
         self.logger.info(f"Connecting to server at {self.entry_point}...")
@@ -467,102 +718,7 @@ class Client(SessionsClient, ArtifactsClient):
                 continue
 
             message = {"role": "user", "content": user_input}
-            response = self._request(
-                "post",
-                f"{self.entry_point}/sessions/{session_id}/completion",
-                json={"message": message},
-                stream=True,
-            )
-            if response.status_code != 200:
-                print(
-                    Fore.RED
-                    + "Error from server. Please check logs."
-                    + Style.RESET_ALL
-                )
-                self.logger.error(
-                    "Error from server: "
-                    f"{response.status_code} - {response.text}"
-                )
-                continue
-
-            in_reasoning = False
-            first_chunk = True
-            printed_label = False
-            spinner_stop = threading.Event()
-            spinner_thread = threading.Thread(
-                target=self._spin,
-                args=(spinner_stop, "Thinking..."),
-                daemon=True,
-            )
-            spinner_thread.start()
-            try:
-                # process streaming response chunks
-                for line in response.iter_lines():
-                    if not line:
-                        continue
-                    chunk = json.loads(line)
-                    kind = chunk["kind"]
-                    if kind == "meta":
-                        if first_chunk:
-                            print()
-                            spinner_stop.set()
-                            spinner_thread.join()
-                            first_chunk = False
-                        print()
-                        self._update_banner(
-                            model=chunk.get("model", ""),
-                            session=session_id[:8],
-                            ctx_used=self.ctx_used + chunk.get("ctx_used", 0),
-                            ctx_total=chunk.get("ctx_total", 0),
-                            upload_tokens=self.upload_tokens
-                            + chunk.get("prompt_tokens", 0),
-                            download_tokens=self.download_tokens
-                            + chunk.get("completion_tokens", 0),
-                            cost=self.cost + chunk.get("cost", 0),
-                        )
-                        continue
-                    text = chunk["text"]
-                    if first_chunk:
-                        print()
-                        spinner_stop.set()
-                        spinner_thread.join()
-                        first_chunk = False
-                    if kind == "reasoning":
-                        if not in_reasoning:
-                            print(
-                                Style.DIM + "reasoning:\n" + Style.RESET_ALL,
-                                end="",
-                                flush=True,
-                            )
-                            in_reasoning = True
-                        print(
-                            Style.DIM + text + Style.RESET_ALL,
-                            end="",
-                            flush=True,
-                        )
-                    else:
-                        if in_reasoning:
-                            print()
-                            in_reasoning = False
-                        if not printed_label:
-                            print(
-                                Fore.MAGENTA
-                                + "assistant:\n"
-                                + Style.RESET_ALL,
-                                end="",
-                                flush=True,
-                            )
-                            printed_label = True
-                        print(text, end="", flush=True)
-            except KeyboardInterrupt:
-                response.close()
-                spinner_stop.set()
-                print(Fore.RED + "\n[cancelled]" + Style.RESET_ALL)
-
-            # force stop spinner in case no chunks received
-            if not spinner_stop.is_set():
-                spinner_stop.set()
-                spinner_thread.join()
+            self._agentic_loop(session_id, message)
 
     def run(self, prompt: str):
         self.logger.info(f"Connecting to server at {self.entry_point}...")

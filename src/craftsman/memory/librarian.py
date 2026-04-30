@@ -57,7 +57,7 @@ class Librarian:
         )
 
     def get_revoked_tools(self, session_id: str) -> set:
-        return self.cache.get(self._key(session_id, "revoked"), set())
+        return set(self.cache.get(self._key(session_id, "revoked"), set()))
 
     def clear_session(self, session_id: str) -> None:
         for slot in ("scratchpad", "state", "context", "revoked"):

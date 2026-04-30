@@ -32,6 +32,7 @@ class SessionsRouter:
         self.router.post("/")(self.create_session)
         self.router.put("/{session_id}/system")(self.set_system_prompt)
         self.router.post("/{session_id}/completion")(self.handle_completion)
+        self.router.post("/{session_id}/tool_result")(self.tool_result)
         self.router.post("/{session_id}/resume")(self.resume_session)
         self.router.post("/{session_id}/clear")(self.clear_session)
         self.router.post("/{session_id}/compact")(self.compact_session)
@@ -84,73 +85,148 @@ class SessionsRouter:
         )
         return {"system_prompt": system_prompt}
 
-    async def handle_completion(
+    def _build_tool_schemas(self, tool_names: list[str]) -> list[dict]:
+        db = self.librarian.structure_db
+        rows = (
+            db.list_tools()
+            if "all" in tool_names
+            else [r for n in tool_names if (r := db.get_tool(n))]
+        )
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": row["name"],
+                    "description": row["description"],
+                    "parameters": json.loads(row["schema"]),
+                },
+            }
+            for row in rows
+        ]
+
+    async def _stream_completion(
         self,
         session_id: str,
         request: Request,
-        user_id: str = Depends(get_current_user),
-    ) -> StreamingResponse:
-        body = await request.json()
-        message = body.get("message", {})
-        if not message:
-            raise HTTPException(
-                status_code=400, detail="No messages provided."
-            )
-        self.__check_owner(session_id, user_id)
-
-        original_content = message.get("content", "")
-        message = await self.multimodalize_message(message)
-
-        self.librarian.push_context(session_id, message)
+        tool_schemas: list[dict],
+        user_msg: dict | None = None,
+        original_content: str = "",
+    ):
         context = self.librarian.get_context(session_id)
+        content_parts: list[str] = []
+        reasoning_parts: list[str] = []
+        tool_calls: list[dict] = []
+        meta_info: dict = {}
+        cancel_event = asyncio.Event()
+        cancelled = False
 
-        async def stream():
-            content = []
-            reasoning = []
-            up_tokens = 0
-            down_tokens = 0
-            reason_tokens = 0
-            cancel_event = asyncio.Event()
-            cancelled = False
-            try:
-                async for kind, text in self.provider.completion(
-                    context, cancel_event=cancel_event
-                ):
-                    if await request.is_disconnected():
-                        cancel_event.set()
-                        cancelled = True
-                        break
-                    if kind == "meta":
-                        up_tokens = text.get("prompt_tokens", 0)
-                        down_tokens = text.get("completion_tokens", 0)
-                        reason_tokens = text.get("reasoning_tokens", 0)
-                        yield json.dumps({"kind": "meta", **text}) + "\n"
-                    else:
-                        if kind == "content":
-                            content.append(text)
-                        elif kind == "reasoning":
-                            reasoning.append(text)
-                        yield json.dumps({"kind": kind, "text": text}) + "\n"
-            except Exception as e:
-                self.logger.error(f"Error in streaming response: {e}")
-                yield json.dumps({"kind": "error", "text": str(e)}) + "\n"
-                return
-            if cancelled:
-                self.logger.info(
-                    f"Client disconnected mid-stream for session {session_id}"
+        try:
+            async for kind, text in self.provider.completion(
+                context,
+                tools=tool_schemas or None,
+                cancel_event=cancel_event,
+            ):
+                if await request.is_disconnected():
+                    cancel_event.set()
+                    cancelled = True
+                    break
+                if kind == "meta":
+                    meta_info = text
+                elif kind == "tool_call":
+                    tool_calls.append(text)
+                elif kind == "content":
+                    content_parts.append(text)
+                    yield json.dumps({"kind": "content", "text": text}) + "\n"
+                elif kind == "reasoning":
+                    reasoning_parts.append(text)
+                    yield json.dumps(
+                        {"kind": "reasoning", "text": text}
+                    ) + "\n"
+        except Exception as e:
+            self.logger.error(f"Error in streaming response: {e}")
+            yield json.dumps({"kind": "error", "text": str(e)}) + "\n"
+            return
+
+        if cancelled:
+            self.logger.info(
+                f"Client disconnected mid-stream for session {session_id}"
+            )
+            return
+
+        up_tokens = meta_info.get("prompt_tokens", 0)
+        down_tokens = meta_info.get("completion_tokens", 0)
+        reason_tokens = meta_info.get("reasoning_tokens", 0)
+
+        if tool_calls:
+            if user_msg:
+                self.librarian.store_message(
+                    session_id,
+                    {
+                        **user_msg,
+                        "content": original_content,
+                        "tokens": up_tokens,
+                    },
                 )
-                return
-            content = "".join(content)
-            reasoning = "".join(reasoning)
+            assistant_ctx = {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": tc["id"],
+                        "type": "function",
+                        "function": {
+                            "name": tc["name"],
+                            "arguments": tc["arguments_raw"],
+                        },
+                    }
+                    for tc in tool_calls
+                ],
+            }
+            self.librarian.push_context(session_id, assistant_ctx)
+            self.librarian.store_message(
+                session_id,
+                {
+                    "role": "assistant",
+                    "content": json.dumps(
+                        [
+                            {"id": tc["id"], "name": tc["name"]}
+                            for tc in tool_calls
+                        ]
+                    ),
+                    "tokens": down_tokens,
+                },
+            )
+            for tc in tool_calls:
+                try:
+                    args = json.loads(tc["arguments_raw"])
+                except (json.JSONDecodeError, ValueError):
+                    args = {}
+                yield (
+                    json.dumps(
+                        {
+                            "kind": "tool_call",
+                            "id": tc["id"],
+                            "name": tc["name"],
+                            "args": args,
+                        }
+                    )
+                    + "\n"
+                )
+        else:
+            content = "".join(content_parts)
+            reasoning = "".join(reasoning_parts)
             self.librarian.push_context(
                 session_id, {"role": "assistant", "content": content}
             )
-            # Store messages and token usage in the structure DB
-            self.librarian.store_message(
-                session_id,
-                {**message, "content": original_content, "tokens": up_tokens},
-            )
-            # Store reasoning and token usage
+            if user_msg:
+                self.librarian.store_message(
+                    session_id,
+                    {
+                        **user_msg,
+                        "content": original_content,
+                        "tokens": up_tokens,
+                    },
+                )
             self.librarian.store_message(
                 session_id,
                 {
@@ -159,7 +235,6 @@ class SessionsRouter:
                     "tokens": reason_tokens,
                 },
             )
-            # Store assistant response with token usage
             self.librarian.store_message(
                 session_id,
                 {
@@ -169,7 +244,62 @@ class SessionsRouter:
                 },
             )
 
-        return StreamingResponse(stream(), media_type="application/x-ndjson")
+        yield json.dumps({"kind": "meta", **meta_info}) + "\n"
+
+    async def handle_completion(
+        self,
+        session_id: str,
+        request: Request,
+        user_id: str = Depends(get_current_user),
+    ) -> StreamingResponse:
+        body = await request.json()
+        message = body.get("message", {})
+        tool_names = body.get("tools", [])
+        if not message:
+            raise HTTPException(
+                status_code=400, detail="No messages provided."
+            )
+        self.__check_owner(session_id, user_id)
+
+        original_content = message.get("content", "")
+        message = await self.multimodalize_message(message)
+        self.librarian.push_context(session_id, message)
+        tool_schemas = self._build_tool_schemas(tool_names)
+
+        return StreamingResponse(
+            self._stream_completion(
+                session_id, request, tool_schemas, message, original_content
+            ),
+            media_type="application/x-ndjson",
+        )
+
+    async def tool_result(
+        self,
+        session_id: str,
+        request: Request,
+        user_id: str = Depends(get_current_user),
+    ) -> StreamingResponse:
+        body = await request.json()
+        tool_results = body.get("tool_results", [])
+        tool_names = body.get("tools", [])
+
+        self.__check_owner(session_id, user_id)
+
+        for tr in tool_results:
+            tool_msg = {
+                "role": "tool",
+                "tool_call_id": tr.get("tool_call_id", ""),
+                "name": tr.get("tool_name", ""),
+                "content": json.dumps(tr.get("result", {})),
+            }
+            self.librarian.push_context(session_id, tool_msg)
+            self.librarian.store_message(session_id, {**tool_msg, "tokens": 0})
+
+        tool_schemas = self._build_tool_schemas(tool_names)
+        return StreamingResponse(
+            self._stream_completion(session_id, request, tool_schemas),
+            media_type="application/x-ndjson",
+        )
 
     async def set_system_prompt(
         self,
