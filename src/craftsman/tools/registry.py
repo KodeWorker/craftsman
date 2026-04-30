@@ -73,31 +73,6 @@ _TOOLS: list[dict] = [
         },
     },
     {
-        "name": "tool:compose",
-        "description": "Declare a reusable pipeline of tool calls as a named macro",
-        "category": "meta",
-        "audited": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "name": {"type": "string", "description": "Macro name"},
-                "steps": {
-                    "type": "array",
-                    "description": "Ordered list of tool calls",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "tool": {"type": "string"},
-                            "args": {"type": "object"},
-                        },
-                        "required": ["tool", "args"],
-                    },
-                },
-            },
-            "required": ["name", "steps"],
-        },
-    },
-    {
         "name": "tool:revoke",
         "description": (
             "Remove a tool from the active set for this session."

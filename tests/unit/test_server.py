@@ -167,7 +167,9 @@ def test_delete_session_success(app):
 
 
 def _make_fake_completion(*yields):
-    async def fake_completion(ctx, ctx_size=None, cancel_event=None):
+    async def fake_completion(
+        ctx, ctx_size=None, cancel_event=None, tools=None, tool_choice="auto"
+    ):
         for item in yields:
             yield item
 

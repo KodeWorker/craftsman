@@ -258,14 +258,14 @@ pending → in_progress → verifying → done
 
 ### Checklist
 
-- [ ] `src/craftsman/tools/memory_tools.py`
-- [ ] `src/craftsman/tools/plan_tools.py` — state machine validation
-- [ ] `src/craftsman/tools/schedule_tools.py` — datetime + cron validation
-- [ ] `executor.py` extended with `librarian` + `session_id`
-- [ ] `pyproject.toml` — `croniter>=2.0`
-- [ ] `tests/unit/tools/test_memory_tools.py`
-- [ ] `tests/unit/tools/test_plan_tools.py` — every valid and invalid transition
-- [ ] `tests/unit/tools/test_schedule_tools.py` — bad datetime/cron rejected
+- [x] `src/craftsman/tools/memory_tools.py`
+- [x] `src/craftsman/tools/plan_tools.py` — state machine validation
+- [x] `src/craftsman/tools/schedule_tools.py` — datetime + cron validation
+- [x] `executor.py` extended with `librarian` + `session_id`
+- [x] `pyproject.toml` — `croniter>=2.0`
+- [x] `tests/unit/tools/test_memory_tools.py`
+- [x] `tests/unit/tools/test_plan_tools.py` — every valid and invalid transition
+- [x] `tests/unit/tools/test_schedule_tools.py` — bad datetime/cron rejected
 
 ### Verify
 
@@ -306,11 +306,12 @@ revocation and the `tool:find` schema-injection pattern.
 
 ### Checklist
 
-- [ ] `src/craftsman/tools/meta_tools.py`
-- [ ] `executor.py` — revoke set, check before dispatch
-- [ ] `librarian.py` — `revoke_tool` / `get_revoked_tools` cache slots
-- [ ] `tests/unit/tools/test_meta_tools.py` — revoke idempotency,
-      self-revoke guard, compose unknown step rejected, tool:find schema injection
+- [x] `src/craftsman/tools/meta_tools.py`
+- [x] `constants.py` — `META_DISPATCH`; `router/tools.py` — meta dispatch branch
+- [x] `librarian.py` — `revoke_tool` / `get_revoked_tools` cache slots
+- [x] `memory/structure.py` — `search_tools(keyword)` for `tool:find`
+- [x] `tests/unit/tools/test_meta_tools.py` — 21 tests: revoke idempotency,
+      self-revoke guard, compose unknown/revoked step rejected, tool:find schema injection
 
 ### Verify
 
@@ -383,17 +384,36 @@ response. The client loop repeats until a content response arrives.
 - Client loop guard: max 10 iterations (configurable in client config)
 - Store tool-call messages with `role = "tool"` in `messages` table
 
+### Pending tool confirmation (human-in-the-loop)
+
+Text write tools (`text:replace`, `text:insert`, `text:delete`) return
+`{"status": "pending", "tmp": ..., "file": ...}` instead of executing
+immediately. The loop must intercept this before posting the tool result:
+
+```
+result["status"] == "pending"
+  → display the pending change to user (diff or summary)
+  → prompt: "[y] approve / [n] reject (enter reason): "
+  → "y"         → executor.commit_pending(file, tmp)
+                  → tool result: {"status": "committed", "file": ...}
+  → "n <reason>" → executor.discard_pending(tmp)
+                  → tool result: {"status": "rejected", "reason": "<user input>"}
+```
+
+The rejection reason is sent back to the LLM as part of the tool result
+so it can understand why and adjust its approach rather than retrying blindly.
+
 ### Checklist
 
-- [ ] `sessions.py` — accept `tools` list; on tool_call stream events +
-      store assistant msg; `POST /tool_result` endpoint
-- [ ] `client/chat.py` — client agentic loop
-- [ ] `client/telegram.py` — same loop in `_complete`
-- [ ] Tool role messages stored in DB
-- [ ] `tests/unit/test_sessions_tool_loop.py` — mock provider tool_call
-      stream, verify events streamed + assistant msg stored
-- [ ] `tests/unit/test_client_tool_loop.py` — mock server responses,
-      verify execute + POST tool_result + loop termination
+- [x] `sessions.py` — accept `tools` list; `_build_tool_schemas`; `_stream_completion`
+      handles tool_call and content paths; `POST /tool_result` endpoint
+- [x] `client/chat.py` — `_agentic_loop`, `_do_stream`, `_call_tool`,
+      `_confirm_pending`, `_start_spinner`; chat loop replaced with `_agentic_loop`
+- [ ] `client/telegram.py` — same loop in `_complete` (deferred to 5.7)
+- [x] Tool role messages stored in DB
+- [x] `tests/unit/test_sessions_tool_loop.py` — 10 tests: tool_call stream,
+      assistant ctx msg, user msg stored, tool_result endpoint, schema builder
+- [ ] `tests/unit/test_client_tool_loop.py` — deferred (sync client hard to unit-test)
 
 ### Verify
 

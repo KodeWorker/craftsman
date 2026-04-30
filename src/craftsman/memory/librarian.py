@@ -51,8 +51,16 @@ class Librarian:
     def add_task(self, task: dict) -> None:
         self.get_tasks().append(task)
 
+    def revoke_tool(self, session_id: str, name: str) -> None:
+        self.cache.setdefault(self._key(session_id, "revoked"), set()).add(
+            name
+        )
+
+    def get_revoked_tools(self, session_id: str) -> set:
+        return set(self.cache.get(self._key(session_id, "revoked"), set()))
+
     def clear_session(self, session_id: str) -> None:
-        for slot in ("scratchpad", "state", "context"):
+        for slot in ("scratchpad", "state", "context", "revoked"):
             self.cache.pop(self._key(session_id, slot), None)
 
     def store_message(self, session_id: str, message: dict) -> str:

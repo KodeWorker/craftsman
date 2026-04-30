@@ -112,15 +112,6 @@ CREATE TABLE IF NOT EXISTS tool_invocations (
     created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
-CREATE TABLE IF NOT EXISTS tool_macros (
-    name       TEXT PRIMARY KEY,
-    steps      TEXT NOT NULL,
-    scope      TEXT NOT NULL DEFAULT 'session'
-                   CHECK (scope IN ('session', 'global')),
-    session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
 CREATE TABLE IF NOT EXISTS scheduled_jobs (
     id         TEXT PRIMARY KEY,
     tool_call  TEXT NOT NULL,
@@ -592,6 +583,20 @@ class StructureDB:
             "SELECT * FROM tools WHERE name = ?", (name,)
         ).fetchone()
 
+    def search_tools(self, keyword: str) -> list[sqlite3.Row]:
+        escaped = (
+            keyword.replace("\\", "\\\\")
+            .replace("%", "\\%")
+            .replace("_", "\\_")
+        )
+        pattern = f"%{escaped}%"
+        return self.conn.execute(
+            "SELECT * FROM tools"
+            " WHERE name LIKE ? OR description LIKE ?"
+            " ESCAPE '\\' ORDER BY name",
+            (pattern, pattern),
+        ).fetchall()
+
     def list_tools(self, category: str = None) -> list[sqlite3.Row]:
         if category:
             return self.conn.execute(
@@ -607,41 +612,6 @@ class StructureDB:
             "UPDATE tools SET call_count = call_count + 1 WHERE name = ?",
             (name,),
         )
-        self.conn.commit()
-
-    # --- tool_macros ---
-
-    def create_macro(
-        self,
-        name: str,
-        steps: str,
-        scope: str = "session",
-        session_id: str = None,
-    ) -> None:
-        self.conn.execute(
-            "INSERT OR REPLACE INTO tool_macros"
-            " (name, steps, scope, session_id) VALUES (?, ?, ?, ?)",
-            (name, steps, scope, session_id),
-        )
-        self.conn.commit()
-
-    def get_macro(self, name: str) -> sqlite3.Row | None:
-        return self.conn.execute(
-            "SELECT * FROM tool_macros WHERE name = ?", (name,)
-        ).fetchone()
-
-    def list_macros(self, scope: str = None) -> list[sqlite3.Row]:
-        if scope:
-            return self.conn.execute(
-                "SELECT * FROM tool_macros WHERE scope = ? ORDER BY name",
-                (scope,),
-            ).fetchall()
-        return self.conn.execute(
-            "SELECT * FROM tool_macros ORDER BY name"
-        ).fetchall()
-
-    def delete_macro(self, name: str) -> None:
-        self.conn.execute("DELETE FROM tool_macros WHERE name = ?", (name,))
         self.conn.commit()
 
     # --- scheduled_jobs ---
