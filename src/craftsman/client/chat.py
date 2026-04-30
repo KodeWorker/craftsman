@@ -1,13 +1,15 @@
 import asyncio
+import difflib
 import json
 import os
+import re
 import threading
 import time
 from enum import Enum
 from pathlib import Path
 
 import requests
-from colorama import Fore, Style
+from colorama import Back, Fore, Style
 from prompt_toolkit import PromptSession
 from prompt_toolkit.document import Document
 from prompt_toolkit.filters import is_done
@@ -24,6 +26,8 @@ from craftsman.client.sessions import SessionsClient
 from craftsman.tools.constants import REMOTE_TOOLS
 from craftsman.tools.executor import _LOCAL_DISPATCH
 from craftsman.tools.text_tools import commit_tmp, discard_tmp
+
+_PENDING_TOOLS = {"text:replace", "text:insert", "text:delete"}
 
 
 class InputMode(Enum):
@@ -318,9 +322,87 @@ class Client(SessionsClient, ArtifactsClient):
                 return {"error": str(e)}
         return {"error": f"Unknown tool: {name}"}
 
+    def _confirm_audited(self, name: str, args: dict) -> tuple[bool, str]:
+        args_str = json.dumps(args)
+        print(Fore.YELLOW + f"[audited] {name} {args_str}" + Style.RESET_ALL)
+        try:
+            answer = input(
+                "[y] run / [n] skip (add reason after 'n'): "
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            return False, "cancelled"
+        if answer.lower() == "y":
+            return True, ""
+        parts = answer.split(maxsplit=1)
+        reason = parts[1] if len(parts) > 1 else "user rejected"
+        return False, reason
+
     def _confirm_pending(self, tool_name: str, result: dict) -> dict:
         file_path = result.get("file", "unknown")
         tmp = result.get("tmp", "")
+        try:
+            orig = (
+                open(file_path, errors="replace").readlines()
+                if os.path.exists(file_path)
+                else []
+            )
+            new = open(tmp, errors="replace").readlines()
+            diff = list(
+                difflib.unified_diff(
+                    orig, new, fromfile=file_path, tofile=file_path
+                )
+            )
+        except Exception:
+            diff = []
+        if diff:
+            width = len(str(max(len(orig), len(new), 1)))
+            old_n = new_n = 0
+            for raw in diff:
+                ln = raw.rstrip("\n")
+                pad = " " * width
+                if ln.startswith("---") or ln.startswith("+++"):
+                    print(Style.BRIGHT + f"{pad} {ln}" + Style.RESET_ALL)
+                elif ln.startswith("@@"):
+                    m = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", ln)
+                    if m:
+                        old_n = int(m.group(1)) - 1
+                        new_n = int(m.group(2)) - 1
+                    print(Fore.CYAN + f"{pad} {ln}" + Style.RESET_ALL)
+                elif ln.startswith("-"):
+                    old_n += 1
+                    num = str(old_n).rjust(width)
+                    print(
+                        Back.LIGHTRED_EX
+                        + Fore.BLACK
+                        + num
+                        + Style.RESET_ALL
+                        + Back.RED
+                        + f" {ln}"
+                        + Style.RESET_ALL
+                    )
+                elif ln.startswith("+"):
+                    new_n += 1
+                    num = str(new_n).rjust(width)
+                    print(
+                        Back.LIGHTGREEN_EX
+                        + Fore.BLACK
+                        + num
+                        + Style.RESET_ALL
+                        + Back.GREEN
+                        + f" {ln}"
+                        + Style.RESET_ALL
+                    )
+                else:
+                    old_n += 1
+                    new_n += 1
+                    num = str(new_n).rjust(width)
+                    print(
+                        Back.WHITE
+                        + Fore.BLACK
+                        + num
+                        + Style.RESET_ALL
+                        + f" {ln}"
+                    )
         print(
             Fore.YELLOW
             + f"[pending] {tool_name} → {file_path}"
@@ -493,6 +575,24 @@ class Client(SessionsClient, ArtifactsClient):
             for tc in tool_calls:
                 name = tc["name"]
                 args = tc.get("args", {})
+                audited = tc.get("audited", False)
+
+                if audited and name not in _PENDING_TOOLS:
+                    approved, reason = self._confirm_audited(name, args)
+                    if not approved:
+                        result: dict = {
+                            "status": "rejected",
+                            "reason": reason,
+                        }
+                        tool_results.append(
+                            {
+                                "tool_call_id": tc["id"],
+                                "tool_name": name,
+                                "result": result,
+                            }
+                        )
+                        continue
+
                 print(Style.DIM + f"  → executing {name}" + Style.RESET_ALL)
                 result = self._call_tool(name, args, session_id)
                 if result.get("status") == "pending":

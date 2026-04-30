@@ -11,6 +11,9 @@ _CAT_MAX_LINES: int = _cfg.get("bash", {}).get("cat", {}).get("max_lines", 200)
 _READ_MAX_LINES: int = (
     _cfg.get("text", {}).get("read", {}).get("max_lines", 200)
 )
+_SEARCH_CTX_LINES: int = (
+    _cfg.get("text", {}).get("search", {}).get("context_lines", 2)
+)
 
 # Each entry: name, description, category, audited, parameters dict.
 # `schema` stored in DB is json.dumps(parameters).
@@ -367,7 +370,7 @@ _TOOLS: list[dict] = [
                 "context_lines": {
                     "type": "integer",
                     "description": "Lines of context around each match",
-                    "default": 2,
+                    "default": _SEARCH_CTX_LINES,
                 },
             },
             "required": ["file", "pattern"],

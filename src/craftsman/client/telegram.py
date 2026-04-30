@@ -30,6 +30,8 @@ from craftsman.tools.constants import REMOTE_TOOLS
 from craftsman.tools.executor import _LOCAL_DISPATCH
 from craftsman.tools.text_tools import commit_tmp
 
+_PENDING_TOOLS = {"text:replace", "text:insert", "text:delete"}
+
 
 class TelegramClient:
     def __init__(self, host: str, port: int):
@@ -50,6 +52,7 @@ class TelegramClient:
         self._prompt_tokens: int = 0
         self._completion_tokens: int = 0
         self._cost: float = 0.0
+        self._pending_audit: dict[str, asyncio.Future] = {}
 
     # ── State ────────────────────────────────────────────────────────────
 
@@ -212,6 +215,60 @@ class TelegramClient:
                 return {"error": str(e)}
         return {"error": f"Unknown tool: {name}"}
 
+    async def _request_confirmation(
+        self,
+        bot,
+        chat_id: int,
+        call_id: str,
+        name: str,
+        args: dict,
+    ) -> tuple[bool, str]:
+        args_str = json.dumps(args)
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "✓ Approve",
+                        callback_data=f"audit:y:{call_id}",
+                    ),
+                    InlineKeyboardButton(
+                        "✗ Reject",
+                        callback_data=f"audit:n:{call_id}",
+                    ),
+                ]
+            ]
+        )
+        await bot.send_message(
+            chat_id,
+            f"[audited] {name}\n{args_str}\nApprove execution?",
+            reply_markup=keyboard,
+        )
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future = loop.create_future()
+        self._pending_audit[call_id] = future
+        try:
+            return await asyncio.wait_for(asyncio.shield(future), timeout=60.0)
+        except asyncio.TimeoutError:
+            self._pending_audit.pop(call_id, None)
+            return False, "timed out"
+
+    async def _on_audit_callback(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        query = update.callback_query
+        await query.answer()
+        parts = query.data.split(":", 2)
+        if len(parts) != 3:
+            return
+        _, decision, call_id = parts
+        future = self._pending_audit.pop(call_id, None)
+        if future and not future.done():
+            if decision == "y":
+                future.set_result((True, ""))
+            else:
+                future.set_result((False, "user rejected"))
+        await query.edit_message_reply_markup(reply_markup=None)
+
     def _build_reply(
         self,
         tool_log: list[tuple[str, dict, dict]],
@@ -237,7 +294,13 @@ class TelegramClient:
             return "\n".join(parts)
         return content
 
-    async def _complete(self, session_id: str, text: str) -> str:
+    async def _complete(
+        self,
+        session_id: str,
+        text: str,
+        bot=None,
+        chat_id: int = 0,
+    ) -> str:
         tools = self.config.get("chat", {}).get("tools", ["all"])
         max_loops = self.config.get("chat", {}).get("max_tool_loops", 10)
         url = f"{self._entry_point}/sessions/{session_id}/completion"
@@ -271,6 +334,27 @@ class TelegramClient:
             for tc in tool_calls:
                 name = tc["name"]
                 args = tc.get("args", {})
+                audited = tc.get("audited", False)
+
+                if audited and name not in _PENDING_TOOLS and bot and chat_id:
+                    approved, reason = await self._request_confirmation(
+                        bot, chat_id, tc["id"], name, args
+                    )
+                    if not approved:
+                        result: dict = {
+                            "status": "rejected",
+                            "reason": reason,
+                        }
+                        tool_log.append((name, args, result))
+                        tool_results.append(
+                            {
+                                "tool_call_id": tc["id"],
+                                "tool_name": name,
+                                "result": result,
+                            }
+                        )
+                        continue
+
                 result = await self._call_tool(name, args, session_id)
                 if result.get("status") == "pending":
                     try:
@@ -391,7 +475,12 @@ class TelegramClient:
         await context.bot.send_chat_action(
             chat_id=update.effective_chat.id, action=ChatAction.TYPING
         )
-        response = await self._complete(self._state["session_id"], text)
+        response = await self._complete(
+            self._state["session_id"],
+            text,
+            bot=context.bot,
+            chat_id=update.effective_chat.id,
+        )
         if not response:
             await update.message.reply_text("(no response from server)")
             return
@@ -424,6 +513,9 @@ class TelegramClient:
         )
         self._app.add_handler(
             CallbackQueryHandler(self._on_session_switch, pattern=r"^switch:")
+        )
+        self._app.add_handler(
+            CallbackQueryHandler(self._on_audit_callback, pattern=r"^audit:")
         )
         self._app.add_handler(
             MessageHandler(cf & filters.TEXT & ~filters.COMMAND, self._on_text)

@@ -196,11 +196,14 @@ class SessionsRouter:
                     "tokens": down_tokens,
                 },
             )
+            db = self.librarian.structure_db
             for tc in tool_calls:
                 try:
                     args = json.loads(tc["arguments_raw"])
                 except (json.JSONDecodeError, ValueError):
                     args = {}
+                row = db.get_tool(tc["name"])
+                audited = bool(row["audited"]) if row else False
                 yield (
                     json.dumps(
                         {
@@ -208,6 +211,7 @@ class SessionsRouter:
                             "id": tc["id"],
                             "name": tc["name"],
                             "args": args,
+                            "audited": audited,
                         }
                     )
                     + "\n"

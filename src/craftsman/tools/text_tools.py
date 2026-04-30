@@ -15,6 +15,16 @@ def _read_max_lines() -> int:
     )
 
 
+def _search_context_lines() -> int:
+    return (
+        get_config()
+        .get("tools", {})
+        .get("text", {})
+        .get("search", {})
+        .get("context_lines", 2)
+    )
+
+
 async def text_read(args: dict) -> dict:
     file = args["file"]
     line_start = args.get("line_start", 1)
@@ -50,7 +60,7 @@ async def text_read(args: dict) -> dict:
 async def text_search(args: dict) -> dict:
     file = args["file"]
     pattern = args["pattern"]
-    context_lines = args.get("context_lines", 2)
+    context_lines = args.get("context_lines", _search_context_lines())
     with open(file, "r", errors="replace") as f:
         lines = f.readlines()
     matches = []

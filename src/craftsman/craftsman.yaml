@@ -84,6 +84,8 @@ tools:
     enabled: true
     read:
       max_lines: 200 # lines returned per text:read call before tail-truncation
+    search:
+      context_lines: 2 # lines of context around each match in text:search
   # memory tools (memory:store, memory:retrieve, memory:forget)
   memory:
     enabled: true
