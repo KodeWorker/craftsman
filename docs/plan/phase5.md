@@ -258,14 +258,14 @@ pending → in_progress → verifying → done
 
 ### Checklist
 
-- [ ] `src/craftsman/tools/memory_tools.py`
-- [ ] `src/craftsman/tools/plan_tools.py` — state machine validation
-- [ ] `src/craftsman/tools/schedule_tools.py` — datetime + cron validation
-- [ ] `executor.py` extended with `librarian` + `session_id`
-- [ ] `pyproject.toml` — `croniter>=2.0`
-- [ ] `tests/unit/tools/test_memory_tools.py`
-- [ ] `tests/unit/tools/test_plan_tools.py` — every valid and invalid transition
-- [ ] `tests/unit/tools/test_schedule_tools.py` — bad datetime/cron rejected
+- [x] `src/craftsman/tools/memory_tools.py`
+- [x] `src/craftsman/tools/plan_tools.py` — state machine validation
+- [x] `src/craftsman/tools/schedule_tools.py` — datetime + cron validation
+- [x] `executor.py` extended with `librarian` + `session_id`
+- [x] `pyproject.toml` — `croniter>=2.0`
+- [x] `tests/unit/tools/test_memory_tools.py`
+- [x] `tests/unit/tools/test_plan_tools.py` — every valid and invalid transition
+- [x] `tests/unit/tools/test_schedule_tools.py` — bad datetime/cron rejected
 
 ### Verify
 
@@ -306,11 +306,12 @@ revocation and the `tool:find` schema-injection pattern.
 
 ### Checklist
 
-- [ ] `src/craftsman/tools/meta_tools.py`
-- [ ] `executor.py` — revoke set, check before dispatch
-- [ ] `librarian.py` — `revoke_tool` / `get_revoked_tools` cache slots
-- [ ] `tests/unit/tools/test_meta_tools.py` — revoke idempotency,
-      self-revoke guard, compose unknown step rejected, tool:find schema injection
+- [x] `src/craftsman/tools/meta_tools.py`
+- [x] `constants.py` — `META_DISPATCH`; `router/tools.py` — meta dispatch branch
+- [x] `librarian.py` — `revoke_tool` / `get_revoked_tools` cache slots
+- [x] `memory/structure.py` — `search_tools(keyword)` for `tool:find`
+- [x] `tests/unit/tools/test_meta_tools.py` — 21 tests: revoke idempotency,
+      self-revoke guard, compose unknown/revoked step rejected, tool:find schema injection
 
 ### Verify
 

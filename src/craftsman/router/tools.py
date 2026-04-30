@@ -7,6 +7,7 @@ from craftsman.memory.librarian import Librarian
 from craftsman.router.deps import get_current_user
 from craftsman.tools.constants import DB_DISPATCH as _DB_DISPATCH
 from craftsman.tools.constants import LIB_DISPATCH as _LIB_DISPATCH
+from craftsman.tools.constants import META_DISPATCH as _META_DISPATCH
 from craftsman.tools.registry import seed_registry
 
 
@@ -40,6 +41,10 @@ class ToolsRouter:
         elif name in _LIB_DISPATCH:
             result = await _LIB_DISPATCH[name](
                 args, self.librarian, session_id
+            )
+        elif name in _META_DISPATCH:
+            result = await _META_DISPATCH[name](
+                args, db, self.librarian, session_id
             )
         else:
             return {"error": f"Unknown remote tool: {name}"}

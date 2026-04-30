@@ -3,6 +3,12 @@ from craftsman.tools.memory_tools import (
     memory_retrieve,
     memory_store,
 )
+from craftsman.tools.meta_tools import (
+    tool_describe,
+    tool_find,
+    tool_list,
+    tool_revoke,
+)
 from craftsman.tools.plan_tools import (
     plan_create,
     plan_done,
@@ -47,4 +53,14 @@ LIB_DISPATCH: dict = {
     "memory:forget": memory_forget,
 }
 
-REMOTE_TOOLS: set[str] = set(DB_DISPATCH) | set(LIB_DISPATCH)
+# (args, db, librarian, session_id)
+META_DISPATCH: dict = {
+    "tool:list": tool_list,
+    "tool:describe": tool_describe,
+    "tool:find": tool_find,
+    "tool:revoke": tool_revoke,
+}
+
+REMOTE_TOOLS: set[str] = (
+    set(DB_DISPATCH) | set(LIB_DISPATCH) | set(META_DISPATCH)
+)

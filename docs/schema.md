@@ -122,15 +122,6 @@ CREATE VIRTUAL TABLE tools_vec USING vec0(
   embedding   FLOAT[1536]
 );
 
--- Tool macros: composed pipelines from tool:compose
-CREATE TABLE tool_macros (
-  name       TEXT PRIMARY KEY,
-  steps      TEXT NOT NULL,   -- JSON array of {tool, args}
-  scope      TEXT NOT NULL DEFAULT 'session' CHECK (scope IN ('session', 'global')),
-  session_id TEXT REFERENCES sessions(id) ON DELETE CASCADE,  -- null if global
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
-);
-
 -- Scheduled jobs: one-shot deferred tool calls
 CREATE TABLE scheduled_jobs (
   id          TEXT PRIMARY KEY,  -- UUID
