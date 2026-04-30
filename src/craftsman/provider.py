@@ -136,6 +136,8 @@ class Provider:
                     fn = getattr(tc, "function", None)
                     if fn:
                         if getattr(fn, "name", None):
+                            # most providers send name in one chunk; += handles
+                            # the rare case where it arrives in fragments
                             pending_tool_calls[idx]["name"] += fn.name
                         if getattr(fn, "arguments", None):
                             pending_tool_calls[idx][

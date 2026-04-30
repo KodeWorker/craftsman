@@ -1,6 +1,5 @@
 import httpx
 
-from craftsman.router.tools import REMOTE_TOOLS
 from craftsman.tools.bash_tools import (
     bash_cat,
     bash_df,
@@ -13,6 +12,7 @@ from craftsman.tools.bash_tools import (
     bash_stat,
     bash_tail,
 )
+from craftsman.tools.constants import REMOTE_TOOLS
 from craftsman.tools.text_tools import (
     commit_tmp,
     discard_tmp,

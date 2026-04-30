@@ -5,57 +5,9 @@ from fastapi import APIRouter, Depends, Request
 
 from craftsman.memory.librarian import Librarian
 from craftsman.router.deps import get_current_user
-from craftsman.tools.memory_tools import (
-    memory_forget,
-    memory_retrieve,
-    memory_store,
-)
-from craftsman.tools.plan_tools import (
-    plan_create,
-    plan_done,
-    task_create,
-    task_done,
-    task_fail,
-    task_list,
-    task_start,
-    task_verify,
-)
+from craftsman.tools.constants import DB_DISPATCH as _DB_DISPATCH
+from craftsman.tools.constants import LIB_DISPATCH as _LIB_DISPATCH
 from craftsman.tools.registry import seed_registry
-from craftsman.tools.schedule_tools import (
-    cron_create,
-    cron_list,
-    cron_remove,
-    schedule_at,
-    schedule_cancel,
-    schedule_list,
-)
-
-# (args, db, session_id)
-_DB_DISPATCH = {
-    "plan:create": plan_create,
-    "plan:done": plan_done,
-    "task:create": task_create,
-    "task:start": task_start,
-    "task:verify": task_verify,
-    "task:done": task_done,
-    "task:fail": task_fail,
-    "task:list": task_list,
-    "schedule:at": schedule_at,
-    "schedule:list": schedule_list,
-    "schedule:cancel": schedule_cancel,
-    "cron:create": cron_create,
-    "cron:list": cron_list,
-    "cron:remove": cron_remove,
-}
-
-# (args, librarian, session_id)
-_LIB_DISPATCH = {
-    "memory:store": memory_store,
-    "memory:retrieve": memory_retrieve,
-    "memory:forget": memory_forget,
-}
-
-REMOTE_TOOLS = _DB_DISPATCH.keys() | _LIB_DISPATCH.keys()
 
 
 class ToolsRouter:
@@ -65,7 +17,7 @@ class ToolsRouter:
         self.router.post("/seed")(self.seed)
         self.router.post("/invoke")(self.invoke)
 
-    async def seed(self) -> dict:
+    async def seed(self, user_id: str = Depends(get_current_user)) -> dict:
         seed_registry(self.librarian.structure_db)
         return {"status": "ok"}
 

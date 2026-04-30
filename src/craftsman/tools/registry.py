@@ -507,20 +507,16 @@ _TOOLS: list[dict] = [
         "parameters": {
             "type": "object",
             "properties": {
-                "datetime": {
+                "run_at": {
                     "type": "string",
                     "description": "ISO 8601 datetime, e.g. 2026-05-01T09:00:00",
                 },
-                "tool": {
-                    "type": "string",
-                    "description": "Tool name to invoke",
-                },
-                "args": {
+                "tool_call": {
                     "type": "object",
-                    "description": "Arguments to pass to the tool",
+                    "description": "Tool call to invoke: {name, args}",
                 },
             },
-            "required": ["datetime", "tool", "args"],
+            "required": ["run_at", "tool_call"],
         },
     },
     {
@@ -559,16 +555,12 @@ _TOOLS: list[dict] = [
                     "type": "string",
                     "description": "Standard cron expression, e.g. 0 3 * * *",
                 },
-                "tool": {
-                    "type": "string",
-                    "description": "Tool name to invoke",
-                },
-                "args": {
+                "tool_call": {
                     "type": "object",
-                    "description": "Arguments to pass to the tool",
+                    "description": "Tool call to invoke: {name, args}",
                 },
             },
-            "required": ["expression", "tool", "args"],
+            "required": ["expression", "tool_call"],
         },
     },
     {
