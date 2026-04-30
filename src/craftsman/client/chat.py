@@ -497,8 +497,17 @@ class Client(SessionsClient, ArtifactsClient):
                 result = self._call_tool(name, args, session_id)
                 if result.get("status") == "pending":
                     result = self._confirm_pending(name, result)
-                status_str = result.get("status") or json.dumps(result)[:80]
-                print(Style.DIM + f"  ← {status_str}" + Style.RESET_ALL)
+                if result.get("error"):
+                    print(
+                        Fore.RED
+                        + f"  ← error: {result['error']}"
+                        + Style.RESET_ALL
+                    )
+                else:
+                    status_str = (
+                        result.get("status") or json.dumps(result)[:80]
+                    )
+                    print(Fore.YELLOW + f"  ← {status_str}" + Style.RESET_ALL)
                 tool_results.append(
                     {
                         "tool_call_id": tc["id"],

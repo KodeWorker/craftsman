@@ -26,6 +26,9 @@ from telegram.request import HTTPXRequest
 
 from craftsman.auth import Auth
 from craftsman.configure import get_config
+from craftsman.tools.constants import REMOTE_TOOLS
+from craftsman.tools.executor import _LOCAL_DISPATCH
+from craftsman.tools.text_tools import commit_tmp
 
 
 class TelegramClient:
@@ -158,34 +161,93 @@ class TelegramClient:
             return resp.json().get("artifacts", [])
         return []
 
-    async def _complete(self, session_id: str, text: str) -> str:
-        url = f"{self._entry_point}/sessions/{session_id}/completion"
-        body = {"message": {"role": "user", "content": text}}
+    async def _drain(
+        self, stream_resp: httpx.Response
+    ) -> tuple[list[str], list[dict]]:
+        chunks: list[str] = []
+        tool_calls: list[dict] = []
+        async for line in stream_resp.aiter_lines():
+            if not line:
+                continue
+            try:
+                chunk = json.loads(line)
+                kind = chunk.get("kind")
+                if kind == "content":
+                    chunks.append(chunk["text"])
+                elif kind == "tool_call":
+                    tool_calls.append(chunk)
+                elif kind == "meta":
+                    self._model = chunk.get("model", self._model)
+                    self._ctx_used = chunk.get("ctx_used", self._ctx_used)
+                    self._ctx_total = chunk.get("ctx_total", self._ctx_total)
+                    self._prompt_tokens += chunk.get("prompt_tokens", 0)
+                    self._completion_tokens += chunk.get(
+                        "completion_tokens", 0
+                    )
+                    self._cost += chunk.get("cost", 0.0)
+            except json.JSONDecodeError:
+                pass
+        return chunks, tool_calls
 
-        async def _drain(stream_resp: httpx.Response) -> list[str]:
-            chunks: list[str] = []
-            async for line in stream_resp.aiter_lines():
-                if not line:
-                    continue
-                try:
-                    chunk = json.loads(line)
-                    kind = chunk.get("kind")
-                    if kind == "content":
-                        chunks.append(chunk["text"])
-                    elif kind == "meta":
-                        self._model = chunk.get("model", self._model)
-                        self._ctx_used = chunk.get("ctx_used", self._ctx_used)
-                        self._ctx_total = chunk.get(
-                            "ctx_total", self._ctx_total
-                        )
-                        self._prompt_tokens += chunk.get("prompt_tokens", 0)
-                        self._completion_tokens += chunk.get(
-                            "completion_tokens", 0
-                        )
-                        self._cost += chunk.get("cost", 0.0)
-                except json.JSONDecodeError:
-                    pass
-            return chunks
+    async def _call_tool(self, name: str, args: dict, session_id: str) -> dict:
+        if name in _LOCAL_DISPATCH:
+            try:
+                return await _LOCAL_DISPATCH[name](args)
+            except Exception as e:
+                return {"error": str(e)}
+        if name in REMOTE_TOOLS:
+            try:
+                resp = await self._request(
+                    "post",
+                    f"{self._entry_point}/tools/invoke",
+                    json={
+                        "name": name,
+                        "args": args,
+                        "session_id": session_id,
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json()
+            except Exception as e:
+                return {"error": str(e)}
+        return {"error": f"Unknown tool: {name}"}
+
+    def _build_reply(
+        self,
+        tool_log: list[tuple[str, dict, dict]],
+        content_chunks: list[str],
+    ) -> str:
+        parts: list[str] = []
+        for name, args, result in tool_log:
+            args_str = json.dumps(args)
+            preview = json.dumps(result)
+            if len(preview) > 200:
+                preview = preview[:200] + "…"
+            if result.get("error"):
+                parts.append(
+                    f"[tool: {name} {args_str}]\n"
+                    f"→ error: {result['error']}"
+                )
+            else:
+                parts.append(f"[tool: {name} {args_str}]\n→ {preview}")
+        content = "".join(content_chunks)
+        if parts:
+            parts.append("")
+            parts.append(content)
+            return "\n".join(parts)
+        return content
+
+    async def _complete(self, session_id: str, text: str) -> str:
+        tools = self.config.get("chat", {}).get("tools", ["all"])
+        max_loops = self.config.get("chat", {}).get("max_tool_loops", 10)
+        url = f"{self._entry_point}/sessions/{session_id}/completion"
+        body = {
+            "message": {"role": "user", "content": text},
+            "tools": tools,
+        }
+        tool_log: list[tuple[str, dict, dict]] = []
+        content_chunks: list[str] = []
+        tool_calls: list[dict] = []
 
         for attempt in range(2):
             async with self._http.stream("POST", url, json=body) as resp:
@@ -193,8 +255,50 @@ class TelegramClient:
                     if not await self._login():
                         return ""
                     continue
-                return "".join(await _drain(resp))
-        return ""
+                content_chunks, tool_calls = await self._drain(resp)
+                break
+        else:
+            return ""
+
+        # pass 0 = first tool round; passes 1..max_loops-1 = subsequent
+        # guard at tool_round >= max_loops mirrors chat.py's agentic_loop
+        for tool_round in range(max_loops + 1):
+            if not tool_calls:
+                break
+            if tool_round >= max_loops:
+                break
+            tool_results = []
+            for tc in tool_calls:
+                name = tc["name"]
+                args = tc.get("args", {})
+                result = await self._call_tool(name, args, session_id)
+                if result.get("status") == "pending":
+                    try:
+                        bak = commit_tmp(result["file"], result["tmp"])
+                        result = {
+                            "status": "committed",
+                            "file": result["file"],
+                            "backup": bak,
+                        }
+                    except Exception as e:
+                        result = {"error": str(e)}
+                tool_log.append((name, args, result))
+                tool_results.append(
+                    {
+                        "tool_call_id": tc["id"],
+                        "tool_name": name,
+                        "result": result,
+                    }
+                )
+            tr_url = f"{self._entry_point}/sessions/{session_id}/tool_result"
+            async with self._http.stream(
+                "POST",
+                tr_url,
+                json={"tool_results": tool_results, "tools": tools},
+            ) as resp:
+                content_chunks, tool_calls = await self._drain(resp)
+
+        return self._build_reply(tool_log, content_chunks)
 
     # ── Pairing ──────────────────────────────────────────────────────────
 
