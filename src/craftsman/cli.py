@@ -4,7 +4,6 @@ import shutil
 from importlib.resources import files
 
 import click
-from prompt_toolkit.shortcuts import choice
 
 from craftsman.auth import Auth
 from craftsman.client.chat import Client
@@ -223,6 +222,8 @@ def user_delete(username: str = None):
         if not options:
             click.echo("No users to delete.")
             return
+        from prompt_toolkit.shortcuts import choice
+
         username = choice(message="Select a user to delete:", options=options)
     if not db.get_user(username):
         click.echo(f"User '{username}' does not exist.")

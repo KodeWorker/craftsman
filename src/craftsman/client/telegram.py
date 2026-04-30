@@ -64,7 +64,10 @@ class TelegramClient:
         return {"chat_id": 0, "session_id": ""}
 
     def _save_state(self) -> None:
-        self._state_path().write_text(json.dumps(self._state))
+        try:
+            self._state_path().write_text(json.dumps(self._state))
+        except Exception as e:
+            print(f"Warning: failed to save state: {e}")
 
     # ── Server API ───────────────────────────────────────────────────────
 
@@ -184,13 +187,14 @@ class TelegramClient:
                     pass
             return chunks
 
-        async with self._http.stream("POST", url, json=body) as resp:
-            if resp.status_code == 401:
-                if not await self._login():
-                    return ""
-                async with self._http.stream("POST", url, json=body) as resp:
-                    return "".join(await _drain(resp))
-            return "".join(await _drain(resp))
+        for attempt in range(2):
+            async with self._http.stream("POST", url, json=body) as resp:
+                if resp.status_code == 401 and attempt == 0:
+                    if not await self._login():
+                        return ""
+                    continue
+                return "".join(await _drain(resp))
+        return ""
 
     # ── Pairing ──────────────────────────────────────────────────────────
 
@@ -219,7 +223,12 @@ class TelegramClient:
         except Exception:
             pass
 
-        for _ in range(40):  # 40 × 3 s = 120 s timeout
+        poll_interval = 3
+        pair_timeout = self.config.get("telegram", {}).get(
+            "pair_timeout_seconds", 120
+        )
+        max_polls = pair_timeout // poll_interval
+        for _ in range(max_polls):
             try:
                 updates = await bot.get_updates(
                     offset=offset,

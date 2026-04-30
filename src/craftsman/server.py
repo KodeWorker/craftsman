@@ -7,7 +7,7 @@ from craftsman.provider import Provider
 from craftsman.router.artifacts import ArtifactsRouter
 from craftsman.router.deps import _crypto
 from craftsman.router.sessions import SessionsRouter
-from craftsman.tools.registry import seed_registry
+from craftsman.router.tools import ToolsRouter
 
 
 class Server:
@@ -23,14 +23,15 @@ class Server:
         self.app.post("/reset")(self.reset_provider)
         self.app.post("/subagent/run")(self.run_subagent)
         self.app.post("/users/login")(self.login_user)
-        self.app.post("/tools/seed")(self.seed_tools)
 
         self.sessions_router = SessionsRouter(
             self.provider, self.librarian, self.active_sessions
         )
         self.artifacts_router = ArtifactsRouter(self.librarian)
+        self.tools_router = ToolsRouter(self.librarian)
         self.app.include_router(self.sessions_router.router)
         self.app.include_router(self.artifacts_router.router)
+        self.app.include_router(self.tools_router.router)
 
     async def health_check(self) -> dict:
         return {"status": "ok"}
@@ -101,10 +102,6 @@ class Server:
         token = _crypto.create_token(user["id"])
         self.logger.info(f"User '{user['username']}' logged in successfully.")
         return {"token": token}
-
-    async def seed_tools(self) -> dict:
-        seed_registry(self.librarian.structure_db)
-        return {"status": "ok"}
 
     def start(self):
         self.logger.info(f"Starting server on port {self.port}...")

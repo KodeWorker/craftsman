@@ -4,6 +4,14 @@ import json
 from craftsman.configure import get_config
 from craftsman.memory.structure import StructureDB
 
+# Read configurable defaults once at import so the LLM sees the same limits
+# that the runtime will enforce.
+_cfg = get_config().get("tools", {})
+_CAT_MAX_LINES: int = _cfg.get("bash", {}).get("cat", {}).get("max_lines", 200)
+_READ_MAX_LINES: int = (
+    _cfg.get("text", {}).get("read", {}).get("max_lines", 200)
+)
+
 # Each entry: name, description, category, audited, parameters dict.
 # `schema` stored in DB is json.dumps(parameters).
 # audited=True  → write/action tools; every invocation logged to tool_invocations
@@ -147,7 +155,7 @@ _TOOLS: list[dict] = [
                 "max_lines": {
                     "type": "integer",
                     "description": "Maximum lines to return",
-                    "default": 200,
+                    "default": _CAT_MAX_LINES,
                 },
             },
             "required": ["file"],
@@ -339,7 +347,7 @@ _TOOLS: list[dict] = [
                 "max_lines": {
                     "type": "integer",
                     "description": "Maximum lines per page",
-                    "default": 200,
+                    "default": _READ_MAX_LINES,
                 },
             },
             "required": ["file"],
@@ -499,20 +507,16 @@ _TOOLS: list[dict] = [
         "parameters": {
             "type": "object",
             "properties": {
-                "datetime": {
+                "run_at": {
                     "type": "string",
                     "description": "ISO 8601 datetime, e.g. 2026-05-01T09:00:00",
                 },
-                "tool": {
-                    "type": "string",
-                    "description": "Tool name to invoke",
-                },
-                "args": {
+                "tool_call": {
                     "type": "object",
-                    "description": "Arguments to pass to the tool",
+                    "description": "Tool call to invoke: {name, args}",
                 },
             },
-            "required": ["datetime", "tool", "args"],
+            "required": ["run_at", "tool_call"],
         },
     },
     {
@@ -551,16 +555,12 @@ _TOOLS: list[dict] = [
                     "type": "string",
                     "description": "Standard cron expression, e.g. 0 3 * * *",
                 },
-                "tool": {
-                    "type": "string",
-                    "description": "Tool name to invoke",
-                },
-                "args": {
+                "tool_call": {
                     "type": "object",
-                    "description": "Arguments to pass to the tool",
+                    "description": "Tool call to invoke: {name, args}",
                 },
             },
-            "required": ["expression", "tool", "args"],
+            "required": ["expression", "tool_call"],
         },
     },
     {

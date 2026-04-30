@@ -9,6 +9,7 @@ No public HTTPS required.
 - Bot token from [@BotFather](https://t.me/BotFather)
 - A running craftsman server (`craftsman server`)
 - A registered craftsman user (`craftsman user register`)
+- `ffmpeg` for audio message support: `sudo apt install ffmpeg`
 
 ## Steps
 

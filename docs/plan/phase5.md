@@ -203,13 +203,13 @@ Implement concrete execution for `bash:*` and `text:*` tools in
 
 ### Checklist
 
-- [ ] `src/craftsman/tools/executor.py` — dispatch table, error wrapping,
+- [x] `src/craftsman/tools/executor.py` — dispatch table, error wrapping,
       call count increment, conditional audit log
-- [ ] `src/craftsman/tools/bash_tools.py` — all 10 bash tools
-- [ ] `src/craftsman/tools/text_tools.py` — all 5 text tools
-- [ ] `tests/unit/tools/test_bash_tools.py` — truncation, shlex, bad path
-- [ ] `tests/unit/tools/test_text_tools.py` — atomic write, .bak, line numbers
-- [ ] `tests/unit/tools/test_executor.py` — audited tool writes invocation
+- [x] `src/craftsman/tools/bash_tools.py` — all 10 bash tools
+- [x] `src/craftsman/tools/text_tools.py` — all 5 text tools
+- [x] `tests/unit/tools/test_bash_tools.py` — truncation, shlex, bad path
+- [x] `tests/unit/tools/test_text_tools.py` — atomic write, .bak, line numbers
+- [x] `tests/unit/tools/test_executor.py` — audited tool writes invocation
       record; non-audited tool does not; error path also writes record with
       `is_error=1`
 
@@ -242,8 +242,10 @@ Implement concrete execution for `memory:*`, `plan:*`, `task:*`,
   get_scratchpad` only; no vector DB yet (Phase 6)
 - Task state machine enforced in code — invalid transitions return
   `{"error": "Invalid transition: X -> Y"}`, never silently succeed
-- `schedule:at` validates ISO 8601 datetime before calling
-  `StructureDB.schedule_job`
+- `schedule:at` validates ISO 8601 datetime, then normalizes to UTC before
+  storing: naive datetimes are treated as machine-local time and converted
+  via `datetime.astimezone(timezone.utc)`. Agents reason in local time;
+  SQLite `datetime('now')` compares in UTC — normalization bridges the gap.
 - `cron:create` validates cron expression via `croniter`
 - `plan:create` always attaches `session_id`
 
