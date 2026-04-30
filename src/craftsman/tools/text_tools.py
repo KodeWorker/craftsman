@@ -92,9 +92,13 @@ def _write_tmp_lines(file: str, lines: list[str]) -> str:
     return tmp
 
 
-def commit_tmp(file: str, tmp: str) -> str:
-    bak = _craftsman_path(file, ".bak")
-    shutil.copy2(file, bak)
+def commit_tmp(file: str, tmp: str) -> str | None:
+    os.makedirs(os.path.dirname(os.path.abspath(file)), exist_ok=True)
+    if os.path.exists(file):
+        bak = _craftsman_path(file, ".bak")
+        shutil.copy2(file, bak)
+    else:
+        bak = None
     os.replace(tmp, file)
     return bak
 
@@ -125,11 +129,20 @@ async def text_insert(args: dict) -> dict:
     file = args["file"]
     line_num = args["line_num"]
     new_lines = args["lines"]
-    with open(file, "r", errors="replace") as f:
-        lines = f.readlines()
     to_insert = [ln if ln.endswith("\n") else ln + "\n" for ln in new_lines]
-    lines[line_num - 1 : line_num - 1] = to_insert
-    tmp = _write_tmp_lines(file, lines)
+    if not os.path.exists(file):
+        if line_num != 1:
+            return {
+                "error": (
+                    f"{file} does not exist; use line_num=1 to create it"
+                )
+            }
+        tmp = _write_tmp_lines(file, to_insert)
+    else:
+        with open(file, "r", errors="replace") as f:
+            lines = f.readlines()
+        lines[line_num - 1 : line_num - 1] = to_insert
+        tmp = _write_tmp_lines(file, lines)
     return {
         "status": "pending",
         "tmp": tmp,

@@ -6,6 +6,7 @@ from craftsman.tools.bash_tools import (
     bash_head,
     bash_ls,
     bash_ps,
+    bash_run,
     bash_stat,
     bash_tail,
 )
@@ -144,3 +145,39 @@ async def test_df_returns_output():
     result = await bash_df({"path": "/"})
     assert "error" not in result
     assert "output" in result
+
+
+async def test_run_executes_command():
+    result = await bash_run({"cmd": "echo hello"})
+    assert "error" not in result
+    assert "hello" in result["output"]
+
+
+async def test_run_captures_nonzero_exit():
+    result = await bash_run({"cmd": "false"})
+    assert "error" not in result or result.get("output") == ""
+
+
+async def test_run_truncates_output():
+    result = await bash_run({"cmd": "seq 1 300", "max_lines": 10})
+    lines = result["output"].splitlines()
+    assert result["truncated"] is True
+    assert len(lines) <= 11  # 10 lines + truncation marker
+
+
+async def test_run_empty_cmd_returns_error():
+    result = await bash_run({"cmd": ""})
+    assert "error" in result
+
+
+async def test_run_invalid_shlex_returns_error():
+    result = await bash_run({"cmd": "echo 'unterminated"})
+    assert "error" in result
+
+
+async def test_run_uses_shlex_not_shell(tmp_path):
+    f = tmp_path / "safe file.txt"
+    f.write_text("ok")
+    result = await bash_run({"cmd": f"cat {str(f)!r}"})
+    assert "error" not in result
+    assert "ok" in result["output"]

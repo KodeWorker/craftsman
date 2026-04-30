@@ -299,6 +299,29 @@ _TOOLS: list[dict] = [
             "required": ["path"],
         },
     },
+    {
+        "name": "bash:run",
+        "description": (
+            "Run an arbitrary shell command (tokenised via shlex, "
+            "never shell=True); use named bash:* tools first"
+        ),
+        "category": "bash",
+        "audited": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "cmd": {
+                    "type": "string",
+                    "description": "Command string to execute",
+                },
+                "max_lines": {
+                    "type": "integer",
+                    "description": "Maximum output lines to return",
+                },
+            },
+            "required": ["cmd"],
+        },
+    },
     # ── text ─────────────────────────────────────────────────────────────
     {
         "name": "text:read",
@@ -378,7 +401,8 @@ _TOOLS: list[dict] = [
         "name": "text:insert",
         "description": (
             "Insert lines at a specific line number."
-            " Creates a .bak before writing"
+            " Use line_num=1 on a non-existent file to create it."
+            " Creates a .bak before writing to existing files"
         ),
         "category": "text",
         "audited": True,

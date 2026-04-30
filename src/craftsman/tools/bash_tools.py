@@ -17,6 +17,16 @@ def _cat_max_lines() -> int:
     )
 
 
+def _run_max_lines() -> int:
+    return (
+        get_config()
+        .get("tools", {})
+        .get("bash", {})
+        .get("run", {})
+        .get("max_lines", 200)
+    )
+
+
 async def _run(
     cmd: list[str], max_lines: int = 200, ok_codes: tuple = (0,)
 ) -> dict:
@@ -144,3 +154,15 @@ async def bash_du(args: dict) -> dict:
     max_depth = args.get("max_depth", 1)
     cmd = shlex.split(f"du -h --max-depth={max_depth} {shlex.quote(path)}")
     return await _run(cmd)
+
+
+async def bash_run(args: dict) -> dict:
+    cmd_str = args.get("cmd", "").strip()
+    if not cmd_str:
+        return {"error": "cmd is required"}
+    max_lines = args.get("max_lines", _run_max_lines())
+    try:
+        cmd = shlex.split(cmd_str)
+    except ValueError as e:
+        return {"error": f"invalid command: {e}"}
+    return await _run(cmd, max_lines, ok_codes=tuple(range(256)))

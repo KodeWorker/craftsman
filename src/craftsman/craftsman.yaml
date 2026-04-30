@@ -77,6 +77,8 @@ tools:
     enabled: true
     cat:
       max_lines: 200 # lines returned per bash:cat call before tail-truncation
+    run:
+      max_lines: 200 # lines returned per bash:run call before tail-truncation
   # text tools (text:read, text:search, text:replace, text:insert, text:delete)
   text:
     enabled: true
