@@ -45,7 +45,11 @@ async def _run(
         omitted = len(lines) - max_lines
         lines = lines[-max_lines:]
         lines.insert(0, f"[... {omitted} lines omitted ...]")
-    return {"output": "\n".join(lines), "truncated": truncated}
+    return {
+        "output": "\n".join(lines),
+        "truncated": truncated,
+        "exit_code": proc.returncode,
+    }
 
 
 async def bash_ls(args: dict) -> dict:

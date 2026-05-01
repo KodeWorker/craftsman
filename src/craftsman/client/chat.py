@@ -342,12 +342,13 @@ class Client(SessionsClient, ArtifactsClient):
         file_path = result.get("file", "unknown")
         tmp = result.get("tmp", "")
         try:
-            orig = (
-                open(file_path, errors="replace").readlines()
-                if os.path.exists(file_path)
-                else []
-            )
-            new = open(tmp, errors="replace").readlines()
+            if os.path.exists(file_path):
+                with open(file_path, errors="replace") as f:
+                    orig = f.readlines()
+            else:
+                orig = []
+            with open(tmp, errors="replace") as f:
+                new = f.readlines()
             diff = list(
                 difflib.unified_diff(
                     orig, new, fromfile=file_path, tofile=file_path
@@ -407,9 +408,7 @@ class Client(SessionsClient, ArtifactsClient):
                     new_n += 1
                     num = str(new_n).rjust(width)
                     body = f" {ln}".ljust(cols - width)
-                    print(
-                        Back.WHITE + Fore.BLACK + num + Style.RESET_ALL + body
-                    )
+                    print(Style.DIM + num + Style.RESET_ALL + body)
         print(
             Fore.YELLOW
             + f"[pending] {tool_name} → {file_path}"

@@ -247,7 +247,7 @@ class TelegramClient:
         future: asyncio.Future = loop.create_future()
         self._pending_audit[call_id] = future
         try:
-            return await asyncio.wait_for(asyncio.shield(future), timeout=60.0)
+            return await asyncio.wait_for(future, timeout=60.0)
         except asyncio.TimeoutError:
             self._pending_audit.pop(call_id, None)
             return False, "timed out"
@@ -326,9 +326,7 @@ class TelegramClient:
         # pass 0 = first tool round; passes 1..max_loops-1 = subsequent
         # guard at tool_round >= max_loops mirrors chat.py's agentic_loop
         for tool_round in range(max_loops + 1):
-            if not tool_calls:
-                break
-            if tool_round >= max_loops:
+            if not tool_calls or tool_round >= max_loops:
                 break
             tool_results = []
             for tc in tool_calls:
@@ -380,6 +378,8 @@ class TelegramClient:
                 tr_url,
                 json={"tool_results": tool_results, "tools": tools},
             ) as resp:
+                if resp.status_code != 200:
+                    return self._build_reply(tool_log, content_chunks)
                 content_chunks, tool_calls = await self._drain(resp)
 
         return self._build_reply(tool_log, content_chunks)

@@ -103,7 +103,9 @@ def _write_tmp_lines(file: str, lines: list[str]) -> str:
 
 
 def commit_tmp(file: str, tmp: str) -> str | None:
-    os.makedirs(os.path.dirname(os.path.abspath(file)), exist_ok=True)
+    parent = os.path.dirname(os.path.abspath(file))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     if os.path.exists(file):
         bak = _craftsman_path(file, ".bak")
         shutil.copy2(file, bak)
@@ -151,6 +153,13 @@ async def text_insert(args: dict) -> dict:
     else:
         with open(file, "r", errors="replace") as f:
             lines = f.readlines()
+        if line_num < 1 or line_num > len(lines) + 1:
+            return {
+                "error": (
+                    f"line_num={line_num} out of range"
+                    f" for file with {len(lines)} lines"
+                )
+            }
         lines[line_num - 1 : line_num - 1] = to_insert
         tmp = _write_tmp_lines(file, lines)
     return {
