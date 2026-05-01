@@ -125,7 +125,8 @@ CREATE VIRTUAL TABLE tools_vec USING vec0(
 -- Scheduled jobs: one-shot deferred tool calls
 CREATE TABLE scheduled_jobs (
   id          TEXT PRIMARY KEY,  -- UUID
-  tool_call   TEXT NOT NULL,     -- JSON {tool, args}
+  user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+  tool_call   TEXT NOT NULL,     -- JSON {name, args}
   run_at      TEXT NOT NULL,
   status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'done', 'failed')),
   result      TEXT,              -- JSON result or error
@@ -135,8 +136,9 @@ CREATE TABLE scheduled_jobs (
 -- Cron jobs: recurring tool calls
 CREATE TABLE cron_jobs (
   id         TEXT PRIMARY KEY,  -- UUID
+  user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
   expression TEXT NOT NULL,     -- standard cron expression
-  tool_call  TEXT NOT NULL,     -- JSON {tool, args}
+  tool_call  TEXT NOT NULL,     -- JSON {name, args}
   active     INTEGER NOT NULL DEFAULT 1,
   last_run   TEXT,
   created_at TEXT NOT NULL DEFAULT (datetime('now'))

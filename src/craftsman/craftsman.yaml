@@ -72,7 +72,7 @@ tools:
   meta:
     enabled: true
   # bash tools (bash:ls, bash:cat, bash:grep, bash:find, bash:head, bash:tail,
-  #             bash:stat, bash:ps, bash:df, bash:du)
+  #             bash:stat, bash:ps, bash:df, bash:du, bash:run)
   bash:
     enabled: true
     cat:
@@ -96,6 +96,9 @@ tools:
   # plan tools (plan:create, plan:done, task:create, task:start,
   #             task:verify, task:done, task:fail, task:list)
   plan:
+    enabled: true
+  # agent tools (agent:run — prompt-driven multi-tool subagent)
+  agent:
     enabled: true
   # Individual tools to disable within an otherwise-enabled category.
   # Example: disabled: [bash:ps, bash:df, bash:du]

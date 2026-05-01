@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS tool_invocations (
 
 CREATE TABLE IF NOT EXISTS scheduled_jobs (
     id         TEXT PRIMARY KEY,
+    user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
     tool_call  TEXT NOT NULL,
     run_at     TEXT NOT NULL,
     status     TEXT NOT NULL DEFAULT 'pending'
@@ -124,6 +125,7 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
 
 CREATE TABLE IF NOT EXISTS cron_jobs (
     id         TEXT PRIMARY KEY,
+    user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
     expression TEXT NOT NULL,
     tool_call  TEXT NOT NULL,
     active     INTEGER NOT NULL DEFAULT 1,
@@ -616,12 +618,14 @@ class StructureDB:
 
     # --- scheduled_jobs ---
 
-    def schedule_job(self, tool_call: str, run_at: str) -> str:
+    def schedule_job(
+        self, tool_call: str, run_at: str, user_id: str | None = None
+    ) -> str:
         jid = str(uuid.uuid4())
         self.conn.execute(
-            "INSERT INTO scheduled_jobs (id, tool_call, run_at)"
-            " VALUES (?, ?, ?)",
-            (jid, tool_call, run_at),
+            "INSERT INTO scheduled_jobs (id, user_id, tool_call, run_at)"
+            " VALUES (?, ?, ?, ?)",
+            (jid, user_id, tool_call, run_at),
         )
         self.conn.commit()
         return jid
@@ -644,12 +648,17 @@ class StructureDB:
 
     # --- cron_jobs ---
 
-    def create_cron_job(self, expression: str, tool_call: str) -> str:
+    def create_cron_job(
+        self,
+        expression: str,
+        tool_call: str,
+        user_id: str | None = None,
+    ) -> str:
         cid = str(uuid.uuid4())
         self.conn.execute(
-            "INSERT INTO cron_jobs (id, expression, tool_call)"
-            " VALUES (?, ?, ?)",
-            (cid, expression, tool_call),
+            "INSERT INTO cron_jobs (id, user_id, expression, tool_call)"
+            " VALUES (?, ?, ?, ?)",
+            (cid, user_id, expression, tool_call),
         )
         self.conn.commit()
         return cid

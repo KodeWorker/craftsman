@@ -22,8 +22,10 @@ async def schedule_at(
         run_at_utc = _to_utc_iso(run_at)
     except ValueError:
         return {"error": f"Invalid ISO 8601 datetime: {run_at!r}"}
+    row = db.get_session(session_id) if session_id else None
+    user_id = row["user_id"] if row else None
     job_id = db.schedule_job(
-        tool_call=json.dumps(tool_call), run_at=run_at_utc
+        tool_call=json.dumps(tool_call), run_at=run_at_utc, user_id=user_id
     )
     return {"job_id": job_id, "run_at": run_at_utc}
 
@@ -52,8 +54,10 @@ async def cron_create(
     tool_call = args["tool_call"]
     if not croniter.is_valid(expression):
         return {"error": f"Invalid cron expression: {expression!r}"}
+    row = db.get_session(session_id) if session_id else None
+    user_id = row["user_id"] if row else None
     cron_id = db.create_cron_job(
-        expression=expression, tool_call=json.dumps(tool_call)
+        expression=expression, tool_call=json.dumps(tool_call), user_id=user_id
     )
     return {"cron_id": cron_id, "expression": expression}
 

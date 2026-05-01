@@ -589,6 +589,27 @@ _TOOLS: list[dict] = [
             "required": ["cron_id"],
         },
     },
+    # ── agent ────────────────────────────────────────────────────────────
+    {
+        "name": "agent:run",
+        "description": (
+            "Run a multi-step agentic sub-task driven by a prompt."
+            " The agent has access to all registered tools and will"
+            " iterate until it reaches a conclusion or hits the loop cap"
+        ),
+        "category": "agent",
+        "audited": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt": {
+                    "type": "string",
+                    "description": "Goal or instruction for the sub-agent",
+                }
+            },
+            "required": ["prompt"],
+        },
+    },
     # ── plan ─────────────────────────────────────────────────────────────
     {
         "name": "plan:create",

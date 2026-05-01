@@ -77,7 +77,7 @@ def test_audited_stored_in_db(db):
 
 
 def test_categories_are_valid():
-    valid = {"meta", "bash", "text", "memory", "schedule", "plan"}
+    valid = {"meta", "bash", "text", "memory", "schedule", "plan", "agent"}
     for t in _TOOLS:
         assert (
             t["category"] in valid

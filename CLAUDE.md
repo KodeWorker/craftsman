@@ -56,6 +56,7 @@ Early-stage autonomous agent framework. CLI + server functional; client/vector/g
 | `router/deps.py` | Done | FastAPI dependencies; `get_current_user` JWT guard; `_crypto` singleton |
 | `router/sessions.py` | Done | Sessions router; multimodal message transform (`@image:`, `@audio:`) |
 | `router/artifacts.py` | Done | Artifacts router; upload, list, get, delete with ownership checks |
+| `tools/scheduler.py` | Done | `JobDispatcher`: polls every 30 s, fires due `scheduled_jobs` and `cron_jobs`; supports `agent:run` for multi-tool prompt-driven jobs |
 
 ### Infrastructure
 

@@ -481,38 +481,105 @@ uv run pytest tests/unit/test_client_display.py
 ## 5.8 — Scheduled Job Dispatcher
 
 Background task that fires pending `scheduled_jobs` and due `cron_jobs`
-at the right time.
+when the client is running.  The dispatcher lives **client-side** — tools
+execute on the user's own machine, never on the server.
+
+### Architecture
+
+```
+craftsman chat / telegram / daemon  (client process)
+  │
+  ├── agentic loop          (existing)
+  │
+  └── JobDispatcher         (background asyncio task, new)
+       │  polls DB every 30 s via direct StructureDB access
+       │  (client and server share the same local SQLite file)
+       │
+       ├── scheduled_job / cron_job with a single tool call
+       │    └── ToolExecutor.execute(name, args, session_id)
+       │         ├── local tools  → run on client machine (bash, text, …)
+       │         └── server tools → POST /tools/invoke   (memory, plan, …)
+       │
+       └── agent:run — multi-tool prompt-driven task
+            └── drives HTTP agentic loop against server
+                 POST /sessions/{id}/completion  (LLM call, server-side)
+                 ← tool_call events
+                 → ToolExecutor.execute per tool call   (client-side)
+                 → POST /sessions/{id}/tool_result
+                 repeat until content-only response
+```
+
+**Why client-side?**
+Running bash/text tools on the server would allow any authenticated user
+to execute arbitrary commands on the server filesystem.  The client is the
+user's own machine — the same security context as an interactive session.
 
 ### Files
 
 | Path | Change |
 |------|--------|
-| `src/craftsman/tools/scheduler.py` | `JobDispatcher` with `async run_loop()` |
-| `src/craftsman/server.py` | start `JobDispatcher` as FastAPI lifespan task |
+| `src/craftsman/tools/scheduler.py` | rewrite: `JobDispatcher(executor, db)` polls DB, dispatches via `ToolExecutor`; `_run_agent` drives HTTP loop |
+| `src/craftsman/server.py` | remove `JobDispatcher` from lifespan (server is queue only) |
+| `src/craftsman/client/chat.py` | spawn `JobDispatcher` background task on startup |
+| `src/craftsman/client/telegram.py` | same |
+| `src/craftsman/cli.py` | add `craftsman daemon` command — headless dispatcher without interactive chat |
+| `src/craftsman/tools/registry.py` | `agent:run` entry (`category: "agent"`, `audited: True`) |
+| `src/craftsman/memory/structure.py` | `user_id` on `scheduled_jobs` + `cron_jobs`; `last_result` on `cron_jobs` |
+| `src/craftsman/tools/schedule_tools.py` | resolve + pass `user_id` in `schedule_at` / `cron_create` |
 
 ### Design notes
 
-- `run_loop` polls every 30 s: `StructureDB.get_due_jobs()` → for each:
-  set `running`, parse `tool_call` JSON, `ToolExecutor.execute()`, store
-  result, set `done`/`failed`
-- Cron jobs: use `croniter` to check expression against `last_run`; same
-  execution pattern; update `last_run`
-- Server-level `ToolExecutor` (no session context) — memory/plan tools
-  operate with `session_id=None`
+- `JobDispatcher.__init__(executor: ToolExecutor, db: StructureDB)` — no
+  `Provider` or `Librarian`; LLM calls go through the server API
+- `run_loop` polls every 30 s; `get_due_jobs()` + `list_cron_jobs(active_only=True)`
+- Per job: create session on server (`POST /sessions`), execute, store
+  result, delete session
+- `_run_agent`: same HTTP streaming loop as `chat.py._agentic_loop`; reuse
+  or extract shared helper
+- `cron_jobs.last_result TEXT` — dispatcher writes JSON result after each
+  run; `cron:list` exposes it; user checks via CLI or API (no tool needed)
+
+#### User ownership
+
+`scheduled_jobs.user_id` and `cron_jobs.user_id` track who owns the job.
+Dispatcher creates a fresh session per job (`POST /sessions`), passes the
+session JWT for auth on tool calls, discards session after.
+
+#### `agent:run` tool
+
+```json
+{
+  "name": "agent:run",
+  "args": { "prompt": "Write a joke and append it to ~/jokes.txt" }
+}
+```
+
+The LLM drives the full tool loop.  Since the dispatcher uses
+`ToolExecutor`, the `text:insert` call above writes to `~/jokes.txt` on
+the **client machine**, exactly as if the user had typed it interactively.
 
 ### Checklist
 
-- [ ] `src/craftsman/tools/scheduler.py` — `JobDispatcher.run_loop()`
-- [ ] `server.py` — lifespan startup/shutdown for `JobDispatcher`
-- [ ] Cron expression checked via `croniter`
-- [ ] `tests/unit/tools/test_scheduler.py` — mock due jobs, verify execute
-      called, status updated
+- [x] `memory/structure.py` — `user_id` on both job tables; `schedule_job`
+      and `create_cron_job` updated
+- [x] `tools/schedule_tools.py` — `user_id` resolved from session
+- [x] `tools/registry.py` — `agent:run` entry added
+- [ ] `server.py` — remove `JobDispatcher` from lifespan
+- [ ] `tools/scheduler.py` — rewrite: `JobDispatcher(executor, db)`;
+      `_run_scheduled`, `_run_cron`, `_run_agent` via HTTP loop
+- [ ] `client/chat.py` — spawn dispatcher background task
+- [ ] `client/telegram.py` — same
+- [ ] `cli.py` — `craftsman daemon` command
+- [ ] `tests/unit/tools/test_scheduler.py` — update mocks to use
+      `ToolExecutor` instead of dispatch tables
 
 ### Verify
 
 ```bash
 uv run pytest tests/unit/tools/test_scheduler.py
-# Manual: schedule bash:ls /tmp for 30 s, wait, check DB status=done
+# Manual: craftsman daemon &
+# schedule bash:ls /tmp for 30 s, wait, check DB status=done, result populated
+# schedule agent:run {"prompt": "append date to /tmp/log.txt"} for 30 s
 ```
 
 ---
