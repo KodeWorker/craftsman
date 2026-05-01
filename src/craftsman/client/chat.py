@@ -3,6 +3,7 @@ import difflib
 import json
 import os
 import re
+import shutil
 import threading
 import time
 from enum import Enum
@@ -355,53 +356,59 @@ class Client(SessionsClient, ArtifactsClient):
         except Exception:
             diff = []
         if diff:
+            cols = shutil.get_terminal_size(fallback=(80, 24)).columns
             width = len(str(max(len(orig), len(new), 1)))
             old_n = new_n = 0
             for raw in diff:
                 ln = raw.rstrip("\n")
                 pad = " " * width
                 if ln.startswith("---") or ln.startswith("+++"):
-                    print(Style.BRIGHT + f"{pad} {ln}" + Style.RESET_ALL)
+                    print(
+                        Style.BRIGHT
+                        + f"{pad} {ln}".ljust(cols)
+                        + Style.RESET_ALL
+                    )
                 elif ln.startswith("@@"):
                     m = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", ln)
                     if m:
                         old_n = int(m.group(1)) - 1
                         new_n = int(m.group(2)) - 1
-                    print(Fore.CYAN + f"{pad} {ln}" + Style.RESET_ALL)
+                    print(
+                        Fore.CYAN + f"{pad} {ln}".ljust(cols) + Style.RESET_ALL
+                    )
                 elif ln.startswith("-"):
                     old_n += 1
                     num = str(old_n).rjust(width)
+                    body = f" {ln}".ljust(cols - width)
                     print(
                         Back.LIGHTRED_EX
                         + Fore.BLACK
                         + num
                         + Style.RESET_ALL
                         + Back.RED
-                        + f" {ln}"
+                        + body
                         + Style.RESET_ALL
                     )
                 elif ln.startswith("+"):
                     new_n += 1
                     num = str(new_n).rjust(width)
+                    body = f" {ln}".ljust(cols - width)
                     print(
                         Back.LIGHTGREEN_EX
                         + Fore.BLACK
                         + num
                         + Style.RESET_ALL
                         + Back.GREEN
-                        + f" {ln}"
+                        + body
                         + Style.RESET_ALL
                     )
                 else:
                     old_n += 1
                     new_n += 1
                     num = str(new_n).rjust(width)
+                    body = f" {ln}".ljust(cols - width)
                     print(
-                        Back.WHITE
-                        + Fore.BLACK
-                        + num
-                        + Style.RESET_ALL
-                        + f" {ln}"
+                        Back.WHITE + Fore.BLACK + num + Style.RESET_ALL + body
                     )
         print(
             Fore.YELLOW
