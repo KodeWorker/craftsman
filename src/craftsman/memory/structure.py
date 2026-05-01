@@ -124,13 +124,14 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
 );
 
 CREATE TABLE IF NOT EXISTS cron_jobs (
-    id         TEXT PRIMARY KEY,
-    user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
-    expression TEXT NOT NULL,
-    tool_call  TEXT NOT NULL,
-    active     INTEGER NOT NULL DEFAULT 1,
-    last_run   TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+    expression  TEXT NOT NULL,
+    tool_call   TEXT NOT NULL,
+    active      INTEGER NOT NULL DEFAULT 1,
+    last_run    TEXT,
+    last_result TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 """
@@ -672,10 +673,14 @@ class StructureDB:
             "SELECT * FROM cron_jobs ORDER BY created_at"
         ).fetchall()
 
-    def update_cron_last_run(self, cron_id: str) -> None:
+    def update_cron_last_run(
+        self, cron_id: str, result: str | None = None
+    ) -> None:
         self.conn.execute(
-            "UPDATE cron_jobs SET last_run = datetime('now') WHERE id = ?",
-            (cron_id,),
+            "UPDATE cron_jobs"
+            " SET last_run = datetime('now'), last_result = ?"
+            " WHERE id = ?",
+            (result, cron_id),
         )
         self.conn.commit()
 

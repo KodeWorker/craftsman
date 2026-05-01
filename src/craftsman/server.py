@@ -6,6 +6,7 @@ from craftsman.memory.librarian import Librarian
 from craftsman.provider import Provider
 from craftsman.router.artifacts import ArtifactsRouter
 from craftsman.router.deps import _crypto
+from craftsman.router.jobs import JobsRouter
 from craftsman.router.sessions import SessionsRouter
 from craftsman.router.tools import ToolsRouter
 
@@ -29,9 +30,11 @@ class Server:
         )
         self.artifacts_router = ArtifactsRouter(self.librarian)
         self.tools_router = ToolsRouter(self.librarian)
+        self.jobs_router = JobsRouter(self.librarian)
         self.app.include_router(self.sessions_router.router)
         self.app.include_router(self.artifacts_router.router)
         self.app.include_router(self.tools_router.router)
+        self.app.include_router(self.jobs_router.router)
 
     async def health_check(self) -> dict:
         return {"status": "ok"}

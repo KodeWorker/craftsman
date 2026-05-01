@@ -643,6 +643,19 @@ class Client(SessionsClient, ArtifactsClient):
                 )
                 return
 
+    def _start_dispatcher(self, token: str) -> None:
+        import threading
+
+        from craftsman.tools.scheduler import JobDispatcher
+
+        dispatcher = JobDispatcher(self.entry_point, token)
+
+        def _run():
+            asyncio.run(dispatcher.run_loop())
+
+        threading.Thread(target=_run, daemon=True).start()
+        self.logger.info("Job dispatcher started.")
+
     def chat(self, session_id: str = None):
         self.logger.info(f"Connecting to server at {self.entry_point}...")
 
@@ -666,6 +679,7 @@ class Client(SessionsClient, ArtifactsClient):
             return
 
         self._seed_tools()
+        self._start_dispatcher(token)
 
         if not session_id:
             response = self._request("post", f"{self.entry_point}/sessions/")

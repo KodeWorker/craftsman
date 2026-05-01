@@ -90,6 +90,12 @@ class TelegramClient:
     async def _seed_tools(self) -> None:
         await self._request("post", f"{self._entry_point}/tools/seed")
 
+    async def _run_dispatcher(self) -> None:
+        from craftsman.tools.scheduler import JobDispatcher
+
+        dispatcher = JobDispatcher(self._entry_point, self._jwt)
+        await dispatcher.run_loop()
+
     async def _reset_provider(self) -> None:
         cfg = self.config.get("provider", {})
         await self._request(
@@ -897,6 +903,7 @@ class TelegramClient:
                 return
             await self._reset_provider()
             await self._seed_tools()
+            asyncio.create_task(self._run_dispatcher())
 
             if not self._state["session_id"]:
                 sid = await self._create_session()

@@ -135,13 +135,14 @@ CREATE TABLE scheduled_jobs (
 
 -- Cron jobs: recurring tool calls
 CREATE TABLE cron_jobs (
-  id         TEXT PRIMARY KEY,  -- UUID
-  user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
-  expression TEXT NOT NULL,     -- standard cron expression
-  tool_call  TEXT NOT NULL,     -- JSON {name, args}
-  active     INTEGER NOT NULL DEFAULT 1,
-  last_run   TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  id          TEXT PRIMARY KEY,  -- UUID
+  user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+  expression  TEXT NOT NULL,     -- standard cron expression
+  tool_call   TEXT NOT NULL,     -- JSON {name, args}
+  active      INTEGER NOT NULL DEFAULT 1,
+  last_run    TEXT,
+  last_result TEXT,              -- JSON result from most recent run
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 ```
 

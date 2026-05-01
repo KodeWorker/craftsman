@@ -564,14 +564,18 @@ the **client machine**, exactly as if the user had typed it interactively.
       and `create_cron_job` updated
 - [x] `tools/schedule_tools.py` — `user_id` resolved from session
 - [x] `tools/registry.py` — `agent:run` entry added
-- [ ] `server.py` — remove `JobDispatcher` from lifespan
-- [ ] `tools/scheduler.py` — rewrite: `JobDispatcher(executor, db)`;
-      `_run_scheduled`, `_run_cron`, `_run_agent` via HTTP loop
-- [ ] `client/chat.py` — spawn dispatcher background task
-- [ ] `client/telegram.py` — same
-- [ ] `cli.py` — `craftsman daemon` command
-- [ ] `tests/unit/tools/test_scheduler.py` — update mocks to use
-      `ToolExecutor` instead of dispatch tables
+- [x] `server.py` — `JobDispatcher` never on server; `router/jobs.py` added
+      (`GET /jobs/due`, `POST /jobs/scheduled/{id}/result`,
+      `POST /jobs/cron/{id}/result`)
+- [x] `memory/structure.py` — `last_result` on `cron_jobs`;
+      `update_cron_last_run(cron_id, result)` updated
+- [x] `tools/scheduler.py` — rewrite: `JobDispatcher(base_url, token)`;
+      polls `/jobs/due`, dispatches via `_LOCAL_DISPATCH` or `/tools/invoke`,
+      `_run_agent` via HTTP streaming loop
+- [x] `client/chat.py` — `_start_dispatcher(token)` spawns background thread
+- [x] `client/telegram.py` — `_run_dispatcher()` as asyncio task
+- [x] `cli.py` — `craftsman daemon` command
+- [x] `tests/unit/tools/test_scheduler.py` — 16 tests; mocks HTTP layer
 
 ### Verify
 
