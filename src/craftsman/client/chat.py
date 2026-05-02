@@ -644,8 +644,6 @@ class Client(SessionsClient, ArtifactsClient):
                 return
 
     def _start_dispatcher(self, token: str) -> None:
-        import threading
-
         from craftsman.tools.scheduler import JobDispatcher
 
         dispatcher = JobDispatcher(self.entry_point, token)

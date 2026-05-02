@@ -631,7 +631,15 @@ class StructureDB:
         self.conn.commit()
         return jid
 
-    def get_due_jobs(self) -> list[sqlite3.Row]:
+    def get_due_jobs(self, user_id: str | None = None) -> list[sqlite3.Row]:
+        if user_id:
+            return self.conn.execute(
+                "SELECT * FROM scheduled_jobs"
+                " WHERE status = 'pending' AND run_at <= datetime('now')"
+                " AND user_id = ?"
+                " ORDER BY run_at ASC",
+                (user_id,),
+            ).fetchall()
         return self.conn.execute(
             "SELECT * FROM scheduled_jobs"
             " WHERE status = 'pending' AND run_at <= datetime('now')"
@@ -664,10 +672,24 @@ class StructureDB:
         self.conn.commit()
         return cid
 
-    def list_cron_jobs(self, active_only: bool = True) -> list[sqlite3.Row]:
+    def list_cron_jobs(
+        self, active_only: bool = True, user_id: str | None = None
+    ) -> list[sqlite3.Row]:
+        if active_only and user_id:
+            return self.conn.execute(
+                "SELECT * FROM cron_jobs WHERE active = 1 AND user_id = ?"
+                " ORDER BY created_at",
+                (user_id,),
+            ).fetchall()
         if active_only:
             return self.conn.execute(
                 "SELECT * FROM cron_jobs WHERE active = 1 ORDER BY created_at"
+            ).fetchall()
+        if user_id:
+            return self.conn.execute(
+                "SELECT * FROM cron_jobs"
+                " WHERE user_id = ? ORDER BY created_at",
+                (user_id,),
             ).fetchall()
         return self.conn.execute(
             "SELECT * FROM cron_jobs ORDER BY created_at"

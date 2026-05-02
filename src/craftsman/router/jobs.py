@@ -1,4 +1,5 @@
 import json
+import logging
 from datetime import datetime, timezone
 
 from croniter import croniter
@@ -12,6 +13,7 @@ class JobsRouter:
     def __init__(self, librarian: Librarian):
         self.librarian = librarian
         self.db = librarian.structure_db
+        self.logger = logging.getLogger(__name__)
         self.router = APIRouter(prefix="/jobs", tags=["jobs"])
         self.router.get("/due")(self.get_due)
         self.router.post("/scheduled/{job_id}/result")(self.scheduled_result)
@@ -19,13 +21,13 @@ class JobsRouter:
 
     async def get_due(self, user_id: str = Depends(get_current_user)) -> dict:
         scheduled = []
-        for job in self.db.get_due_jobs():
+        for job in self.db.get_due_jobs(user_id=user_id):
             self.db.update_job_status(job["id"], "running")
             scheduled.append(dict(job))
 
         now = datetime.now(timezone.utc)
         cron = []
-        for job in self.db.list_cron_jobs(active_only=True):
+        for job in self.db.list_cron_jobs(active_only=True, user_id=user_id):
             try:
                 base_str = job["last_run"] or job["created_at"]
                 base_dt = datetime.fromisoformat(base_str).replace(
@@ -34,8 +36,8 @@ class JobsRouter:
                 c = croniter(job["expression"], base_dt)
                 if c.get_next(datetime) <= now:
                     cron.append(dict(job))
-            except Exception:
-                pass
+            except Exception as e:
+                self.logger.warning(f"Skipping cron job {job['id']}: {e}")
 
         return {"scheduled": scheduled, "cron": cron}
 

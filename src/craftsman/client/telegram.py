@@ -329,10 +329,8 @@ class TelegramClient:
         else:
             return ""
 
-        # pass 0 = first tool round; passes 1..max_loops-1 = subsequent
-        # guard at tool_round >= max_loops mirrors chat.py's agentic_loop
-        for tool_round in range(max_loops + 1):
-            if not tool_calls or tool_round >= max_loops:
+        for _ in range(max_loops):
+            if not tool_calls:
                 break
             tool_results = []
             for tc in tool_calls:
