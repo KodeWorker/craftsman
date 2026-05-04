@@ -308,7 +308,8 @@ _TOOLS: list[dict] = [
         "description": (
             "Run an arbitrary shell command on Linux/macOS"
             " (tokenised via shlex — no shell, so redirections and pipes"
-            " do not work); use text:* tools for file reads/writes"
+            " do not work); do NOT use to read or write files —"
+            " use text:read / text:insert / text:replace instead"
         ),
         "category": "bash",
         "audited": True,
@@ -333,7 +334,8 @@ _TOOLS: list[dict] = [
         "description": (
             "Run a PowerShell command on Windows"
             " for operations like rm, mv, cp, mkdir, Get-Date, etc.;"
-            " use text:* tools for file reads/writes"
+            " do NOT use to read or write files —"
+            " use text:read / text:insert / text:replace instead"
         ),
         "category": "bash",
         "audited": True,
@@ -431,9 +433,9 @@ _TOOLS: list[dict] = [
     {
         "name": "text:insert",
         "description": (
-            "Insert lines at a specific line number."
-            " Use line_num=1 on a non-existent file to create it."
-            " Creates a .bak before writing to existing files"
+            "Create a new file or insert lines into an existing one."
+            " Use line_num=1 to create a file (works on non-existent paths)."
+            " Creates a .bak before modifying existing files"
         ),
         "category": "text",
         "audited": True,
