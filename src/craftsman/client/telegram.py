@@ -90,10 +90,51 @@ class TelegramClient:
     async def _seed_tools(self) -> None:
         await self._request("post", f"{self._entry_point}/tools/seed")
 
+    async def _drain_job_results(self, queue: asyncio.Queue) -> None:
+        while True:
+            name, result = await queue.get()
+            while not self._app or not self._state.get("chat_id"):
+                await asyncio.sleep(0.5)
+            if "content" in result:
+                text = result["content"]
+            elif "output" in result:
+                text = result["output"]
+            elif "error" in result:
+                text = f"error: {result['error']}"
+            else:
+                text = json.dumps(result, indent=2)
+            label = f"[job: {name}]"
+            sid = self._state.get("session_id")
+            if sid:
+                try:
+                    await self._request(
+                        "post",
+                        f"{self._entry_point}/sessions/{sid}/inject",
+                        json={
+                            "role": "assistant",
+                            "content": f"{label}\n{text}",
+                        },
+                    )
+                except Exception as e:
+                    print(f"[job inject error] {e}")
+            await self._app.bot.send_message(
+                self._state["chat_id"], f"{label}\n{text}"
+            )
+            queue.task_done()
+
     async def _run_dispatcher(self) -> None:
+        from craftsman.tools.registry import register_agent_runner
         from craftsman.tools.scheduler import JobDispatcher
 
-        dispatcher = JobDispatcher(self._entry_point, self._jwt)
+        register_agent_runner(self._entry_point, self._jwt)
+
+        queue: asyncio.Queue = asyncio.Queue()
+        asyncio.create_task(self._drain_job_results(queue))
+
+        async def _on_result(name: str, result: dict) -> None:
+            await queue.put((name, result))
+
+        dispatcher = JobDispatcher(self._entry_point, self._jwt, _on_result)
         await dispatcher.run_loop()
 
     async def _reset_provider(self) -> None:

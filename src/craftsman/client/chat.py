@@ -650,10 +650,46 @@ class Client(SessionsClient, ArtifactsClient):
                 )
                 return
 
-    def _start_dispatcher(self, token: str) -> None:
+    def _start_dispatcher(self, token: str, session_holder: dict) -> None:
+        import httpx
+        from prompt_toolkit.patch_stdout import patch_stdout
+
+        from craftsman.tools.registry import register_agent_runner
         from craftsman.tools.scheduler import JobDispatcher
 
-        dispatcher = JobDispatcher(self.entry_point, token)
+        register_agent_runner(self.entry_point, token)
+
+        entry = self.entry_point
+        headers = {"Authorization": f"Bearer {token}"}
+
+        async def _on_result(name: str, result: dict) -> None:
+            if "content" in result:
+                text = result["content"]
+            elif "output" in result:
+                text = result["output"]
+            elif "error" in result:
+                text = f"error: {result['error']}"
+            else:
+                text = json.dumps(result, indent=2)
+            label = f"[job: {name}]"
+            sid = session_holder.get("session_id")
+            if sid:
+                try:
+                    async with httpx.AsyncClient(timeout=10.0) as http:
+                        await http.post(
+                            f"{entry}/sessions/{sid}/inject",
+                            json={
+                                "role": "assistant",
+                                "content": f"{label}\n{text}",
+                            },
+                            headers=headers,
+                        )
+                except Exception as e:
+                    self.logger.error(f"inject failed: {e}")
+            with patch_stdout():
+                print(f"\n[job: {name}]\nassistant:\n{text}\n")
+
+        dispatcher = JobDispatcher(self.entry_point, token, _on_result)
 
         def _run():
             asyncio.run(dispatcher.run_loop())
@@ -684,17 +720,20 @@ class Client(SessionsClient, ArtifactsClient):
             return
 
         self._seed_tools()
-        self._start_dispatcher(token)
+        session_holder: dict = {}
+        self._start_dispatcher(token, session_holder)
 
         if not session_id:
             response = self._request("post", f"{self.entry_point}/sessions/")
             session_id = response.json().get("session_id", "")
+            session_holder["session_id"] = session_id
         else:
             response = self._request(
                 "post",
                 f"{self.entry_point}/sessions/{session_id}/resume",
             )
             if response.status_code == 200:
+                session_holder["session_id"] = session_id
                 data = response.json()
                 status = data.get("status", "")
                 messages = data.get("messages", [])

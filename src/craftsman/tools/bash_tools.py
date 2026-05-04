@@ -69,7 +69,9 @@ def _human_size(n: int) -> str:
 
 
 async def bash_ls(args: dict) -> dict:
-    path = args["path"]
+    path = args.get("path", ".")
+    if not path:
+        path = "."
     recursive = args.get("recursive", False)
     root = pathlib.Path(path)
     if not root.exists():

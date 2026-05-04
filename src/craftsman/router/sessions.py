@@ -37,6 +37,7 @@ class SessionsRouter:
         self.router.post("/{session_id}/resume")(self.resume_session)
         self.router.post("/{session_id}/clear")(self.clear_session)
         self.router.post("/{session_id}/compact")(self.compact_session)
+        self.router.post("/{session_id}/inject")(self.inject_message)
         self.router.delete("/{session_id}")(self.delete_session)
 
     def __check_owner(self, session_id: str, user_id: str):
@@ -381,6 +382,21 @@ class SessionsRouter:
             "meta": meta,
             "messages": [dict(m) for m in messages],
         }
+
+    async def inject_message(
+        self,
+        session_id: str,
+        request: Request,
+        user_id: str = Depends(get_current_user),
+    ) -> dict:
+        self.__check_owner(session_id, user_id)
+        body = await request.json()
+        role = body.get("role", "assistant")
+        content = body.get("content", "")
+        message = {"role": role, "content": content}
+        self.librarian.push_context(session_id, message)
+        self.librarian.store_message(session_id, message)
+        return {"ok": True}
 
     async def clear_session(
         self,

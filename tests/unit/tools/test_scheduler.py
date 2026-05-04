@@ -1,6 +1,7 @@
 import json
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from craftsman.tools.agent_tools import make_agent_runner
 from craftsman.tools.scheduler import JobDispatcher
 
 
@@ -178,29 +179,38 @@ async def test_run_cron_empty_list_is_noop():
     d._run_job.assert_not_awaited()
 
 
-# ── _run_agent ────────────────────────────────────────────────────────────
+# ── make_agent_runner ─────────────────────────────────────────────────────
 
 
 async def test_run_agent_empty_prompt_returns_error():
-    d = _make_dispatcher()
-    result = await d._run_agent({"prompt": "  "}, "sid")
+    runner = make_agent_runner("http://localhost:6969", "test-token")
+    result = await runner({"prompt": "  "})
     assert "error" in result
 
 
 async def test_run_agent_no_tool_calls_returns_content():
-    d = _make_dispatcher()
+    runner = make_agent_runner("http://localhost:6969", "test-token")
 
     def _stream_ctx(*a, **kw):
         return _make_stream_ctx([{"kind": "content", "text": "hello"}])
 
-    d._http.stream = _stream_ctx
+    mock_client = AsyncMock()
+    mock_client.post.return_value = _ok_resp({"session_id": "sub-sid"})
+    mock_client.stream = _stream_ctx
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
 
-    result = await d._run_agent({"prompt": "say hi"}, "sid")
+    with patch(
+        "craftsman.tools.agent_tools.httpx.AsyncClient",
+        return_value=mock_client,
+    ):
+        result = await runner({"prompt": "say hi"})
+
     assert result == {"content": "hello"}
 
 
 async def test_run_agent_executes_tool_calls():
-    d = _make_dispatcher()
+    runner = make_agent_runner("http://localhost:6969", "test-token")
 
     call_count = 0
 
@@ -221,13 +231,22 @@ async def test_run_agent_executes_tool_calls():
         )
         return _make_stream_ctx(lines)
 
-    d._http.stream = _stream_ctx
+    mock_client = AsyncMock()
+    mock_client.post.return_value = _ok_resp({"session_id": "sub-sid"})
+    mock_client.stream = _stream_ctx
+    mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+    mock_client.__aexit__ = AsyncMock(return_value=False)
+
     mock_fn = AsyncMock(return_value={"output": "files"})
 
-    with patch.dict(
-        "craftsman.tools.scheduler._LOCAL_DISPATCH", {"bash:ls": mock_fn}
+    with patch(
+        "craftsman.tools.agent_tools.httpx.AsyncClient",
+        return_value=mock_client,
     ):
-        result = await d._run_agent({"prompt": "list"}, "sid")
+        with patch.dict(
+            "craftsman.tools.executor._LOCAL_DISPATCH", {"bash:ls": mock_fn}
+        ):
+            result = await runner({"prompt": "list"})
 
     assert result == {"content": "done"}
     mock_fn.assert_awaited_once()

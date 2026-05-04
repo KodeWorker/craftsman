@@ -597,7 +597,12 @@ _TOOLS: list[dict] = [
             "properties": {
                 "expression": {
                     "type": "string",
-                    "description": "Standard cron expression, e.g. 0 3 * * *",
+                    "description": (
+                        "Standard cron expression (5 fields: minute hour"
+                        " day month weekday). Minimum interval is 1 minute."
+                        " Examples: '*/5 * * * *' = every 5 min,"
+                        " '0 3 * * *' = daily at 03:00."
+                    ),
                 },
                 "tool_call": {
                     "type": "object",
@@ -800,6 +805,13 @@ def _enabled_tools() -> list[dict]:
             continue
         result.append(t)
     return result
+
+
+def register_agent_runner(base_url: str, token: str) -> None:
+    from craftsman.tools.agent_tools import make_agent_runner
+    from craftsman.tools.executor import _LOCAL_DISPATCH
+
+    _LOCAL_DISPATCH["agent:run"] = make_agent_runner(base_url, token)
 
 
 def seed_registry(db: StructureDB) -> None:
