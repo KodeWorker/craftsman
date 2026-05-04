@@ -307,7 +307,8 @@ _TOOLS: list[dict] = [
         "name": "bash:run",
         "description": (
             "Run an arbitrary shell command on Linux/macOS"
-            " (tokenised via shlex); use powershell:run on Windows"
+            " (tokenised via shlex — no shell, so redirections and pipes"
+            " do not work); use text:* tools for file reads/writes"
         ),
         "category": "bash",
         "audited": True,
@@ -330,8 +331,9 @@ _TOOLS: list[dict] = [
     {
         "name": "powershell:run",
         "description": (
-            "Run a PowerShell command; prefer this over bash:run on Windows"
-            " for commands like rm, mv, cp, ls, mkdir, Get-Date, etc."
+            "Run a PowerShell command on Windows"
+            " for operations like rm, mv, cp, mkdir, Get-Date, etc.;"
+            " use text:* tools for file reads/writes"
         ),
         "category": "bash",
         "audited": True,
@@ -787,7 +789,16 @@ def _enabled_tools() -> list[dict]:
 
 
 def seed_registry(db: StructureDB) -> None:
-    for t in _enabled_tools():
+    enabled = _enabled_tools()
+    enabled_names = {t["name"] for t in enabled}
+    db.conn.execute(
+        "DELETE FROM tools WHERE name NOT IN ({})".format(
+            ",".join("?" * len(enabled_names))
+        ),
+        list(enabled_names),
+    )
+    db.conn.commit()
+    for t in enabled:
         db.register_tool(
             name=t["name"],
             description=t["description"],
