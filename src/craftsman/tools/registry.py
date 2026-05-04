@@ -1,5 +1,6 @@
 # flake8: noqa: E501
 import json
+import sys
 
 from craftsman.configure import get_config
 from craftsman.memory.structure import StructureDB
@@ -305,17 +306,42 @@ _TOOLS: list[dict] = [
     {
         "name": "bash:run",
         "description": (
-            "Run an arbitrary shell command (tokenised via shlex, "
-            "never shell=True); use named bash:* tools first"
+            "Run an arbitrary shell command on Linux/macOS"
+            " (tokenised via shlex); use powershell:run on Windows"
         ),
         "category": "bash",
         "audited": True,
+        "platform": ["linux", "darwin"],
         "parameters": {
             "type": "object",
             "properties": {
                 "cmd": {
                     "type": "string",
                     "description": "Command string to execute",
+                },
+                "max_lines": {
+                    "type": "integer",
+                    "description": "Maximum output lines to return",
+                },
+            },
+            "required": ["cmd"],
+        },
+    },
+    {
+        "name": "powershell:run",
+        "description": (
+            "Run a PowerShell command; prefer this over bash:run on Windows"
+            " for commands like rm, mv, cp, ls, mkdir, Get-Date, etc."
+        ),
+        "category": "bash",
+        "audited": True,
+        "platform": ["win32"],
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "cmd": {
+                    "type": "string",
+                    "description": "PowerShell command string to execute",
                 },
                 "max_lines": {
                     "type": "integer",
@@ -748,6 +774,9 @@ def _enabled_tools() -> list[dict]:
     explicitly_disabled: set[str] = set(cfg.get("disabled", []))
     result = []
     for t in _TOOLS:
+        platforms = t.get("platform")
+        if platforms and sys.platform not in platforms:
+            continue
         cat_cfg = cfg.get(t["category"], {})
         if not cat_cfg.get("enabled", True):
             continue

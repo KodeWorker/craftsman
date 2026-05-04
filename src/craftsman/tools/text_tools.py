@@ -128,12 +128,39 @@ async def text_replace(args: dict) -> dict:
     new = args["new_string"]
     with open(file, "r", errors="replace") as f:
         content = f.read()
+
+    # Exact match
     count = content.count(old)
-    if count == 0:
-        return {"error": f"String not found in {file}"}
     if count > 1:
         return {"error": f"String found {count} times — must be unique"}
-    tmp = _write_tmp(file, content.replace(old, new, 1))
+    if count == 1:
+        tmp = _write_tmp(file, content.replace(old, new, 1))
+        return {"status": "pending", "tmp": tmp, "file": file}
+
+    # Fallback: line-by-line match ignoring trailing whitespace
+    file_lines = content.splitlines(keepends=True)
+    old_lines = [ln.rstrip() for ln in old.splitlines()]
+    n = len(old_lines)
+    if n == 0:
+        return {"error": f"String not found in {file}"}
+
+    found = -1
+    for i in range(len(file_lines) - n + 1):
+        chunk = [file_lines[i + j].rstrip() for j in range(n)]
+        if chunk == old_lines:
+            if found != -1:
+                return {
+                    "error": "String found multiple times — must be unique"
+                }
+            found = i
+
+    if found == -1:
+        return {"error": f"String not found in {file}"}
+
+    prefix = "".join(file_lines[:found])
+    suffix = "".join(file_lines[found + n :])
+    insertion = new if new.endswith("\n") or not suffix else new + "\n"
+    tmp = _write_tmp(file, prefix + insertion + suffix)
     return {"status": "pending", "tmp": tmp, "file": file}
 
 

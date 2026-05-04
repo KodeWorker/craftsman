@@ -14,6 +14,7 @@ from craftsman.provider import Provider
 from craftsman.router.deps import get_current_user
 
 _AUDIO_FMT = {"mpeg": "mp3", "x-wav": "wav", "wave": "wav"}
+_DEFAULT_SYSTEM = "You are a helpful assistant with access to tools."
 
 
 class SessionsRouter:
@@ -113,6 +114,10 @@ class SessionsRouter:
         original_content: str = "",
     ):
         context = self.librarian.get_context(session_id)
+        if not any(m.get("role") == "system" for m in context):
+            context = [
+                {"role": "system", "content": _DEFAULT_SYSTEM}
+            ] + context
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         tool_calls: list[dict] = []
