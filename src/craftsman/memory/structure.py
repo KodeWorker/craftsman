@@ -605,17 +605,22 @@ class StructureDB:
         ).fetchone()
 
     def search_tools(self, keyword: str) -> list[sqlite3.Row]:
-        escaped = (
-            keyword.replace("\\", "\\\\")
-            .replace("%", "\\%")
-            .replace("_", "\\_")
+        def _esc(w: str) -> str:
+            return (
+                w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            )
+
+        words = keyword.split()
+        if not words:
+            return []
+        clauses = " OR ".join(
+            "(name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')"
+            for _ in words
         )
-        pattern = f"%{escaped}%"
+        params = [f"%{_esc(w)}%" for w in words for _ in (0, 1)]
         return self.conn.execute(
-            "SELECT * FROM tools"
-            " WHERE name LIKE ? OR description LIKE ?"
-            " ESCAPE '\\' ORDER BY name",
-            (pattern, pattern),
+            f"SELECT * FROM tools WHERE {clauses} ORDER BY name",
+            params,
         ).fetchall()
 
     def list_tools(self, category: str = None) -> list[sqlite3.Row]:

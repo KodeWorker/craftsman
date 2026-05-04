@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timedelta, timezone
 
 import pytest
@@ -50,7 +51,8 @@ async def test_schedule_at_normalizes_to_utc(db):
         SESSION,
     )
     assert "job_id" in result
-    assert result["run_at"].endswith("+00:00")
+    # stored as SQLite-compatible UTC: YYYY-MM-DD HH:MM:SS
+    assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$", result["run_at"])
 
 
 async def test_schedule_at_invalid_datetime(db):
@@ -58,6 +60,43 @@ async def test_schedule_at_invalid_datetime(db):
         {"run_at": "not-a-date", "tool_call": {}}, db, SESSION
     )
     assert "error" in result
+
+
+async def test_schedule_at_relative_minutes(db):
+    result = await schedule_at(
+        {"run_at": "+2m", "tool_call": {"name": "bash:ls", "args": {}}},
+        db,
+        SESSION,
+    )
+    assert "job_id" in result
+    assert re.match(r"^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$", result["run_at"])
+
+
+async def test_schedule_at_relative_seconds(db):
+    result = await schedule_at(
+        {"run_at": "+30s", "tool_call": {"name": "bash:ls", "args": {}}},
+        db,
+        SESSION,
+    )
+    assert "job_id" in result
+
+
+async def test_schedule_at_relative_hours(db):
+    result = await schedule_at(
+        {"run_at": "+1h", "tool_call": {"name": "bash:ls", "args": {}}},
+        db,
+        SESSION,
+    )
+    assert "job_id" in result
+
+
+async def test_schedule_at_relative_days(db):
+    result = await schedule_at(
+        {"run_at": "+1d", "tool_call": {"name": "bash:ls", "args": {}}},
+        db,
+        SESSION,
+    )
+    assert "job_id" in result
 
 
 # --- schedule:list / cancel ---

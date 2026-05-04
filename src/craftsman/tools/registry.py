@@ -60,7 +60,7 @@ _TOOLS: list[dict] = [
     {
         "name": "tool:find",
         "description": (
-            "Search tools by intent and inject the best match into the"
+            "Search tools by keyword and inject the best match into the"
             " active tool list for the next turn"
         ),
         "category": "meta",
@@ -68,12 +68,15 @@ _TOOLS: list[dict] = [
         "parameters": {
             "type": "object",
             "properties": {
-                "intent": {
+                "keyword": {
                     "type": "string",
-                    "description": "Natural language description of what you need",
+                    "description": (
+                        "Keyword to match against tool names"
+                        " and descriptions"
+                    ),
                 }
             },
-            "required": ["intent"],
+            "required": ["keyword"],
         },
     },
     {
@@ -534,7 +537,12 @@ _TOOLS: list[dict] = [
     # ── schedule ─────────────────────────────────────────────────────────
     {
         "name": "schedule:at",
-        "description": "Run a tool call once at a specific datetime (ISO 8601)",
+        "description": (
+            "Run a tool call once at a specific time —"
+            " prefer relative offsets (+2m, +1h, +30s)"
+            " so you don't need to know the current time;"
+            " ISO 8601 datetime also accepted"
+        ),
         "category": "schedule",
         "audited": True,
         "parameters": {
@@ -542,7 +550,10 @@ _TOOLS: list[dict] = [
             "properties": {
                 "run_at": {
                     "type": "string",
-                    "description": "ISO 8601 datetime, e.g. 2026-05-01T09:00:00",
+                    "description": (
+                        "Relative offset (+2m, +1h, +30s, +1d)"
+                        " or ISO 8601 datetime"
+                    ),
                 },
                 "tool_call": {
                     "type": "object",

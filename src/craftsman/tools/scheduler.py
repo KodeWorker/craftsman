@@ -21,10 +21,11 @@ class JobDispatcher:
     streaming completion loop.
     """
 
-    def __init__(self, base_url: str, token: str):
+    def __init__(self, base_url: str, token: str, on_result=None):
         self.base_url = base_url.rstrip("/")
         self.token = token
         self._http: httpx.AsyncClient | None = None
+        self._on_result = on_result  # async callable(name, result) | None
 
     @property
     def _headers(self) -> dict:
@@ -160,6 +161,13 @@ class JobDispatcher:
         await self._run_scheduled(data.get("scheduled", []))
         await self._run_cron(data.get("cron", []))
 
+    async def _notify(self, name: str, result: dict) -> None:
+        if self._on_result:
+            try:
+                await self._on_result(name, result)
+            except Exception as e:
+                _log.error(f"on_result callback error: {e}")
+
     async def _run_scheduled(self, jobs: list[dict]) -> None:
         for job in jobs:
             job_id = job["id"]
@@ -173,12 +181,16 @@ class JobDispatcher:
                     headers=self._headers,
                 )
                 _log.info(f"Job {job_id}: {tc['name']} → {status}")
+                await self._notify(tc["name"], result)
             except Exception as e:
                 _log.error(f"Job {job_id} failed: {e}")
                 await self._http.post(
                     f"{self.base_url}/jobs/scheduled/{job_id}/result",
                     json={"status": "failed", "result": {"error": str(e)}},
                     headers=self._headers,
+                )
+                await self._notify(
+                    job.get("tool_call", "?"), {"error": str(e)}
                 )
 
     async def _run_cron(self, jobs: list[dict]) -> None:
@@ -197,10 +209,14 @@ class JobDispatcher:
                     f"Cron {cron_id} ({job['expression']}):"
                     f" {tc['name']} → {outcome}"
                 )
+                await self._notify(tc["name"], result)
             except Exception as e:
                 _log.error(f"Cron {cron_id} error: {e}")
                 await self._http.post(
                     f"{self.base_url}/jobs/cron/{cron_id}/result",
                     json={"result": {"error": str(e)}},
                     headers=self._headers,
+                )
+                await self._notify(
+                    job.get("tool_call", "?"), {"error": str(e)}
                 )
