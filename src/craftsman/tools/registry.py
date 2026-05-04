@@ -332,9 +332,10 @@ _TOOLS: list[dict] = [
     {
         "name": "powershell:run",
         "description": (
-            "Run a PowerShell command on Windows"
-            " for operations like rm, mv, cp, mkdir, Get-Date, etc.;"
-            " do NOT use to read or write files —"
+            "Run any command or script on Windows via PowerShell —"
+            " use this to execute programs (uv run, python, node, etc.),"
+            " file-system operations (rm, mv, cp, mkdir), or any shell command;"
+            " do NOT use to read or write file contents —"
             " use text:read / text:insert / text:replace instead"
         ),
         "category": "bash",
