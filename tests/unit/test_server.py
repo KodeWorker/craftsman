@@ -453,6 +453,35 @@ def test_login_same_error_for_wrong_password_and_missing_user(
     assert r1.json()["detail"] == r2.json()["detail"]
 
 
+# --- get_user_cost ---
+
+
+def test_get_user_cost_returns_tokens_and_cost(app):
+    client, _, mock_provider, mock_librarian = app
+    mock_librarian.structure_db.get_user_tokens.return_value = {
+        "upload_tokens": 100,
+        "download_tokens": 50,
+    }
+    mock_provider.cost.return_value = 0.42
+    resp = client.get("/users/cost")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["upload_tokens"] == 100
+    assert data["download_tokens"] == 50
+    assert data["cost"] == 0.42
+
+
+def test_get_user_cost_calls_provider_cost_with_token_counts(app):
+    client, _, mock_provider, mock_librarian = app
+    mock_librarian.structure_db.get_user_tokens.return_value = {
+        "upload_tokens": 200,
+        "download_tokens": 80,
+    }
+    mock_provider.cost.return_value = 0.0
+    client.get("/users/cost")
+    mock_provider.cost.assert_called_once_with(200, 80)
+
+
 # --- ownership ---
 
 

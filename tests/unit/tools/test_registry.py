@@ -48,7 +48,7 @@ def test_idempotent_reseed(db):
     seed_registry(db)
     seed_registry(db)
     rows = db.list_tools()
-    assert len(rows) == len(_TOOLS)
+    assert len(rows) == len(_enabled_tools())
 
 
 def test_audited_flags():
