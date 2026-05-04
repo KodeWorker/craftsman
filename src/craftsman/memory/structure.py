@@ -325,6 +325,24 @@ class StructureDB:
         self.conn.commit()
         return mid
 
+    def get_user_tokens(self, user_id: str) -> dict:
+        row = self.conn.execute(
+            """
+            SELECT
+              COALESCE(SUM(
+                CASE WHEN m.role = 'user' THEN m.tokens ELSE 0 END
+              ), 0) AS upload_tokens,
+              COALESCE(SUM(CASE WHEN m.role IN ('assistant', 'reasoning')
+                               THEN m.tokens ELSE 0 END), 0)
+                AS download_tokens
+            FROM messages m
+            JOIN sessions s ON m.session_id = s.id
+            WHERE s.user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else {"upload_tokens": 0, "download_tokens": 0}
+
     def get_messages(self, session_id: str) -> list[sqlite3.Row]:
         # Find the most recent summary checkpoint; return it + everything after
         row = self.conn.execute(

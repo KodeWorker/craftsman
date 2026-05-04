@@ -119,3 +119,5 @@ commands:
     description: Compact the conversation history by summarizing it.
     limit: 1000 # token limit for the summary when compacting
     keep_turns: 5 # number of recent messages to keep in full detail when compacting
+  - name: /cost
+    description: Show token usage and cost.

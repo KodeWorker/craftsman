@@ -2,6 +2,16 @@
 
 All `/sessions/*` and `/artifacts/*` endpoints require `Authorization: Bearer <token>`.
 
+## GET /users/cost
+
+Requires `Authorization: Bearer <token>`. Returns cumulative token usage and cost across all sessions for the authenticated user.
+
+```json
+{ "upload_tokens": 0, "download_tokens": 0, "cost": 0.0 }
+```
+
+---
+
 ## POST /users/login
 
 Request:

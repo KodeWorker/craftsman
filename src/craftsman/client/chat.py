@@ -202,6 +202,13 @@ class Client(SessionsClient, ArtifactsClient):
                         "Error compacting session: "
                         f"{response.status_code} - {response.text}"
                     )
+            elif user_input.lower() == "/cost":
+                print(
+                    Fore.CYAN
+                    + f"{self.upload_tokens}↑/{self.download_tokens}↓"
+                    + f" (cost: ${self.cost:.4f})"
+                    + Style.RESET_ALL
+                )
             elif user_input.lower() == "/artifacts":
                 response = self._request(
                     "get",

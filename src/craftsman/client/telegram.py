@@ -516,6 +516,9 @@ class TelegramClient:
             CommandHandler("status", self._on_status, filters=cf)
         )
         self._app.add_handler(
+            CommandHandler("cost", self._on_cost, filters=cf)
+        )
+        self._app.add_handler(
             CallbackQueryHandler(self._on_session_switch, pattern=r"^switch:")
         )
         self._app.add_handler(
@@ -551,7 +554,8 @@ class TelegramClient:
             "  /artifacts — list artifacts in current session\n"
             "  /clear — clear session history\n"
             "  /compact — summarize and reduce context size\n"
-            "  /status — show model, session, token and cost info\n\n"
+            "  /status — show model, session, token and cost info\n"
+            "  /cost — show token usage and cost\n\n"
             "Media support:\n"
             "  photos and image documents → vision\n"
             "  audio files and voice messages → audio"
@@ -626,6 +630,14 @@ class TelegramClient:
             f"tokens: {_fmt(self._prompt_tokens)}↑ "
             f"{_fmt(self._completion_tokens)}↓\n"
             f"cost: ${self._cost:.4f}"
+        )
+
+    async def _on_cost(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        await update.message.reply_text(
+            f"{self._prompt_tokens}↑/{self._completion_tokens}↓"
+            f" (cost: ${self._cost:.4f})"
         )
 
     async def _on_clear(
