@@ -1,11 +1,12 @@
 import uvicorn
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import Depends, FastAPI, HTTPException, Request
 
 from craftsman.logger import CraftsmanLogger
 from craftsman.memory.librarian import Librarian
 from craftsman.provider import Provider
 from craftsman.router.artifacts import ArtifactsRouter
-from craftsman.router.deps import _crypto
+from craftsman.router.deps import _crypto, get_current_user
+from craftsman.router.jobs import JobsRouter
 from craftsman.router.sessions import SessionsRouter
 from craftsman.router.tools import ToolsRouter
 
@@ -23,20 +24,27 @@ class Server:
         self.app.post("/reset")(self.reset_provider)
         self.app.post("/subagent/run")(self.run_subagent)
         self.app.post("/users/login")(self.login_user)
+        self.app.get("/users/cost")(self.get_user_cost)
 
         self.sessions_router = SessionsRouter(
             self.provider, self.librarian, self.active_sessions
         )
         self.artifacts_router = ArtifactsRouter(self.librarian)
         self.tools_router = ToolsRouter(self.librarian)
+        self.jobs_router = JobsRouter(self.librarian)
         self.app.include_router(self.sessions_router.router)
         self.app.include_router(self.artifacts_router.router)
         self.app.include_router(self.tools_router.router)
+        self.app.include_router(self.jobs_router.router)
 
     async def health_check(self) -> dict:
         return {"status": "ok"}
 
-    async def reset_provider(self, request: Request) -> dict:
+    async def reset_provider(
+        self,
+        request: Request,
+        _: str = Depends(get_current_user),
+    ) -> dict:
         body = await request.json()
         api_base = body.get("api_base", None)
         api_key = body.get("api_key", None)
@@ -81,6 +89,15 @@ class Server:
         finally:
             self.librarian.clear_session(session_id)  # discard
             self.active_sessions.discard(session_id)
+
+    async def get_user_cost(
+        self, user_id: str = Depends(get_current_user)
+    ) -> dict:
+        tokens = self.librarian.structure_db.get_user_tokens(user_id)
+        cost = self.provider.cost(
+            tokens["upload_tokens"], tokens["download_tokens"]
+        )
+        return {**tokens, "cost": cost}
 
     async def login_user(self, request: Request) -> dict:
         body = await request.json()

@@ -90,8 +90,7 @@ concrete registry to query against.
   - `memory`: `memory:store`✓, `memory:retrieve`, `memory:forget`✓
   - `schedule`: `schedule:at`✓, `schedule:list`, `schedule:cancel`✓,
     `cron:create`✓, `cron:list`, `cron:remove`✓
-  - `plan`: `plan:create`✓, `plan:done`✓, `task:create`✓, `task:start`✓,
-    `task:verify`✓, `task:done`✓, `task:fail`✓, `task:list`
+  - `plan`: deferred — see 5.4 note
 
   ✓ = audited
 
@@ -221,17 +220,23 @@ uv run pytest tests/unit/tools/test_bash_tools.py tests/unit/tools/test_text_too
 
 ---
 
-## 5.4 — Executor: Memory, Plan/Task, Schedule Tools
+## 5.4 — Executor: Memory, Schedule Tools
 
-Implement concrete execution for `memory:*`, `plan:*`, `task:*`,
-`schedule:*`, and `cron:*` tools.
+Implement concrete execution for `memory:*`, `schedule:*`, and `cron:*`
+tools.
+
+> **`plan:*` / `task:*` deferred to a later phase.** Two unresolved problems:
+> (1) The LLM prefers `agent:run` over individual tool calls when given task
+> tools, bypassing human verification for each step. (2) `task:verify` has no
+> ground truth — the agent self-reports completion by calling `task:done`
+> without any objective check. Both require a different design before these
+> tools are safe to expose.
 
 ### Files
 
 | Path | Change |
 |------|--------|
 | `src/craftsman/tools/memory_tools.py` | `memory:store/retrieve/forget` |
-| `src/craftsman/tools/plan_tools.py` | `plan:create/done`, `task:create/start/verify/done/fail/list` |
 | `src/craftsman/tools/schedule_tools.py` | `schedule:at/list/cancel`, `cron:create/list/remove` |
 | `src/craftsman/tools/executor.py` | accept `librarian: Librarian` and `session_id: str` |
 | `pyproject.toml` | add `croniter>=2.0` |
@@ -259,19 +264,18 @@ pending → in_progress → verifying → done
 ### Checklist
 
 - [x] `src/craftsman/tools/memory_tools.py`
-- [x] `src/craftsman/tools/plan_tools.py` — state machine validation
 - [x] `src/craftsman/tools/schedule_tools.py` — datetime + cron validation
 - [x] `executor.py` extended with `librarian` + `session_id`
 - [x] `pyproject.toml` — `croniter>=2.0`
 - [x] `tests/unit/tools/test_memory_tools.py`
-- [x] `tests/unit/tools/test_plan_tools.py` — every valid and invalid transition
 - [x] `tests/unit/tools/test_schedule_tools.py` — bad datetime/cron rejected
+- [ ] `src/craftsman/tools/plan_tools.py` — deferred (state machine exists but not registered)
+- [ ] `tests/unit/tools/test_plan_tools.py` — deferred
 
 ### Verify
 
 ```bash
 uv run pytest tests/unit/tools/test_memory_tools.py \
-              tests/unit/tools/test_plan_tools.py \
               tests/unit/tools/test_schedule_tools.py
 ```
 
@@ -461,12 +465,12 @@ user can see the agent acting.
 
 ### Checklist
 
-- [ ] `chat.py` — `tool_call` event handler
-- [ ] `chat.py` — `tool_result` event handler (yellow / red)
-- [ ] Spinner behaviour unchanged across tool iterations
-- [ ] `telegram.py` — `_drain` collects `tool_call` / `tool_result` events
-- [ ] `telegram.py` — tool summary prepended to reply, truncated to 200 chars
-- [ ] `tests/unit/test_client_display.py` — interleaved NDJSON stream verify
+- [x] `chat.py` — `tool_call` event handler
+- [x] `chat.py` — `tool_result` event handler (yellow / red)
+- [x] Spinner behaviour unchanged across tool iterations
+- [x] `telegram.py` — `_drain` collects `tool_call` / `tool_result` events
+- [x] `telegram.py` — tool summary prepended to reply, truncated to 200 chars
+- [x] `tests/unit/test_client_display.py` — interleaved NDJSON stream verify
 
 ### Verify
 
@@ -481,38 +485,109 @@ uv run pytest tests/unit/test_client_display.py
 ## 5.8 — Scheduled Job Dispatcher
 
 Background task that fires pending `scheduled_jobs` and due `cron_jobs`
-at the right time.
+when the client is running.  The dispatcher lives **client-side** — tools
+execute on the user's own machine, never on the server.
+
+### Architecture
+
+```
+craftsman chat / telegram / daemon  (client process)
+  │
+  ├── agentic loop          (existing)
+  │
+  └── JobDispatcher         (background asyncio task, new)
+       │  polls DB every 30 s via direct StructureDB access
+       │  (client and server share the same local SQLite file)
+       │
+       ├── scheduled_job / cron_job with a single tool call
+       │    └── ToolExecutor.execute(name, args, session_id)
+       │         ├── local tools  → run on client machine (bash, text, …)
+       │         └── server tools → POST /tools/invoke   (memory, plan, …)
+       │
+       └── agent:run — multi-tool prompt-driven task
+            └── drives HTTP agentic loop against server
+                 POST /sessions/{id}/completion  (LLM call, server-side)
+                 ← tool_call events
+                 → ToolExecutor.execute per tool call   (client-side)
+                 → POST /sessions/{id}/tool_result
+                 repeat until content-only response
+```
+
+**Why client-side?**
+Running bash/text tools on the server would allow any authenticated user
+to execute arbitrary commands on the server filesystem.  The client is the
+user's own machine — the same security context as an interactive session.
 
 ### Files
 
 | Path | Change |
 |------|--------|
-| `src/craftsman/tools/scheduler.py` | `JobDispatcher` with `async run_loop()` |
-| `src/craftsman/server.py` | start `JobDispatcher` as FastAPI lifespan task |
+| `src/craftsman/tools/scheduler.py` | rewrite: `JobDispatcher(executor, db)` polls DB, dispatches via `ToolExecutor`; `_run_agent` drives HTTP loop |
+| `src/craftsman/server.py` | remove `JobDispatcher` from lifespan (server is queue only) |
+| `src/craftsman/client/chat.py` | spawn `JobDispatcher` background task on startup |
+| `src/craftsman/client/telegram.py` | same |
+| `src/craftsman/cli.py` | add `craftsman daemon` command — headless dispatcher without interactive chat |
+| `src/craftsman/tools/registry.py` | `agent:run` entry (`category: "agent"`, `audited: True`) |
+| `src/craftsman/memory/structure.py` | `user_id` on `scheduled_jobs` + `cron_jobs`; `last_result` on `cron_jobs` |
+| `src/craftsman/tools/schedule_tools.py` | resolve + pass `user_id` in `schedule_at` / `cron_create` |
 
 ### Design notes
 
-- `run_loop` polls every 30 s: `StructureDB.get_due_jobs()` → for each:
-  set `running`, parse `tool_call` JSON, `ToolExecutor.execute()`, store
-  result, set `done`/`failed`
-- Cron jobs: use `croniter` to check expression against `last_run`; same
-  execution pattern; update `last_run`
-- Server-level `ToolExecutor` (no session context) — memory/plan tools
-  operate with `session_id=None`
+- `JobDispatcher.__init__(executor: ToolExecutor, db: StructureDB)` — no
+  `Provider` or `Librarian`; LLM calls go through the server API
+- `run_loop` polls every 30 s; `get_due_jobs()` + `list_cron_jobs(active_only=True)`
+- Per job: create session on server (`POST /sessions`), execute, store
+  result, delete session
+- `_run_agent`: same HTTP streaming loop as `chat.py._agentic_loop`; reuse
+  or extract shared helper
+- `cron_jobs.last_result TEXT` — dispatcher writes JSON result after each
+  run; `cron:list` exposes it; user checks via CLI or API (no tool needed)
+
+#### User ownership
+
+`scheduled_jobs.user_id` and `cron_jobs.user_id` track who owns the job.
+Dispatcher creates a fresh session per job (`POST /sessions`), passes the
+session JWT for auth on tool calls, discards session after.
+
+#### `agent:run` tool
+
+```json
+{
+  "name": "agent:run",
+  "args": { "prompt": "Write a joke and append it to ~/jokes.txt" }
+}
+```
+
+The LLM drives the full tool loop.  Since the dispatcher uses
+`ToolExecutor`, the `text:insert` call above writes to `~/jokes.txt` on
+the **client machine**, exactly as if the user had typed it interactively.
 
 ### Checklist
 
-- [ ] `src/craftsman/tools/scheduler.py` — `JobDispatcher.run_loop()`
-- [ ] `server.py` — lifespan startup/shutdown for `JobDispatcher`
-- [ ] Cron expression checked via `croniter`
-- [ ] `tests/unit/tools/test_scheduler.py` — mock due jobs, verify execute
-      called, status updated
+- [x] `memory/structure.py` — `user_id` on both job tables; `schedule_job`
+      and `create_cron_job` updated
+- [x] `tools/schedule_tools.py` — `user_id` resolved from session
+- [x] `tools/registry.py` — `agent:run` entry added
+- [x] `server.py` — `JobDispatcher` never on server; `router/jobs.py` added
+      (`GET /jobs/due`, `POST /jobs/scheduled/{id}/result`,
+      `POST /jobs/cron/{id}/result`)
+- [x] `memory/structure.py` — `last_result` on `cron_jobs`;
+      `update_cron_last_run(cron_id, result)` updated
+- [x] `tools/scheduler.py` — rewrite: `JobDispatcher(base_url, token)`;
+      polls `/jobs/due`, dispatches via `_LOCAL_DISPATCH` or `/tools/invoke`,
+      `_run_agent` via HTTP streaming loop
+- [x] `client/chat.py` — `_start_dispatcher(token)` spawns background thread
+- [x] `client/telegram.py` — `_run_dispatcher()` as asyncio task
+- [x] `cli.py` — `craftsman daemon` command
+- [x] `tests/unit/tools/test_scheduler.py` — 16 tests; mocks HTTP layer
 
 ### Verify
 
 ```bash
 uv run pytest tests/unit/tools/test_scheduler.py
-# Manual: schedule bash:ls /tmp for 30 s, wait, check DB status=done
+# Manual: craftsman daemon &
+# schedule bash:ls /tmp for 30 s, wait, check DB status=done, result populated
+# schedule agent:run {"prompt": "append date to /tmp/log.txt"} for 30 s
 ```
 
 ---

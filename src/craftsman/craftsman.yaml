@@ -72,16 +72,20 @@ tools:
   meta:
     enabled: true
   # bash tools (bash:ls, bash:cat, bash:grep, bash:find, bash:head, bash:tail,
-  #             bash:stat, bash:ps, bash:df, bash:du)
+  #             bash:stat, bash:ps, bash:df, bash:du, bash:run)
   bash:
     enabled: true
     cat:
       max_lines: 200 # lines returned per bash:cat call before tail-truncation
+    run:
+      max_lines: 200 # lines returned per bash:run call before tail-truncation
   # text tools (text:read, text:search, text:replace, text:insert, text:delete)
   text:
     enabled: true
     read:
       max_lines: 200 # lines returned per text:read call before tail-truncation
+    search:
+      context_lines: 2 # lines of context around each match in text:search
   # memory tools (memory:store, memory:retrieve, memory:forget)
   memory:
     enabled: true
@@ -89,9 +93,8 @@ tools:
   #                 cron:create, cron:list, cron:remove)
   schedule:
     enabled: true
-  # plan tools (plan:create, plan:done, task:create, task:start,
-  #             task:verify, task:done, task:fail, task:list)
-  plan:
+  # agent tools (agent:run — prompt-driven multi-tool subagent)
+  agent:
     enabled: true
   # Individual tools to disable within an otherwise-enabled category.
   # Example: disabled: [bash:ps, bash:df, bash:du]
@@ -112,3 +115,5 @@ commands:
     description: Compact the conversation history by summarizing it.
     limit: 1000 # token limit for the summary when compacting
     keep_turns: 5 # number of recent messages to keep in full detail when compacting
+  - name: /cost
+    description: Show token usage and cost.

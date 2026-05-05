@@ -9,16 +9,6 @@ from craftsman.tools.meta_tools import (
     tool_list,
     tool_revoke,
 )
-from craftsman.tools.plan_tools import (
-    plan_create,
-    plan_done,
-    task_create,
-    task_done,
-    task_fail,
-    task_list,
-    task_start,
-    task_verify,
-)
 from craftsman.tools.schedule_tools import (
     cron_create,
     cron_list,
@@ -30,14 +20,6 @@ from craftsman.tools.schedule_tools import (
 
 # (args, db, session_id)
 DB_DISPATCH: dict = {
-    "plan:create": plan_create,
-    "plan:done": plan_done,
-    "task:create": task_create,
-    "task:start": task_start,
-    "task:verify": task_verify,
-    "task:done": task_done,
-    "task:fail": task_fail,
-    "task:list": task_list,
     "schedule:at": schedule_at,
     "schedule:list": schedule_list,
     "schedule:cancel": schedule_cancel,

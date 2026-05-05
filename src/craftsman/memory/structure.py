@@ -114,6 +114,7 @@ CREATE TABLE IF NOT EXISTS tool_invocations (
 
 CREATE TABLE IF NOT EXISTS scheduled_jobs (
     id         TEXT PRIMARY KEY,
+    user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
     tool_call  TEXT NOT NULL,
     run_at     TEXT NOT NULL,
     status     TEXT NOT NULL DEFAULT 'pending'
@@ -123,12 +124,14 @@ CREATE TABLE IF NOT EXISTS scheduled_jobs (
 );
 
 CREATE TABLE IF NOT EXISTS cron_jobs (
-    id         TEXT PRIMARY KEY,
-    expression TEXT NOT NULL,
-    tool_call  TEXT NOT NULL,
-    active     INTEGER NOT NULL DEFAULT 1,
-    last_run   TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    id          TEXT PRIMARY KEY,
+    user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+    expression  TEXT NOT NULL,
+    tool_call   TEXT NOT NULL,
+    active      INTEGER NOT NULL DEFAULT 1,
+    last_run    TEXT,
+    last_result TEXT,
+    created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 """
@@ -322,6 +325,24 @@ class StructureDB:
         self.conn.commit()
         return mid
 
+    def get_user_tokens(self, user_id: str) -> dict:
+        row = self.conn.execute(
+            """
+            SELECT
+              COALESCE(SUM(
+                CASE WHEN m.role = 'user' THEN m.tokens ELSE 0 END
+              ), 0) AS upload_tokens,
+              COALESCE(SUM(CASE WHEN m.role IN ('assistant', 'reasoning')
+                               THEN m.tokens ELSE 0 END), 0)
+                AS download_tokens
+            FROM messages m
+            JOIN sessions s ON m.session_id = s.id
+            WHERE s.user_id = ?
+            """,
+            (user_id,),
+        ).fetchone()
+        return dict(row) if row else {"upload_tokens": 0, "download_tokens": 0}
+
     def get_messages(self, session_id: str) -> list[sqlite3.Row]:
         # Find the most recent summary checkpoint; return it + everything after
         row = self.conn.execute(
@@ -384,13 +405,14 @@ class StructureDB:
         self,
         filepath: str,
         filename: str,
+        artifact_id: str = None,
         user_id: str = None,
         session_id: str = None,
         project_id: str = None,
         mime_type: str = None,
         size_bytes: int = None,
     ) -> str:
-        aid = str(uuid.uuid4())
+        aid = artifact_id or str(uuid.uuid4())
         self.conn.execute(
             "INSERT INTO artifacts"
             " (id, user_id, session_id, project_id,"
@@ -584,17 +606,22 @@ class StructureDB:
         ).fetchone()
 
     def search_tools(self, keyword: str) -> list[sqlite3.Row]:
-        escaped = (
-            keyword.replace("\\", "\\\\")
-            .replace("%", "\\%")
-            .replace("_", "\\_")
+        def _esc_like(w: str) -> str:
+            return (
+                w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+            )
+
+        words = keyword.split()
+        if not words:
+            return []
+        clauses = " OR ".join(
+            "(name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')"
+            for _ in words
         )
-        pattern = f"%{escaped}%"
+        params = [f"%{_esc_like(w)}%" for w in words for _ in (0, 1)]
         return self.conn.execute(
-            "SELECT * FROM tools"
-            " WHERE name LIKE ? OR description LIKE ?"
-            " ESCAPE '\\' ORDER BY name",
-            (pattern, pattern),
+            f"SELECT * FROM tools WHERE {clauses} ORDER BY name",
+            params,
         ).fetchall()
 
     def list_tools(self, category: str = None) -> list[sqlite3.Row]:
@@ -616,17 +643,37 @@ class StructureDB:
 
     # --- scheduled_jobs ---
 
-    def schedule_job(self, tool_call: str, run_at: str) -> str:
+    def get_scheduled_job(self, job_id: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM scheduled_jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+
+    def get_cron_job(self, cron_id: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM cron_jobs WHERE id = ?", (cron_id,)
+        ).fetchone()
+
+    def schedule_job(
+        self, tool_call: str, run_at: str, user_id: str | None = None
+    ) -> str:
         jid = str(uuid.uuid4())
         self.conn.execute(
-            "INSERT INTO scheduled_jobs (id, tool_call, run_at)"
-            " VALUES (?, ?, ?)",
-            (jid, tool_call, run_at),
+            "INSERT INTO scheduled_jobs (id, user_id, tool_call, run_at)"
+            " VALUES (?, ?, ?, ?)",
+            (jid, user_id, tool_call, run_at),
         )
         self.conn.commit()
         return jid
 
-    def get_due_jobs(self) -> list[sqlite3.Row]:
+    def get_due_jobs(self, user_id: str | None = None) -> list[sqlite3.Row]:
+        if user_id:
+            return self.conn.execute(
+                "SELECT * FROM scheduled_jobs"
+                " WHERE status = 'pending' AND run_at <= datetime('now')"
+                " AND user_id = ?"
+                " ORDER BY run_at ASC",
+                (user_id,),
+            ).fetchall()
         return self.conn.execute(
             "SELECT * FROM scheduled_jobs"
             " WHERE status = 'pending' AND run_at <= datetime('now')"
@@ -644,29 +691,52 @@ class StructureDB:
 
     # --- cron_jobs ---
 
-    def create_cron_job(self, expression: str, tool_call: str) -> str:
+    def create_cron_job(
+        self,
+        expression: str,
+        tool_call: str,
+        user_id: str | None = None,
+    ) -> str:
         cid = str(uuid.uuid4())
         self.conn.execute(
-            "INSERT INTO cron_jobs (id, expression, tool_call)"
-            " VALUES (?, ?, ?)",
-            (cid, expression, tool_call),
+            "INSERT INTO cron_jobs (id, user_id, expression, tool_call)"
+            " VALUES (?, ?, ?, ?)",
+            (cid, user_id, expression, tool_call),
         )
         self.conn.commit()
         return cid
 
-    def list_cron_jobs(self, active_only: bool = True) -> list[sqlite3.Row]:
+    def list_cron_jobs(
+        self, active_only: bool = True, user_id: str | None = None
+    ) -> list[sqlite3.Row]:
+        if active_only and user_id:
+            return self.conn.execute(
+                "SELECT * FROM cron_jobs WHERE active = 1 AND user_id = ?"
+                " ORDER BY created_at",
+                (user_id,),
+            ).fetchall()
         if active_only:
             return self.conn.execute(
                 "SELECT * FROM cron_jobs WHERE active = 1 ORDER BY created_at"
+            ).fetchall()
+        if user_id:
+            return self.conn.execute(
+                "SELECT * FROM cron_jobs"
+                " WHERE user_id = ? ORDER BY created_at",
+                (user_id,),
             ).fetchall()
         return self.conn.execute(
             "SELECT * FROM cron_jobs ORDER BY created_at"
         ).fetchall()
 
-    def update_cron_last_run(self, cron_id: str) -> None:
+    def update_cron_last_run(
+        self, cron_id: str, result: str | None = None
+    ) -> None:
         self.conn.execute(
-            "UPDATE cron_jobs SET last_run = datetime('now') WHERE id = ?",
-            (cron_id,),
+            "UPDATE cron_jobs"
+            " SET last_run = datetime('now'), last_result = ?"
+            " WHERE id = ?",
+            (result, cron_id),
         )
         self.conn.commit()
 
@@ -681,7 +751,16 @@ class StructureDB:
         self.conn.execute("DELETE FROM cron_jobs WHERE id = ?", (cron_id,))
         self.conn.commit()
 
-    def list_scheduled_jobs(self) -> list[sqlite3.Row]:
+    def list_scheduled_jobs(
+        self, user_id: str | None = None
+    ) -> list[sqlite3.Row]:
+        if user_id:
+            return self.conn.execute(
+                "SELECT * FROM scheduled_jobs"
+                " WHERE status = 'pending' AND user_id = ?"
+                " ORDER BY run_at ASC",
+                (user_id,),
+            ).fetchall()
         return self.conn.execute(
             "SELECT * FROM scheduled_jobs"
             " WHERE status = 'pending' ORDER BY run_at ASC"

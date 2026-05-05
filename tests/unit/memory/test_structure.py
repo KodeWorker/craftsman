@@ -396,3 +396,47 @@ def test_get_artifacts_no_filter_returns_all(db):
 def test_delete_artifact_removes_row(db, aid):
     db.delete_artifact(aid)
     assert db.get_artifact(aid) is None
+
+
+# --- get_user_tokens ---
+
+
+def test_get_user_tokens_no_messages(db, uid):
+    db.create_session(user_id=uid)
+    result = db.get_user_tokens(uid)
+    assert result == {"upload_tokens": 0, "download_tokens": 0}
+
+
+def test_get_user_tokens_sums_user_as_upload(db, uid):
+    sid = db.create_session(user_id=uid)
+    db.add_message(sid, "user", "hi", tokens=10)
+    db.add_message(sid, "user", "hey", tokens=5)
+    result = db.get_user_tokens(uid)
+    assert result["upload_tokens"] == 15
+
+
+def test_get_user_tokens_sums_assistant_and_reasoning_as_download(db, uid):
+    sid = db.create_session(user_id=uid)
+    db.add_message(sid, "assistant", "reply", tokens=8)
+    db.add_message(sid, "reasoning", "thought", tokens=3)
+    result = db.get_user_tokens(uid)
+    assert result["download_tokens"] == 11
+
+
+def test_get_user_tokens_ignores_tool_and_summary(db, uid):
+    sid = db.create_session(user_id=uid)
+    db.add_message(sid, "tool", "result", tokens=20)
+    db.add_message(sid, "summary", "compact", tokens=30)
+    result = db.get_user_tokens(uid)
+    assert result["upload_tokens"] == 0
+    assert result["download_tokens"] == 0
+
+
+def test_get_user_tokens_excludes_other_users(db, uid):
+    other_uid = db.create_user("other", "h")["id"]
+    sid = db.create_session(user_id=uid)
+    other_sid = db.create_session(user_id=other_uid)
+    db.add_message(sid, "user", "mine", tokens=10)
+    db.add_message(other_sid, "user", "theirs", tokens=50)
+    result = db.get_user_tokens(uid)
+    assert result["upload_tokens"] == 10

@@ -1,5 +1,6 @@
 # flake8: noqa: E501
 import json
+import sys
 
 from craftsman.configure import get_config
 from craftsman.memory.structure import StructureDB
@@ -10,6 +11,9 @@ _cfg = get_config().get("tools", {})
 _CAT_MAX_LINES: int = _cfg.get("bash", {}).get("cat", {}).get("max_lines", 200)
 _READ_MAX_LINES: int = (
     _cfg.get("text", {}).get("read", {}).get("max_lines", 200)
+)
+_SEARCH_CTX_LINES: int = (
+    _cfg.get("text", {}).get("search", {}).get("context_lines", 2)
 )
 
 # Each entry: name, description, category, audited, parameters dict.
@@ -30,7 +34,7 @@ _TOOLS: list[dict] = [
                     "type": "string",
                     "description": (
                         "Filter by category: meta, bash, text, memory,"
-                        " schedule, plan"
+                        " schedule, agent"
                     ),
                 }
             },
@@ -56,7 +60,7 @@ _TOOLS: list[dict] = [
     {
         "name": "tool:find",
         "description": (
-            "Search tools by intent and inject the best match into the"
+            "Search tools by keyword and inject the best match into the"
             " active tool list for the next turn"
         ),
         "category": "meta",
@@ -64,12 +68,15 @@ _TOOLS: list[dict] = [
         "parameters": {
             "type": "object",
             "properties": {
-                "intent": {
+                "keyword": {
                     "type": "string",
-                    "description": "Natural language description of what you need",
+                    "description": (
+                        "Keyword to match against tool names"
+                        " and descriptions"
+                    ),
                 }
             },
-            "required": ["intent"],
+            "required": ["keyword"],
         },
     },
     {
@@ -299,6 +306,59 @@ _TOOLS: list[dict] = [
             "required": ["path"],
         },
     },
+    {
+        "name": "bash:run",
+        "description": (
+            "Run an arbitrary shell command on Linux/macOS"
+            " (tokenised via shlex — no shell, so redirections and pipes"
+            " do not work); do NOT use to read or write files —"
+            " use text:read / text:insert / text:replace instead"
+        ),
+        "category": "bash",
+        "audited": True,
+        "platform": ["linux", "darwin"],
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "cmd": {
+                    "type": "string",
+                    "description": "Command string to execute",
+                },
+                "max_lines": {
+                    "type": "integer",
+                    "description": "Maximum output lines to return",
+                },
+            },
+            "required": ["cmd"],
+        },
+    },
+    {
+        "name": "powershell:run",
+        "description": (
+            "Run any command or script on Windows via PowerShell —"
+            " use this to execute programs (uv run, python, node, etc.),"
+            " file-system operations (rm, mv, cp, mkdir), or any shell command;"
+            " do NOT use to read or write file contents —"
+            " use text:read / text:insert / text:replace instead"
+        ),
+        "category": "bash",
+        "audited": True,
+        "platform": ["win32"],
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "cmd": {
+                    "type": "string",
+                    "description": "PowerShell command string to execute",
+                },
+                "max_lines": {
+                    "type": "integer",
+                    "description": "Maximum output lines to return",
+                },
+            },
+            "required": ["cmd"],
+        },
+    },
     # ── text ─────────────────────────────────────────────────────────────
     {
         "name": "text:read",
@@ -344,7 +404,7 @@ _TOOLS: list[dict] = [
                 "context_lines": {
                     "type": "integer",
                     "description": "Lines of context around each match",
-                    "default": 2,
+                    "default": _SEARCH_CTX_LINES,
                 },
             },
             "required": ["file", "pattern"],
@@ -377,8 +437,9 @@ _TOOLS: list[dict] = [
     {
         "name": "text:insert",
         "description": (
-            "Insert lines at a specific line number."
-            " Creates a .bak before writing"
+            "Create a new file or insert lines into an existing one."
+            " Use line_num=1 to create a file (works on non-existent paths)."
+            " Creates a .bak before modifying existing files"
         ),
         "category": "text",
         "audited": True,
@@ -476,7 +537,12 @@ _TOOLS: list[dict] = [
     # ── schedule ─────────────────────────────────────────────────────────
     {
         "name": "schedule:at",
-        "description": "Run a tool call once at a specific datetime (ISO 8601)",
+        "description": (
+            "Run a tool call once at a specific time —"
+            " prefer relative offsets (+2m, +1h, +30s)"
+            " so you don't need to know the current time;"
+            " ISO 8601 datetime also accepted"
+        ),
         "category": "schedule",
         "audited": True,
         "parameters": {
@@ -484,7 +550,10 @@ _TOOLS: list[dict] = [
             "properties": {
                 "run_at": {
                     "type": "string",
-                    "description": "ISO 8601 datetime, e.g. 2026-05-01T09:00:00",
+                    "description": (
+                        "Relative offset (+2m, +1h, +30s, +1d)"
+                        " or ISO 8601 datetime"
+                    ),
                 },
                 "tool_call": {
                     "type": "object",
@@ -528,7 +597,12 @@ _TOOLS: list[dict] = [
             "properties": {
                 "expression": {
                     "type": "string",
-                    "description": "Standard cron expression, e.g. 0 3 * * *",
+                    "description": (
+                        "Standard cron expression (5 fields: minute hour"
+                        " day month weekday). Minimum interval is 1 minute."
+                        " Examples: '*/5 * * * *' = every 5 min,"
+                        " '0 3 * * *' = daily at 03:00."
+                    ),
                 },
                 "tool_call": {
                     "type": "object",
@@ -562,134 +636,25 @@ _TOOLS: list[dict] = [
             "required": ["cron_id"],
         },
     },
-    # ── plan ─────────────────────────────────────────────────────────────
+    # ── agent ────────────────────────────────────────────────────────────
     {
-        "name": "plan:create",
-        "description": "Create a plan with a goal; call after research, not before",
-        "category": "plan",
-        "audited": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "goal": {
-                    "type": "string",
-                    "description": "What you intend to achieve",
-                },
-                "context": {
-                    "type": "string",
-                    "description": "Background and constraints gathered so far",
-                },
-            },
-            "required": ["goal"],
-        },
-    },
-    {
-        "name": "plan:done",
-        "description": "Close a completed plan",
-        "category": "plan",
-        "audited": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "plan_id": {"type": "string", "description": "Plan ID"}
-            },
-            "required": ["plan_id"],
-        },
-    },
-    {
-        "name": "task:create",
-        "description": "Add a task with acceptance criteria to a plan",
-        "category": "plan",
-        "audited": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "plan_id": {"type": "string", "description": "Parent plan ID"},
-                "description": {
-                    "type": "string",
-                    "description": "What needs to be done",
-                },
-                "criteria": {
-                    "type": "string",
-                    "description": "Acceptance criteria for task:verify",
-                },
-            },
-            "required": ["plan_id", "description"],
-        },
-    },
-    {
-        "name": "task:start",
-        "description": "Transition task pending → in_progress",
-        "category": "plan",
-        "audited": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "task_id": {"type": "string", "description": "Task ID"}
-            },
-            "required": ["task_id"],
-        },
-    },
-    {
-        "name": "task:verify",
+        "name": "agent:run",
         "description": (
-            "Record task output and transition in_progress → verifying"
+            "Run a multi-step agentic sub-task driven by a prompt."
+            " The agent has access to all registered tools and will"
+            " iterate until it reaches a conclusion or hits the loop cap"
         ),
-        "category": "plan",
+        "category": "agent",
         "audited": True,
         "parameters": {
             "type": "object",
             "properties": {
-                "task_id": {"type": "string", "description": "Task ID"},
-                "output": {
+                "prompt": {
                     "type": "string",
-                    "description": "Output or evidence to check against criteria",
-                },
+                    "description": "Goal or instruction for the sub-agent",
+                }
             },
-            "required": ["task_id", "output"],
-        },
-    },
-    {
-        "name": "task:done",
-        "description": "Transition task verifying → done",
-        "category": "plan",
-        "audited": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "task_id": {"type": "string", "description": "Task ID"}
-            },
-            "required": ["task_id"],
-        },
-    },
-    {
-        "name": "task:fail",
-        "description": "Transition task to failed with a reason",
-        "category": "plan",
-        "audited": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "task_id": {"type": "string", "description": "Task ID"},
-                "reason": {
-                    "type": "string",
-                    "description": "Why the task failed",
-                },
-            },
-            "required": ["task_id", "reason"],
-        },
-    },
-    {
-        "name": "task:list",
-        "description": "List all tasks for a plan with their current status",
-        "category": "plan",
-        "audited": False,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "plan_id": {"type": "string", "description": "Plan ID"}
-            },
-            "required": ["plan_id"],
+            "required": ["prompt"],
         },
     },
 ]
@@ -700,6 +665,9 @@ def _enabled_tools() -> list[dict]:
     explicitly_disabled: set[str] = set(cfg.get("disabled", []))
     result = []
     for t in _TOOLS:
+        platforms = t.get("platform")
+        if platforms and sys.platform not in platforms:
+            continue
         cat_cfg = cfg.get(t["category"], {})
         if not cat_cfg.get("enabled", True):
             continue
@@ -709,8 +677,26 @@ def _enabled_tools() -> list[dict]:
     return result
 
 
+def register_agent_runner(base_url: str, token: str) -> None:
+    from craftsman.tools.agent_tools import make_agent_runner
+    from craftsman.tools.executor import _LOCAL_DISPATCH
+
+    _LOCAL_DISPATCH["agent:run"] = make_agent_runner(base_url, token)
+
+
 def seed_registry(db: StructureDB) -> None:
-    for t in _enabled_tools():
+    enabled = _enabled_tools()
+    if not enabled:
+        return
+    enabled_names = {t["name"] for t in enabled}
+    db.conn.execute(
+        "DELETE FROM tools WHERE name NOT IN ({})".format(
+            ",".join("?" * len(enabled_names))
+        ),
+        list(enabled_names),
+    )
+    db.conn.commit()
+    for t in enabled:
         db.register_tool(
             name=t["name"],
             description=t["description"],

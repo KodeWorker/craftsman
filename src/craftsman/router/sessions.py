@@ -14,6 +14,7 @@ from craftsman.provider import Provider
 from craftsman.router.deps import get_current_user
 
 _AUDIO_FMT = {"mpeg": "mp3", "x-wav": "wav", "wave": "wav"}
+_DEFAULT_SYSTEM = "You are a helpful assistant with access to tools."
 
 
 class SessionsRouter:
@@ -36,6 +37,7 @@ class SessionsRouter:
         self.router.post("/{session_id}/resume")(self.resume_session)
         self.router.post("/{session_id}/clear")(self.clear_session)
         self.router.post("/{session_id}/compact")(self.compact_session)
+        self.router.post("/{session_id}/inject")(self.inject_message)
         self.router.delete("/{session_id}")(self.delete_session)
 
     def __check_owner(self, session_id: str, user_id: str):
@@ -113,6 +115,10 @@ class SessionsRouter:
         original_content: str = "",
     ):
         context = self.librarian.get_context(session_id)
+        if not any(m.get("role") == "system" for m in context):
+            context = [
+                {"role": "system", "content": _DEFAULT_SYSTEM}
+            ] + context
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         tool_calls: list[dict] = []
@@ -196,11 +202,14 @@ class SessionsRouter:
                     "tokens": down_tokens,
                 },
             )
+            db = self.librarian.structure_db
             for tc in tool_calls:
                 try:
                     args = json.loads(tc["arguments_raw"])
                 except (json.JSONDecodeError, ValueError):
                     args = {}
+                row = db.get_tool(tc["name"])
+                audited = bool(row["audited"]) if row else False
                 yield (
                     json.dumps(
                         {
@@ -208,6 +217,7 @@ class SessionsRouter:
                             "id": tc["id"],
                             "name": tc["name"],
                             "args": args,
+                            "audited": audited,
                         }
                     )
                     + "\n"
@@ -372,6 +382,21 @@ class SessionsRouter:
             "meta": meta,
             "messages": [dict(m) for m in messages],
         }
+
+    async def inject_message(
+        self,
+        session_id: str,
+        request: Request,
+        user_id: str = Depends(get_current_user),
+    ) -> dict:
+        self.__check_owner(session_id, user_id)
+        body = await request.json()
+        role = body.get("role", "assistant")
+        content = body.get("content", "")
+        message = {"role": role, "content": content}
+        self.librarian.push_context(session_id, message)
+        self.librarian.store_message(session_id, message)
+        return {"ok": True}
 
     async def clear_session(
         self,

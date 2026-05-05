@@ -2,6 +2,16 @@
 
 All `/sessions/*` and `/artifacts/*` endpoints require `Authorization: Bearer <token>`.
 
+## GET /users/cost
+
+Requires `Authorization: Bearer <token>`. Returns cumulative token usage and cost across all sessions for the authenticated user.
+
+```json
+{ "upload_tokens": 0, "download_tokens": 0, "cost": 0.0 }
+```
+
+---
+
 ## POST /users/login
 
 Request:
@@ -233,6 +243,62 @@ startup (uses INSERT OR REPLACE).
 ```json
 { "status": "ok" }
 ```
+
+## POST /tools/invoke
+
+Executes a remote tool (memory, schedule, cron, or meta category) on the
+server. Local tools (bash, text) are not routed here — they run client-side.
+
+Request:
+```json
+{ "name": "memory:store", "args": { "key": "foo", "value": "bar" }, "session_id": "<uuid>" }
+```
+
+Response: tool-specific JSON result, e.g. `{ "status": "stored" }` or
+`{ "error": "..." }` on failure.
+
+---
+
+## Jobs
+
+Used by the client-side `JobDispatcher` to claim and report scheduled and
+cron jobs. All endpoints require `Authorization: Bearer <token>`.
+
+### GET /jobs/due
+
+Returns all pending scheduled jobs whose `run_at` has passed and all active
+cron jobs whose next fire time has elapsed. Marks returned scheduled jobs as
+`running`.
+
+```json
+{
+  "scheduled": [{ "id": "<uuid>", "tool_call": "{\"name\":\"bash:ls\",\"args\":{}}", "run_at": "..." }],
+  "cron":      [{ "id": "<uuid>", "expression": "0 * * * *", "tool_call": "...", "last_run": "..." }]
+}
+```
+
+### POST /jobs/scheduled/{id}/result
+
+Reports the outcome of a scheduled job execution. Sets its status to `done`
+or `failed` and stores the result.
+
+Request:
+```json
+{ "status": "done", "result": { "lines": ["..."] } }
+```
+
+Response: `{ "ok": true }`
+
+### POST /jobs/cron/{id}/result
+
+Records the result of a cron job run and updates `last_run`.
+
+Request:
+```json
+{ "result": { "lines": ["..."] } }
+```
+
+Response: `{ "ok": true }`
 
 ---
 

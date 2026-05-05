@@ -26,7 +26,8 @@ def init():
     config = get_config()
     root_dir = os.path.expanduser(config["workspace"]["root"])
     for path in config["workspace"].values():
-        os.makedirs(os.path.expanduser(path), exist_ok=True)
+        if isinstance(path, str):
+            os.makedirs(os.path.expanduser(path), exist_ok=True)
     user_config = os.path.join(root_dir, "craftsman.yaml")
     if not os.path.exists(user_config):
         shutil.copy(
@@ -89,6 +90,42 @@ def telegram(host: str = "localhost", port: int = 6969):
     from craftsman.client.telegram import TelegramClient
 
     asyncio.run(TelegramClient(host=host, port=port).run())
+
+
+@main.command()
+@click.option("--host", default="localhost", help="Server host")
+@click.option("--port", default=6969, help="Server port")
+def daemon(host: str = "localhost", port: int = 6969):
+    """Run headless job dispatcher (no interactive chat)."""
+    import asyncio
+
+    import requests as _req
+
+    from craftsman.tools.scheduler import POLL_INTERVAL, JobDispatcher
+
+    base_url = f"http://{host}:{port}"
+    try:
+        _req.get(f"{base_url}/health", timeout=5).raise_for_status()
+    except Exception as e:
+        click.echo(f"Server not reachable: {e}")
+        return
+
+    username = Auth.get_password("USERNAME")
+    password = Auth.get_password("PASSWORD")
+    if not username or not password:
+        click.echo("Credentials not set. Run: craftsman user login")
+        return
+    resp = _req.post(
+        f"{base_url}/users/login",
+        json={"username": username, "password": password},
+    )
+    if resp.status_code != 200:
+        click.echo(f"Login failed: {resp.status_code} {resp.text}")
+        return
+
+    token = resp.json()["token"]
+    click.echo(f"Dispatcher running (poll={POLL_INTERVAL}s). Ctrl+C to stop.")
+    asyncio.run(JobDispatcher(base_url, token).run_loop())
 
 
 @main.command()

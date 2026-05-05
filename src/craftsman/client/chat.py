@@ -1,13 +1,16 @@
 import asyncio
+import difflib
 import json
 import os
+import re
+import shutil
 import threading
 import time
 from enum import Enum
 from pathlib import Path
 
 import requests
-from colorama import Fore, Style
+from colorama import Back, Fore, Style
 from prompt_toolkit import PromptSession
 from prompt_toolkit.document import Document
 from prompt_toolkit.filters import is_done
@@ -24,6 +27,8 @@ from craftsman.client.sessions import SessionsClient
 from craftsman.tools.constants import REMOTE_TOOLS
 from craftsman.tools.executor import _LOCAL_DISPATCH
 from craftsman.tools.text_tools import commit_tmp, discard_tmp
+
+_PENDING_TOOLS = {"text:replace", "text:insert", "text:delete"}
 
 
 class InputMode(Enum):
@@ -197,6 +202,13 @@ class Client(SessionsClient, ArtifactsClient):
                         "Error compacting session: "
                         f"{response.status_code} - {response.text}"
                     )
+            elif user_input.lower() == "/cost":
+                print(
+                    Fore.CYAN
+                    + f"{self.upload_tokens}↑/{self.download_tokens}↓"
+                    + f" (cost: ${self.cost:.4f})"
+                    + Style.RESET_ALL
+                )
             elif user_input.lower() == "/artifacts":
                 response = self._request(
                     "get",
@@ -297,10 +309,13 @@ class Client(SessionsClient, ArtifactsClient):
 
     def _call_tool(self, name: str, args: dict, session_id: str) -> dict:
         if name in _LOCAL_DISPATCH:
+            loop = asyncio.new_event_loop()
             try:
-                return asyncio.run(_LOCAL_DISPATCH[name](args))
+                return loop.run_until_complete(_LOCAL_DISPATCH[name](args))
             except Exception as e:
                 return {"error": str(e)}
+            finally:
+                loop.close()
         if name in REMOTE_TOOLS:
             try:
                 resp = self._request(
@@ -318,9 +333,92 @@ class Client(SessionsClient, ArtifactsClient):
                 return {"error": str(e)}
         return {"error": f"Unknown tool: {name}"}
 
+    def _confirm_audited(self, name: str, args: dict) -> tuple[bool, str]:
+        args_str = json.dumps(args)
+        print(Fore.YELLOW + f"[audited] {name} {args_str}" + Style.RESET_ALL)
+        try:
+            answer = input(
+                "[y] run / [n] skip (add reason after 'n'): "
+            ).strip()
+        except (EOFError, KeyboardInterrupt):
+            return False, "cancelled"
+        if answer.lower() == "y":
+            return True, ""
+        parts = answer.split(maxsplit=1)
+        reason = parts[1] if len(parts) > 1 else "user rejected"
+        return False, reason
+
     def _confirm_pending(self, tool_name: str, result: dict) -> dict:
         file_path = result.get("file", "unknown")
         tmp = result.get("tmp", "")
+        try:
+            if os.path.exists(file_path):
+                with open(file_path, errors="replace") as f:
+                    orig = f.readlines()
+            else:
+                orig = []
+            with open(tmp, errors="replace") as f:
+                new = f.readlines()
+            diff = list(
+                difflib.unified_diff(
+                    orig, new, fromfile=file_path, tofile=file_path
+                )
+            )
+        except Exception:
+            diff = []
+        if diff:
+            cols = shutil.get_terminal_size(fallback=(80, 24)).columns
+            width = len(str(max(len(orig), len(new), 1)))
+            old_n = new_n = 0
+            for raw in diff:
+                ln = raw.rstrip("\n")
+                pad = " " * width
+                if ln.startswith("---") or ln.startswith("+++"):
+                    print(
+                        Style.BRIGHT
+                        + f"{pad} {ln}".ljust(cols)
+                        + Style.RESET_ALL
+                    )
+                elif ln.startswith("@@"):
+                    m = re.match(r"@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@", ln)
+                    if m:
+                        old_n = int(m.group(1)) - 1
+                        new_n = int(m.group(2)) - 1
+                    print(
+                        Fore.CYAN + f"{pad} {ln}".ljust(cols) + Style.RESET_ALL
+                    )
+                elif ln.startswith("-"):
+                    old_n += 1
+                    num = str(old_n).rjust(width)
+                    body = f" {ln}".ljust(cols - width)
+                    print(
+                        Back.LIGHTRED_EX
+                        + Fore.BLACK
+                        + num
+                        + Style.RESET_ALL
+                        + Back.RED
+                        + body
+                        + Style.RESET_ALL
+                    )
+                elif ln.startswith("+"):
+                    new_n += 1
+                    num = str(new_n).rjust(width)
+                    body = f" {ln}".ljust(cols - width)
+                    print(
+                        Back.LIGHTGREEN_EX
+                        + Fore.BLACK
+                        + num
+                        + Style.RESET_ALL
+                        + Back.GREEN
+                        + body
+                        + Style.RESET_ALL
+                    )
+                else:
+                    old_n += 1
+                    new_n += 1
+                    num = str(new_n).rjust(width)
+                    body = f" {ln}".ljust(cols - width)
+                    print(Style.DIM + num + Style.RESET_ALL + body)
         print(
             Fore.YELLOW
             + f"[pending] {tool_name} → {file_path}"
@@ -493,12 +591,39 @@ class Client(SessionsClient, ArtifactsClient):
             for tc in tool_calls:
                 name = tc["name"]
                 args = tc.get("args", {})
+                audited = tc.get("audited", False)
+
+                if audited and name not in _PENDING_TOOLS:
+                    approved, reason = self._confirm_audited(name, args)
+                    if not approved:
+                        result: dict = {
+                            "status": "rejected",
+                            "reason": reason,
+                        }
+                        tool_results.append(
+                            {
+                                "tool_call_id": tc["id"],
+                                "tool_name": name,
+                                "result": result,
+                            }
+                        )
+                        continue
+
                 print(Style.DIM + f"  → executing {name}" + Style.RESET_ALL)
                 result = self._call_tool(name, args, session_id)
                 if result.get("status") == "pending":
                     result = self._confirm_pending(name, result)
-                status_str = result.get("status") or json.dumps(result)[:80]
-                print(Style.DIM + f"  ← {status_str}" + Style.RESET_ALL)
+                if result.get("error"):
+                    print(
+                        Fore.RED
+                        + f"  ← error: {result['error']}"
+                        + Style.RESET_ALL
+                    )
+                else:
+                    status_str = (
+                        result.get("status") or json.dumps(result)[:80]
+                    )
+                    print(Fore.YELLOW + f"  ← {status_str}" + Style.RESET_ALL)
                 tool_results.append(
                     {
                         "tool_call_id": tc["id"],
@@ -528,6 +653,53 @@ class Client(SessionsClient, ArtifactsClient):
                 )
                 return
 
+    def _start_dispatcher(self, token: str, session_holder: dict) -> None:
+        import httpx
+        from prompt_toolkit.patch_stdout import patch_stdout
+
+        from craftsman.tools.registry import register_agent_runner
+        from craftsman.tools.scheduler import JobDispatcher
+
+        register_agent_runner(self.entry_point, token)
+
+        entry = self.entry_point
+        headers = {"Authorization": f"Bearer {token}"}
+
+        async def _on_result(name: str, result: dict) -> None:
+            if "content" in result:
+                text = result["content"]
+            elif "output" in result:
+                text = result["output"]
+            elif "error" in result:
+                text = f"error: {result['error']}"
+            else:
+                text = json.dumps(result, indent=2)
+            label = f"[job: {name}]"
+            sid = session_holder.get("session_id")
+            if sid:
+                try:
+                    async with httpx.AsyncClient(timeout=10.0) as http:
+                        await http.post(
+                            f"{entry}/sessions/{sid}/inject",
+                            json={
+                                "role": "assistant",
+                                "content": f"{label}\n{text}",
+                            },
+                            headers=headers,
+                        )
+                except Exception as e:
+                    self.logger.error(f"inject failed: {e}")
+            with patch_stdout():
+                print(f"\n[job: {name}]\nassistant:\n{text}\n")
+
+        dispatcher = JobDispatcher(self.entry_point, token, _on_result)
+
+        def _run():
+            asyncio.run(dispatcher.run_loop())
+
+        threading.Thread(target=_run, daemon=True).start()
+        self.logger.info("Job dispatcher started.")
+
     def chat(self, session_id: str = None):
         self.logger.info(f"Connecting to server at {self.entry_point}...")
 
@@ -551,16 +723,20 @@ class Client(SessionsClient, ArtifactsClient):
             return
 
         self._seed_tools()
+        session_holder: dict = {}
+        self._start_dispatcher(token, session_holder)
 
         if not session_id:
             response = self._request("post", f"{self.entry_point}/sessions/")
             session_id = response.json().get("session_id", "")
+            session_holder["session_id"] = session_id
         else:
             response = self._request(
                 "post",
                 f"{self.entry_point}/sessions/{session_id}/resume",
             )
             if response.status_code == 200:
+                session_holder["session_id"] = session_id
                 data = response.json()
                 status = data.get("status", "")
                 messages = data.get("messages", [])

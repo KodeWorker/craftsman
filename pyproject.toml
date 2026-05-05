@@ -20,6 +20,7 @@ dependencies = [
     "httpx>=0.28",
     "pydub>=0.25",
     "croniter>=2.0",
+    "keyrings-alt>=5.0.0",
 ]
 
 [project.scripts]

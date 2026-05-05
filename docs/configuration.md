@@ -60,6 +60,17 @@ uv run craftsman auth set LLM_SSL_CRT
 # ~/.local/share/caddy/pki/authorities/local/root.crt
 ```
 
+## Daemon
+
+Run the job dispatcher without an interactive chat session:
+
+```bash
+uv run craftsman daemon [--host] [--port]
+```
+
+Polls `scheduled_jobs` and `cron_jobs` every 30 seconds and executes due
+jobs via the same `ToolExecutor` used by `chat` and `telegram`.
+
 ## Session Management
 
 ```bash

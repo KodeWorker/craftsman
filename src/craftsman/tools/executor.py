@@ -9,8 +9,10 @@ from craftsman.tools.bash_tools import (
     bash_head,
     bash_ls,
     bash_ps,
+    bash_run,
     bash_stat,
     bash_tail,
+    powershell_run,
 )
 from craftsman.tools.constants import REMOTE_TOOLS
 from craftsman.tools.text_tools import (
@@ -34,6 +36,8 @@ _LOCAL_DISPATCH = {
     "bash:ps": bash_ps,
     "bash:df": bash_df,
     "bash:du": bash_du,
+    "bash:run": bash_run,
+    "powershell:run": powershell_run,
     "text:read": text_read,
     "text:search": text_search,
     "text:replace": text_replace,

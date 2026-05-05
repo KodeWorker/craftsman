@@ -250,3 +250,42 @@ async def test_delete_invalid_range(tmp_path):
     )
     assert "error" in result
     assert f.read_text() == "a\nb\nc\n"
+
+
+async def test_insert_creates_new_file(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    f = tmp_path / "new.txt"
+    assert not f.exists()
+    result = await text_insert(
+        {"file": str(f), "line_num": 1, "lines": ["hello", "world"]}
+    )
+    assert result["status"] == "pending"
+    commit_tmp(result["file"], result["tmp"])
+    assert f.exists()
+    assert f.read_text() == "hello\nworld\n"
+
+
+async def test_insert_new_file_no_bak(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    f = tmp_path / "new.txt"
+    result = await text_insert({"file": str(f), "line_num": 1, "lines": ["x"]})
+    bak = commit_tmp(result["file"], result["tmp"])
+    assert bak is None
+
+
+async def test_insert_new_file_wrong_line_num(tmp_path):
+    f = tmp_path / "new.txt"
+    result = await text_insert({"file": str(f), "line_num": 5, "lines": ["x"]})
+    assert "error" in result
+    assert not f.exists()
+
+
+async def test_insert_new_file_in_nested_dir(tmp_path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    f = tmp_path / "sub" / "dir" / "new.txt"
+    result = await text_insert(
+        {"file": str(f), "line_num": 1, "lines": ["content"]}
+    )
+    assert result["status"] == "pending"
+    commit_tmp(result["file"], result["tmp"])
+    assert f.read_text() == "content\n"

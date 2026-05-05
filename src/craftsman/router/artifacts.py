@@ -30,15 +30,10 @@ class ArtifactsRouter:
         session_id: str = Form(None),
         user_id: str = Depends(get_current_user),
     ) -> dict:
+        import uuid
+
+        artifact_id = str(uuid.uuid4())
         suffix = Path(file.filename).suffix
-        artifact_id = self.librarian.structure_db.add_artifact(
-            filepath="",
-            filename=file.filename,
-            user_id=user_id,
-            session_id=session_id,
-            mime_type=file.content_type,
-            size_bytes=0,
-        )
         dest = self.artifacts_dir / f"{artifact_id}{suffix}"
         try:
             async with aiofiles.open(dest, "wb") as out:
@@ -46,12 +41,17 @@ class ArtifactsRouter:
                     await out.write(chunk)
         except Exception as e:
             self.logger.error(f"Failed to write artifact {artifact_id}: {e}")
-            self.librarian.structure_db.delete_artifact(artifact_id)
             raise HTTPException(status_code=500, detail="Upload failed.")
 
         size = dest.stat().st_size
-        self.librarian.structure_db.update_artifact(
-            artifact_id, filepath=str(dest), size_bytes=size
+        self.librarian.structure_db.add_artifact(
+            artifact_id=artifact_id,
+            filepath=str(dest),
+            filename=file.filename,
+            user_id=user_id,
+            session_id=session_id,
+            mime_type=file.content_type,
+            size_bytes=size,
         )
         self.logger.info(
             f"Artifact {artifact_id} uploaded: {file.filename} ({size} bytes)"
@@ -87,9 +87,11 @@ class ArtifactsRouter:
         return full_id, artifact
 
     async def get_artifact(
-        self, artifact_id: str, _: str = Depends(get_current_user)
+        self, artifact_id: str, user_id: str = Depends(get_current_user)
     ) -> dict | None:
         _, artifact = self.__resolve(artifact_id)
+        if artifact["user_id"] != user_id:
+            raise HTTPException(status_code=403, detail="Forbidden.")
         return {"artifact": dict(artifact)}
 
     async def delete_artifact(

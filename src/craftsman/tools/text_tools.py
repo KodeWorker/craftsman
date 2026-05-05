@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 import shutil
@@ -15,13 +16,27 @@ def _read_max_lines() -> int:
     )
 
 
+def _search_context_lines() -> int:
+    return (
+        get_config()
+        .get("tools", {})
+        .get("text", {})
+        .get("search", {})
+        .get("context_lines", 2)
+    )
+
+
 async def text_read(args: dict) -> dict:
     file = args["file"]
     line_start = args.get("line_start", 1)
     line_end = args.get("line_end")
     max_lines = args.get("max_lines", _read_max_lines())
-    with open(file, "r", errors="replace") as f:
-        all_lines = f.readlines()
+
+    def _read():
+        with open(file, "r", errors="replace") as f:
+            return f.readlines()
+
+    all_lines = await asyncio.to_thread(_read)
     total = len(all_lines)
     start_idx = max(0, (line_start or 1) - 1)
     end_idx = line_end if line_end is not None else total
@@ -50,9 +65,13 @@ async def text_read(args: dict) -> dict:
 async def text_search(args: dict) -> dict:
     file = args["file"]
     pattern = args["pattern"]
-    context_lines = args.get("context_lines", 2)
-    with open(file, "r", errors="replace") as f:
-        lines = f.readlines()
+    context_lines = args.get("context_lines", _search_context_lines())
+
+    def _read():
+        with open(file, "r", errors="replace") as f:
+            return f.readlines()
+
+    lines = await asyncio.to_thread(_read)
     matches = []
     for i, line in enumerate(lines):
         if re.search(pattern, line):
@@ -92,9 +111,15 @@ def _write_tmp_lines(file: str, lines: list[str]) -> str:
     return tmp
 
 
-def commit_tmp(file: str, tmp: str) -> str:
-    bak = _craftsman_path(file, ".bak")
-    shutil.copy2(file, bak)
+def commit_tmp(file: str, tmp: str) -> str | None:
+    parent = os.path.dirname(os.path.abspath(file))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+    if os.path.exists(file):
+        bak = _craftsman_path(file, ".bak")
+        shutil.copy2(file, bak)
+    else:
+        bak = None
     os.replace(tmp, file)
     return bak
 
@@ -110,14 +135,42 @@ async def text_replace(args: dict) -> dict:
     file = args["file"]
     old = args["old_string"]
     new = args["new_string"]
-    with open(file, "r", errors="replace") as f:
-        content = f.read()
+    content = await asyncio.to_thread(
+        lambda: open(file, "r", errors="replace").read()
+    )
+
+    # Exact match
     count = content.count(old)
-    if count == 0:
-        return {"error": f"String not found in {file}"}
     if count > 1:
         return {"error": f"String found {count} times — must be unique"}
-    tmp = _write_tmp(file, content.replace(old, new, 1))
+    if count == 1:
+        tmp = _write_tmp(file, content.replace(old, new, 1))
+        return {"status": "pending", "tmp": tmp, "file": file}
+
+    # Fallback: line-by-line match ignoring trailing whitespace
+    file_lines = content.splitlines(keepends=True)
+    old_lines = [ln.rstrip() for ln in old.splitlines()]
+    n = len(old_lines)
+    if n == 0:
+        return {"error": f"String not found in {file}"}
+
+    found = -1
+    for i in range(len(file_lines) - n + 1):
+        chunk = [file_lines[i + j].rstrip() for j in range(n)]
+        if chunk == old_lines:
+            if found != -1:
+                return {
+                    "error": "String found multiple times — must be unique"
+                }
+            found = i
+
+    if found == -1:
+        return {"error": f"String not found in {file}"}
+
+    prefix = "".join(file_lines[:found])
+    suffix = "".join(file_lines[found + n :])
+    insertion = new if new.endswith("\n") or not suffix else new + "\n"
+    tmp = _write_tmp(file, prefix + insertion + suffix)
     return {"status": "pending", "tmp": tmp, "file": file}
 
 
@@ -125,11 +178,28 @@ async def text_insert(args: dict) -> dict:
     file = args["file"]
     line_num = args["line_num"]
     new_lines = args["lines"]
-    with open(file, "r", errors="replace") as f:
-        lines = f.readlines()
     to_insert = [ln if ln.endswith("\n") else ln + "\n" for ln in new_lines]
-    lines[line_num - 1 : line_num - 1] = to_insert
-    tmp = _write_tmp_lines(file, lines)
+    if not os.path.exists(file):
+        if line_num != 1:
+            return {
+                "error": (
+                    f"{file} does not exist; use line_num=1 to create it"
+                )
+            }
+        tmp = _write_tmp_lines(file, to_insert)
+    else:
+        lines = await asyncio.to_thread(
+            lambda: open(file, "r", errors="replace").readlines()
+        )
+        if line_num < 1 or line_num > len(lines) + 1:
+            return {
+                "error": (
+                    f"line_num={line_num} out of range"
+                    f" for file with {len(lines)} lines"
+                )
+            }
+        lines[line_num - 1 : line_num - 1] = to_insert
+        tmp = _write_tmp_lines(file, lines)
     return {
         "status": "pending",
         "tmp": tmp,
@@ -142,8 +212,9 @@ async def text_delete(args: dict) -> dict:
     file = args["file"]
     line_start = args["line_start"]
     line_end = args["line_end"]
-    with open(file, "r", errors="replace") as f:
-        lines = f.readlines()
+    lines = await asyncio.to_thread(
+        lambda: open(file, "r", errors="replace").readlines()
+    )
     if line_start < 1 or line_end > len(lines) or line_start > line_end:
         return {
             "error": (

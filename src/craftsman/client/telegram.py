@@ -26,6 +26,9 @@ from telegram.request import HTTPXRequest
 
 from craftsman.auth import Auth
 from craftsman.configure import get_config
+from craftsman.tools.constants import REMOTE_TOOLS
+from craftsman.tools.executor import _LOCAL_DISPATCH
+from craftsman.tools.text_tools import commit_tmp
 
 
 class TelegramClient:
@@ -47,6 +50,7 @@ class TelegramClient:
         self._prompt_tokens: int = 0
         self._completion_tokens: int = 0
         self._cost: float = 0.0
+        self._pending_audit: dict[str, asyncio.Future] = {}
 
     # ── State ────────────────────────────────────────────────────────────
 
@@ -83,6 +87,68 @@ class TelegramClient:
 
     async def _seed_tools(self) -> None:
         await self._request("post", f"{self._entry_point}/tools/seed")
+
+    async def _drain_job_results(self, queue: asyncio.Queue) -> None:
+        while True:
+            name, result = await queue.get()
+            while not self._app or not self._state.get("chat_id"):
+                await asyncio.sleep(0.5)
+            if "content" in result:
+                text = result["content"]
+            elif "output" in result:
+                text = result["output"]
+            elif "error" in result:
+                text = f"error: {result['error']}"
+            else:
+                text = json.dumps(result, indent=2)
+            label = f"[job: {name}]"
+            sid = self._state.get("session_id")
+            if sid:
+                try:
+                    await self._request(
+                        "post",
+                        f"{self._entry_point}/sessions/{sid}/inject",
+                        json={
+                            "role": "assistant",
+                            "content": f"{label}\n{text}",
+                        },
+                    )
+                except Exception as e:
+                    print(f"[job inject error] {e}")
+            msg = f"{label}\n{text}"
+            max_len = 4096
+            for i in range(0, max(len(msg), 1), max_len):
+                await self._app.bot.send_message(
+                    self._state["chat_id"], msg[i : i + max_len]
+                )
+            queue.task_done()
+
+    async def _run_dispatcher(self) -> None:
+        from craftsman.tools.registry import register_agent_runner
+        from craftsman.tools.scheduler import JobDispatcher
+
+        register_agent_runner(self._entry_point, self._jwt)
+
+        queue: asyncio.Queue = asyncio.Queue()
+        asyncio.create_task(self._drain_job_results(queue))
+
+        async def _on_result(name: str, result: dict) -> None:
+            await queue.put((name, result))
+
+        dispatcher = JobDispatcher(self._entry_point, self._jwt, _on_result)
+        await dispatcher.run_loop()
+
+    async def _wait_for_server(self) -> None:
+        retry = self.config.get("chat", {}).get("retry_interval_sec", 3)
+        while True:
+            try:
+                resp = await self._http.get(f"{self._entry_point}/health")
+                if resp.status_code == 200:
+                    return
+            except Exception:
+                pass
+            print(f"Server not ready yet, retrying in {retry}s...")
+            await asyncio.sleep(retry)
 
     async def _reset_provider(self) -> None:
         cfg = self.config.get("provider", {})
@@ -158,34 +224,153 @@ class TelegramClient:
             return resp.json().get("artifacts", [])
         return []
 
-    async def _complete(self, session_id: str, text: str) -> str:
-        url = f"{self._entry_point}/sessions/{session_id}/completion"
-        body = {"message": {"role": "user", "content": text}}
+    async def _drain(
+        self, stream_resp: httpx.Response
+    ) -> tuple[list[str], list[dict]]:
+        chunks: list[str] = []
+        tool_calls: list[dict] = []
+        async for line in stream_resp.aiter_lines():
+            if not line:
+                continue
+            try:
+                chunk = json.loads(line)
+                kind = chunk.get("kind")
+                if kind == "content":
+                    chunks.append(chunk["text"])
+                elif kind == "tool_call":
+                    tool_calls.append(chunk)
+                elif kind == "meta":
+                    self._model = chunk.get("model", self._model)
+                    self._ctx_used = chunk.get("ctx_used", self._ctx_used)
+                    self._ctx_total = chunk.get("ctx_total", self._ctx_total)
+                    self._prompt_tokens += chunk.get("prompt_tokens", 0)
+                    self._completion_tokens += chunk.get(
+                        "completion_tokens", 0
+                    )
+                    self._cost += chunk.get("cost", 0.0)
+            except json.JSONDecodeError:
+                pass
+        return chunks, tool_calls
 
-        async def _drain(stream_resp: httpx.Response) -> list[str]:
-            chunks: list[str] = []
-            async for line in stream_resp.aiter_lines():
-                if not line:
-                    continue
-                try:
-                    chunk = json.loads(line)
-                    kind = chunk.get("kind")
-                    if kind == "content":
-                        chunks.append(chunk["text"])
-                    elif kind == "meta":
-                        self._model = chunk.get("model", self._model)
-                        self._ctx_used = chunk.get("ctx_used", self._ctx_used)
-                        self._ctx_total = chunk.get(
-                            "ctx_total", self._ctx_total
-                        )
-                        self._prompt_tokens += chunk.get("prompt_tokens", 0)
-                        self._completion_tokens += chunk.get(
-                            "completion_tokens", 0
-                        )
-                        self._cost += chunk.get("cost", 0.0)
-                except json.JSONDecodeError:
-                    pass
-            return chunks
+    async def _call_tool(self, name: str, args: dict, session_id: str) -> dict:
+        if name in _LOCAL_DISPATCH:
+            try:
+                return await _LOCAL_DISPATCH[name](args)
+            except Exception as e:
+                return {"error": str(e)}
+        if name in REMOTE_TOOLS:
+            try:
+                resp = await self._request(
+                    "post",
+                    f"{self._entry_point}/tools/invoke",
+                    json={
+                        "name": name,
+                        "args": args,
+                        "session_id": session_id,
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json()
+            except Exception as e:
+                return {"error": str(e)}
+        return {"error": f"Unknown tool: {name}"}
+
+    async def _request_confirmation(
+        self,
+        bot,
+        chat_id: int,
+        call_id: str,
+        name: str,
+        args: dict,
+    ) -> tuple[bool, str]:
+        args_str = json.dumps(args)
+        keyboard = InlineKeyboardMarkup(
+            [
+                [
+                    InlineKeyboardButton(
+                        "✓ Approve",
+                        callback_data=f"audit:y:{call_id}",
+                    ),
+                    InlineKeyboardButton(
+                        "✗ Reject",
+                        callback_data=f"audit:n:{call_id}",
+                    ),
+                ]
+            ]
+        )
+        await bot.send_message(
+            chat_id,
+            f"[audited] {name}\n{args_str}\nApprove execution?",
+            reply_markup=keyboard,
+        )
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future = loop.create_future()
+        self._pending_audit[call_id] = future
+        try:
+            return await asyncio.wait_for(future, timeout=60.0)
+        except asyncio.TimeoutError:
+            self._pending_audit.pop(call_id, None)
+            return False, "timed out"
+
+    async def _on_audit_callback(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        query = update.callback_query
+        await query.answer()
+        parts = query.data.split(":", 2)
+        if len(parts) != 3:
+            return
+        _, decision, call_id = parts
+        future = self._pending_audit.pop(call_id, None)
+        if future and not future.done():
+            if decision == "y":
+                future.set_result((True, ""))
+            else:
+                future.set_result((False, "user rejected"))
+        await query.edit_message_reply_markup(reply_markup=None)
+
+    def _build_reply(
+        self,
+        tool_log: list[tuple[str, dict, dict]],
+        content_chunks: list[str],
+    ) -> str:
+        parts: list[str] = []
+        for name, args, result in tool_log:
+            args_str = json.dumps(args)
+            preview = json.dumps(result)
+            if len(preview) > 200:
+                preview = preview[:200] + "…"
+            if result.get("error"):
+                parts.append(
+                    f"[tool: {name} {args_str}]\n"
+                    f"→ error: {result['error']}"
+                )
+            else:
+                parts.append(f"[tool: {name} {args_str}]\n→ {preview}")
+        content = "".join(content_chunks)
+        if parts:
+            parts.append("")
+            parts.append(content)
+            return "\n".join(parts)
+        return content
+
+    async def _complete(
+        self,
+        session_id: str,
+        text: str,
+        bot=None,
+        chat_id: int = 0,
+    ) -> str:
+        tools = self.config.get("chat", {}).get("tools", ["all"])
+        max_loops = self.config.get("chat", {}).get("max_tool_loops", 10)
+        url = f"{self._entry_point}/sessions/{session_id}/completion"
+        body = {
+            "message": {"role": "user", "content": text},
+            "tools": tools,
+        }
+        tool_log: list[tuple[str, dict, dict]] = []
+        content_chunks: list[str] = []
+        tool_calls: list[dict] = []
 
         for attempt in range(2):
             async with self._http.stream("POST", url, json=body) as resp:
@@ -193,8 +378,69 @@ class TelegramClient:
                     if not await self._login():
                         return ""
                     continue
-                return "".join(await _drain(resp))
-        return ""
+                content_chunks, tool_calls = await self._drain(resp)
+                break
+        else:
+            return ""
+
+        for _ in range(max_loops):
+            if not tool_calls:
+                break
+            tool_results = []
+            for tc in tool_calls:
+                name = tc["name"]
+                args = tc.get("args", {})
+                audited = tc.get("audited", False)
+
+                if audited and bot and chat_id:
+                    approved, reason = await self._request_confirmation(
+                        bot, chat_id, tc["id"], name, args
+                    )
+                    if not approved:
+                        result: dict = {
+                            "status": "rejected",
+                            "reason": reason,
+                        }
+                        tool_log.append((name, args, result))
+                        tool_results.append(
+                            {
+                                "tool_call_id": tc["id"],
+                                "tool_name": name,
+                                "result": result,
+                            }
+                        )
+                        continue
+
+                result = await self._call_tool(name, args, session_id)
+                if result.get("status") == "pending":
+                    try:
+                        bak = commit_tmp(result["file"], result["tmp"])
+                        result = {
+                            "status": "committed",
+                            "file": result["file"],
+                            "backup": bak,
+                        }
+                    except Exception as e:
+                        result = {"error": str(e)}
+                tool_log.append((name, args, result))
+                tool_results.append(
+                    {
+                        "tool_call_id": tc["id"],
+                        "tool_name": name,
+                        "result": result,
+                    }
+                )
+            tr_url = f"{self._entry_point}/sessions/{session_id}/tool_result"
+            async with self._http.stream(
+                "POST",
+                tr_url,
+                json={"tool_results": tool_results, "tools": tools},
+            ) as resp:
+                if resp.status_code != 200:
+                    return self._build_reply(tool_log, content_chunks)
+                content_chunks, tool_calls = await self._drain(resp)
+
+        return self._build_reply(tool_log, content_chunks)
 
     # ── Pairing ──────────────────────────────────────────────────────────
 
@@ -284,10 +530,18 @@ class TelegramClient:
         context: ContextTypes.DEFAULT_TYPE,
         text: str,
     ) -> None:
-        await context.bot.send_chat_action(
-            chat_id=update.effective_chat.id, action=ChatAction.TYPING
+        try:
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id, action=ChatAction.TYPING
+            )
+        except Exception as e:
+            print(f"[warning] send_chat_action failed: {e}")
+        response = await self._complete(
+            self._state["session_id"],
+            text,
+            bot=context.bot,
+            chat_id=update.effective_chat.id,
         )
-        response = await self._complete(self._state["session_id"], text)
         if not response:
             await update.message.reply_text("(no response from server)")
             return
@@ -319,7 +573,13 @@ class TelegramClient:
             CommandHandler("status", self._on_status, filters=cf)
         )
         self._app.add_handler(
+            CommandHandler("cost", self._on_cost, filters=cf)
+        )
+        self._app.add_handler(
             CallbackQueryHandler(self._on_session_switch, pattern=r"^switch:")
+        )
+        self._app.add_handler(
+            CallbackQueryHandler(self._on_audit_callback, pattern=r"^audit:")
         )
         self._app.add_handler(
             MessageHandler(cf & filters.TEXT & ~filters.COMMAND, self._on_text)
@@ -351,7 +611,8 @@ class TelegramClient:
             "  /artifacts — list artifacts in current session\n"
             "  /clear — clear session history\n"
             "  /compact — summarize and reduce context size\n"
-            "  /status — show model, session, token and cost info\n\n"
+            "  /status — show model, session, token and cost info\n"
+            "  /cost — show token usage and cost\n\n"
             "Media support:\n"
             "  photos and image documents → vision\n"
             "  audio files and voice messages → audio"
@@ -426,6 +687,14 @@ class TelegramClient:
             f"tokens: {_fmt(self._prompt_tokens)}↑ "
             f"{_fmt(self._completion_tokens)}↓\n"
             f"cost: ${self._cost:.4f}"
+        )
+
+    async def _on_cost(
+        self, update: Update, context: ContextTypes.DEFAULT_TYPE
+    ) -> None:
+        await update.message.reply_text(
+            f"{self._prompt_tokens}↑/{self._completion_tokens}↓"
+            f" (cost: ${self._cost:.4f})"
         )
 
     async def _on_clear(
@@ -697,10 +966,12 @@ class TelegramClient:
 
         self._http = httpx.AsyncClient(timeout=60.0)
         try:
+            await self._wait_for_server()
             if not await self._login():
                 return
             await self._reset_provider()
             await self._seed_tools()
+            asyncio.create_task(self._run_dispatcher())
 
             if not self._state["session_id"]:
                 sid = await self._create_session()
@@ -715,6 +986,7 @@ class TelegramClient:
                 Application.builder()
                 .token(self._token)
                 .request(tg_request)
+                .concurrent_updates(True)
                 .build()
             )
             self._register_handlers()
@@ -730,8 +1002,16 @@ class TelegramClient:
                 await self._app.start()
                 stop = asyncio.Event()
                 loop = asyncio.get_running_loop()
-                for sig in (signal.SIGINT, signal.SIGTERM):
-                    loop.add_signal_handler(sig, stop.set)
+                try:
+                    for sig in (signal.SIGINT, signal.SIGTERM):
+                        loop.add_signal_handler(sig, stop.set)
+                except NotImplementedError:
+                    # Windows does not support add_signal_handler
+                    def _win_handler(signum, frame):
+                        loop.call_soon_threadsafe(stop.set)
+
+                    signal.signal(signal.SIGINT, _win_handler)
+                    signal.signal(signal.SIGTERM, _win_handler)
                 await stop.wait()
                 await self._app.updater.stop()
                 await self._app.stop()

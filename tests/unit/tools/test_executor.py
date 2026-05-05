@@ -62,7 +62,7 @@ async def test_remote_tool_posts_to_invoke():
 
 async def test_remote_tool_sends_bearer_token():
     executor = _make_executor(http_response={"status": "ok"})
-    await executor.execute("plan:create", {"goal": "g"})
+    await executor.execute("memory:store", {"key": "k", "value": "v"})
     headers = executor.http.post.call_args.kwargs["headers"]
     assert headers["Authorization"] == "Bearer test-token"
 

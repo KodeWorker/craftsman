@@ -97,7 +97,7 @@ CREATE TABLE tasks (
 CREATE TABLE tools (
   name        TEXT PRIMARY KEY,
   description TEXT NOT NULL,
-  category    TEXT NOT NULL,   -- meta, bash, text, web, memory, schedule, plan
+  category    TEXT NOT NULL,   -- meta, bash, text, memory, schedule, agent
   schema      TEXT NOT NULL,   -- JSON parameters schema (OpenAI function-calling format)
   audited     INTEGER NOT NULL DEFAULT 0,  -- 1 = log every invocation to tool_invocations
   call_count  INTEGER NOT NULL DEFAULT 0,
@@ -125,7 +125,8 @@ CREATE VIRTUAL TABLE tools_vec USING vec0(
 -- Scheduled jobs: one-shot deferred tool calls
 CREATE TABLE scheduled_jobs (
   id          TEXT PRIMARY KEY,  -- UUID
-  tool_call   TEXT NOT NULL,     -- JSON {tool, args}
+  user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+  tool_call   TEXT NOT NULL,     -- JSON {name, args}
   run_at      TEXT NOT NULL,
   status      TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'done', 'failed')),
   result      TEXT,              -- JSON result or error
@@ -134,12 +135,14 @@ CREATE TABLE scheduled_jobs (
 
 -- Cron jobs: recurring tool calls
 CREATE TABLE cron_jobs (
-  id         TEXT PRIMARY KEY,  -- UUID
-  expression TEXT NOT NULL,     -- standard cron expression
-  tool_call  TEXT NOT NULL,     -- JSON {tool, args}
-  active     INTEGER NOT NULL DEFAULT 1,
-  last_run   TEXT,
-  created_at TEXT NOT NULL DEFAULT (datetime('now'))
+  id          TEXT PRIMARY KEY,  -- UUID
+  user_id     TEXT REFERENCES users(id) ON DELETE SET NULL,
+  expression  TEXT NOT NULL,     -- standard cron expression
+  tool_call   TEXT NOT NULL,     -- JSON {name, args}
+  active      INTEGER NOT NULL DEFAULT 1,
+  last_run    TEXT,
+  last_result TEXT,              -- JSON result from most recent run
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 ```
 

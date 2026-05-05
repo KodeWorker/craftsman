@@ -39,38 +39,37 @@ def app(mocker, tmp_path):
 
 def test_upload_artifact_returns_artifact_id(app):
     client, mock_librarian, _ = app
-    mock_librarian.structure_db.add_artifact.return_value = "artifact-test-id"
     resp = client.post(
         "/artifacts/",
         files={"file": ("photo.jpg", b"fake image data", "image/jpeg")},
         data={"session_id": "s1"},
     )
     assert resp.status_code == 200
-    assert resp.json()["artifact_id"] == "artifact-test-id"
+    artifact_id = resp.json()["artifact_id"]
+    assert artifact_id  # a UUID was generated
 
 
 def test_upload_artifact_writes_file(app):
     client, mock_librarian, tmp_path = app
-    mock_librarian.structure_db.add_artifact.return_value = "artifact-test-id"
-    client.post(
+    resp = client.post(
         "/artifacts/",
         files={"file": ("photo.jpg", b"hello world", "image/jpeg")},
     )
-    assert (tmp_path / "artifact-test-id.jpg").read_bytes() == b"hello world"
+    artifact_id = resp.json()["artifact_id"]
+    assert (tmp_path / f"{artifact_id}.jpg").read_bytes() == b"hello world"
 
 
-def test_upload_artifact_calls_update_with_size(app):
+def test_upload_artifact_calls_add_with_filepath(app):
     client, mock_librarian, tmp_path = app
-    mock_librarian.structure_db.add_artifact.return_value = "artifact-test-id"
-    client.post(
+    resp = client.post(
         "/artifacts/",
         files={"file": ("photo.jpg", b"abc", "image/jpeg")},
     )
-    mock_librarian.structure_db.update_artifact.assert_called_once_with(
-        "artifact-test-id",
-        filepath=str(tmp_path / "artifact-test-id.jpg"),
-        size_bytes=3,
-    )
+    artifact_id = resp.json()["artifact_id"]
+    call_kwargs = mock_librarian.structure_db.add_artifact.call_args.kwargs
+    assert call_kwargs["artifact_id"] == artifact_id
+    assert call_kwargs["filepath"] == str(tmp_path / f"{artifact_id}.jpg")
+    assert call_kwargs["size_bytes"] == 3
 
 
 # --- list ---
@@ -135,6 +134,22 @@ def test_get_artifact_not_found(app):
     mock_librarian.structure_db.resolve_artifact_id.return_value = None
     resp = client.get("/artifacts/unknown")
     assert resp.status_code == 404
+
+
+def test_get_artifact_forbidden(app):
+    client, mock_librarian, _ = app
+    mock_librarian.structure_db.resolve_artifact_id.return_value = "aid"
+    mock_librarian.structure_db.get_artifact.return_value = {
+        "id": "aid",
+        "filename": "photo.jpg",
+        "mime_type": "image/jpeg",
+        "user_id": "other-user",
+        "filepath": "/tmp/photo.jpg",
+        "size_bytes": 1024,
+        "created_at": "2024-01-01",
+    }
+    resp = client.get("/artifacts/aid")
+    assert resp.status_code == 403
 
 
 # --- delete ---

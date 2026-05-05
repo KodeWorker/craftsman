@@ -21,6 +21,9 @@ uv run craftsman dev
 # Telegram bot (client-side, long-poll)
 uv run craftsman telegram [--host] [--port]
 
+# Headless job dispatcher (no interactive chat)
+uv run craftsman daemon [--host] [--port]
+
 # Authentication
 uv run craftsman auth list
 uv run craftsman auth set <key>

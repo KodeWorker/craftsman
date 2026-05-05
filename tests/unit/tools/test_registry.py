@@ -48,7 +48,7 @@ def test_idempotent_reseed(db):
     seed_registry(db)
     seed_registry(db)
     rows = db.list_tools()
-    assert len(rows) == len(_TOOLS)
+    assert len(rows) == len(_enabled_tools())
 
 
 def test_audited_flags():
@@ -60,11 +60,9 @@ def test_audited_flags():
     assert by_name["text:read"]["audited"] is False
     assert by_name["tool:list"]["audited"] is False
     assert by_name["memory:retrieve"]["audited"] is False
-    assert by_name["task:list"]["audited"] is False
     # write/action tools are audited
     assert by_name["text:replace"]["audited"] is True
     assert by_name["memory:store"]["audited"] is True
-    assert by_name["plan:create"]["audited"] is True
     assert by_name["tool:revoke"]["audited"] is True
 
 
@@ -77,8 +75,14 @@ def test_audited_stored_in_db(db):
 
 
 def test_categories_are_valid():
-    valid = {"meta", "bash", "text", "memory", "schedule", "plan"}
+    valid = {"meta", "bash", "text", "memory", "schedule", "plan", "agent"}
     for t in _TOOLS:
         assert (
             t["category"] in valid
         ), f"{t['name']} has unknown category {t['category']}"
+
+
+def test_seed_registry_skips_if_no_enabled_tools(db, mocker):
+    mocker.patch("craftsman.tools.registry._enabled_tools", return_value=[])
+    seed_registry(db)
+    assert db.list_tools() == []
