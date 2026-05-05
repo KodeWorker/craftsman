@@ -26,7 +26,8 @@ def init():
     config = get_config()
     root_dir = os.path.expanduser(config["workspace"]["root"])
     for path in config["workspace"].values():
-        os.makedirs(os.path.expanduser(path), exist_ok=True)
+        if isinstance(path, str):
+            os.makedirs(os.path.expanduser(path), exist_ok=True)
     user_config = os.path.join(root_dir, "craftsman.yaml")
     if not os.path.exists(user_config):
         shutil.copy(

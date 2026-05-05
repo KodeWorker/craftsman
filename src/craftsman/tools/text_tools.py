@@ -1,3 +1,4 @@
+import asyncio
 import os
 import re
 import shutil
@@ -30,8 +31,12 @@ async def text_read(args: dict) -> dict:
     line_start = args.get("line_start", 1)
     line_end = args.get("line_end")
     max_lines = args.get("max_lines", _read_max_lines())
-    with open(file, "r", errors="replace") as f:
-        all_lines = f.readlines()
+
+    def _read():
+        with open(file, "r", errors="replace") as f:
+            return f.readlines()
+
+    all_lines = await asyncio.to_thread(_read)
     total = len(all_lines)
     start_idx = max(0, (line_start or 1) - 1)
     end_idx = line_end if line_end is not None else total
@@ -61,8 +66,12 @@ async def text_search(args: dict) -> dict:
     file = args["file"]
     pattern = args["pattern"]
     context_lines = args.get("context_lines", _search_context_lines())
-    with open(file, "r", errors="replace") as f:
-        lines = f.readlines()
+
+    def _read():
+        with open(file, "r", errors="replace") as f:
+            return f.readlines()
+
+    lines = await asyncio.to_thread(_read)
     matches = []
     for i, line in enumerate(lines):
         if re.search(pattern, line):
@@ -126,8 +135,9 @@ async def text_replace(args: dict) -> dict:
     file = args["file"]
     old = args["old_string"]
     new = args["new_string"]
-    with open(file, "r", errors="replace") as f:
-        content = f.read()
+    content = await asyncio.to_thread(
+        lambda: open(file, "r", errors="replace").read()
+    )
 
     # Exact match
     count = content.count(old)
@@ -178,8 +188,9 @@ async def text_insert(args: dict) -> dict:
             }
         tmp = _write_tmp_lines(file, to_insert)
     else:
-        with open(file, "r", errors="replace") as f:
-            lines = f.readlines()
+        lines = await asyncio.to_thread(
+            lambda: open(file, "r", errors="replace").readlines()
+        )
         if line_num < 1 or line_num > len(lines) + 1:
             return {
                 "error": (
@@ -201,8 +212,9 @@ async def text_delete(args: dict) -> dict:
     file = args["file"]
     line_start = args["line_start"]
     line_end = args["line_end"]
-    with open(file, "r", errors="replace") as f:
-        lines = f.readlines()
+    lines = await asyncio.to_thread(
+        lambda: open(file, "r", errors="replace").readlines()
+    )
     if line_start < 1 or line_end > len(lines) or line_start > line_end:
         return {
             "error": (

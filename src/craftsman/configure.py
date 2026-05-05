@@ -15,5 +15,4 @@ def get_config() -> dict:
         with config_path.open(encoding="utf-8") as f:
             return yaml.safe_load(f) or {}
     except Exception as e:
-        print(f"Error loading config: {e}")
-        return {}
+        raise RuntimeError(f"Error loading config: {e}") from e

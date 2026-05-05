@@ -309,10 +309,13 @@ class Client(SessionsClient, ArtifactsClient):
 
     def _call_tool(self, name: str, args: dict, session_id: str) -> dict:
         if name in _LOCAL_DISPATCH:
+            loop = asyncio.new_event_loop()
             try:
-                return asyncio.run(_LOCAL_DISPATCH[name](args))
+                return loop.run_until_complete(_LOCAL_DISPATCH[name](args))
             except Exception as e:
                 return {"error": str(e)}
+            finally:
+                loop.close()
         if name in REMOTE_TOOLS:
             try:
                 resp = self._request(

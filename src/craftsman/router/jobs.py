@@ -3,7 +3,7 @@ import logging
 from datetime import datetime, timezone
 
 from croniter import croniter
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from craftsman.memory.librarian import Librarian
 from craftsman.router.deps import get_current_user
@@ -47,6 +47,9 @@ class JobsRouter:
         request: Request,
         user_id: str = Depends(get_current_user),
     ) -> dict:
+        job = self.db.get_scheduled_job(job_id)
+        if not job or job["user_id"] != user_id:
+            raise HTTPException(status_code=403, detail="Forbidden.")
         body = await request.json()
         status = body.get("status", "done")
         result = body.get("result")
@@ -61,6 +64,9 @@ class JobsRouter:
         request: Request,
         user_id: str = Depends(get_current_user),
     ) -> dict:
+        job = self.db.get_cron_job(cron_id)
+        if not job or job["user_id"] != user_id:
+            raise HTTPException(status_code=403, detail="Forbidden.")
         body = await request.json()
         result = body.get("result")
         self.db.update_cron_last_run(

@@ -117,9 +117,12 @@ class TelegramClient:
                     )
                 except Exception as e:
                     print(f"[job inject error] {e}")
-            await self._app.bot.send_message(
-                self._state["chat_id"], f"{label}\n{text}"
-            )
+            msg = f"{label}\n{text}"
+            max_len = 4096
+            for i in range(0, max(len(msg), 1), max_len):
+                await self._app.bot.send_message(
+                    self._state["chat_id"], msg[i : i + max_len]
+                )
             queue.task_done()
 
     async def _run_dispatcher(self) -> None:

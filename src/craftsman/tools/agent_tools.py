@@ -110,6 +110,13 @@ def make_agent_runner(base_url: str, token: str):
                 except Exception as e:
                     return {"error": str(e)}
 
+        try:
+            await http.delete(
+                f"{_base}/sessions/{session_id}", headers=_headers
+            )
+        except Exception as e:
+            return {"error": str(e)}
+
         return {"content": content}
 
     return agent_run

@@ -482,6 +482,36 @@ def test_get_user_cost_calls_provider_cost_with_token_counts(app):
     mock_provider.cost.assert_called_once_with(200, 80)
 
 
+# --- reset ---
+
+
+def test_reset_requires_auth(app):
+    client, server, mock_provider, _ = app
+    from craftsman.router.deps import get_current_user
+
+    server.app.dependency_overrides.pop(get_current_user)
+    resp = client.post("/reset", json={"api_base": "http://x", "api_key": "k"})
+    assert resp.status_code in (401, 403)
+    mock_provider.reset.assert_not_called()
+
+
+def test_reset_calls_provider_reset(app):
+    client, _, mock_provider, _ = app
+    resp = client.post(
+        "/reset", json={"api_base": "http://x:1234", "api_key": "mykey"}
+    )
+    assert resp.status_code == 200
+    mock_provider.reset.assert_called_once_with(
+        api_base="http://x:1234", api_key="mykey"
+    )
+
+
+def test_reset_returns_status(app):
+    client, *_ = app
+    resp = client.post("/reset", json={})
+    assert resp.json() == {"status": "provider reset"}
+
+
 # --- ownership ---
 
 

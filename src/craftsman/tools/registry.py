@@ -686,6 +686,8 @@ def register_agent_runner(base_url: str, token: str) -> None:
 
 def seed_registry(db: StructureDB) -> None:
     enabled = _enabled_tools()
+    if not enabled:
+        return
     enabled_names = {t["name"] for t in enabled}
     db.conn.execute(
         "DELETE FROM tools WHERE name NOT IN ({})".format(

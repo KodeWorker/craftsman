@@ -40,7 +40,11 @@ class Server:
     async def health_check(self) -> dict:
         return {"status": "ok"}
 
-    async def reset_provider(self, request: Request) -> dict:
+    async def reset_provider(
+        self,
+        request: Request,
+        _: str = Depends(get_current_user),
+    ) -> dict:
         body = await request.json()
         api_base = body.get("api_base", None)
         api_key = body.get("api_key", None)

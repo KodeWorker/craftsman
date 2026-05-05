@@ -32,3 +32,15 @@ def test_get_config_returns_empty_dict_for_empty_yaml(mocker):
     mocker.patch("craftsman.configure.os.path.exists", return_value=False)
     mocker.patch("craftsman.configure.yaml.safe_load", return_value=None)
     assert get_config() == {}
+
+
+def test_get_config_raises_on_load_error(mocker):
+    import pytest
+
+    mocker.patch("craftsman.configure.os.path.exists", return_value=False)
+    mocker.patch(
+        "craftsman.configure.files",
+        side_effect=Exception("bundled config missing"),
+    )
+    with pytest.raises(RuntimeError, match="Error loading config"):
+        get_config()

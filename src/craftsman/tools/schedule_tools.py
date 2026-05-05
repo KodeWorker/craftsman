@@ -58,7 +58,9 @@ async def schedule_at(
 async def schedule_list(
     args: dict, db: StructureDB, session_id: str | None
 ) -> dict:
-    jobs = db.list_scheduled_jobs()
+    row = db.get_session(session_id) if session_id else None
+    user_id = row["user_id"] if row else None
+    jobs = db.list_scheduled_jobs(user_id=user_id)
     return {"jobs": [dict(j) for j in jobs]}
 
 
@@ -96,7 +98,9 @@ async def cron_create(
 async def cron_list(
     args: dict, db: StructureDB, session_id: str | None
 ) -> dict:
-    jobs = db.list_cron_jobs()
+    row = db.get_session(session_id) if session_id else None
+    user_id = row["user_id"] if row else None
+    jobs = db.list_cron_jobs(user_id=user_id)
     return {"jobs": [dict(j) for j in jobs]}
 
 

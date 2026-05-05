@@ -181,3 +181,54 @@ async def test_cron_remove(db):
     assert remove["status"] == "removed"
     jobs = await cron_list({}, db, SESSION)
     assert len(jobs["jobs"]) == 0
+
+
+# --- user filtering ---
+
+
+async def test_schedule_list_filters_by_user(db):
+    db.create_user("user-a", "hash-a")
+    db.create_user("user-b", "hash-b")
+    user_a = db.get_user("user-a")["id"]
+    user_b = db.get_user("user-b")["id"]
+    user_a_sess = db.create_session(user_id=user_a)
+    user_b_sess = db.create_session(user_id=user_b)
+    await schedule_at(
+        {
+            "run_at": _future_iso(),
+            "tool_call": {"name": "bash:ls", "args": {}},
+        },
+        db,
+        user_a_sess,
+    )
+    await schedule_at(
+        {
+            "run_at": _future_iso(),
+            "tool_call": {"name": "bash:ls", "args": {}},
+        },
+        db,
+        user_b_sess,
+    )
+    result = await schedule_list({}, db, user_a_sess)
+    assert len(result["jobs"]) == 1
+
+
+async def test_cron_list_filters_by_user(db):
+    db.create_user("user-c", "hash-c")
+    db.create_user("user-d", "hash-d")
+    user_a = db.get_user("user-c")["id"]
+    user_b = db.get_user("user-d")["id"]
+    user_a_sess = db.create_session(user_id=user_a)
+    user_b_sess = db.create_session(user_id=user_b)
+    await cron_create(
+        {"expression": "*/5 * * * *", "tool_call": {"name": "bash:ls"}},
+        db,
+        user_a_sess,
+    )
+    await cron_create(
+        {"expression": "*/5 * * * *", "tool_call": {"name": "bash:ls"}},
+        db,
+        user_b_sess,
+    )
+    result = await cron_list({}, db, user_a_sess)
+    assert len(result["jobs"]) == 1

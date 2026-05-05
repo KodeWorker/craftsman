@@ -405,13 +405,14 @@ class StructureDB:
         self,
         filepath: str,
         filename: str,
+        artifact_id: str = None,
         user_id: str = None,
         session_id: str = None,
         project_id: str = None,
         mime_type: str = None,
         size_bytes: int = None,
     ) -> str:
-        aid = str(uuid.uuid4())
+        aid = artifact_id or str(uuid.uuid4())
         self.conn.execute(
             "INSERT INTO artifacts"
             " (id, user_id, session_id, project_id,"
@@ -605,7 +606,7 @@ class StructureDB:
         ).fetchone()
 
     def search_tools(self, keyword: str) -> list[sqlite3.Row]:
-        def _esc(w: str) -> str:
+        def _esc_like(w: str) -> str:
             return (
                 w.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             )
@@ -617,7 +618,7 @@ class StructureDB:
             "(name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')"
             for _ in words
         )
-        params = [f"%{_esc(w)}%" for w in words for _ in (0, 1)]
+        params = [f"%{_esc_like(w)}%" for w in words for _ in (0, 1)]
         return self.conn.execute(
             f"SELECT * FROM tools WHERE {clauses} ORDER BY name",
             params,
@@ -641,6 +642,16 @@ class StructureDB:
         self.conn.commit()
 
     # --- scheduled_jobs ---
+
+    def get_scheduled_job(self, job_id: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM scheduled_jobs WHERE id = ?", (job_id,)
+        ).fetchone()
+
+    def get_cron_job(self, cron_id: str) -> sqlite3.Row | None:
+        return self.conn.execute(
+            "SELECT * FROM cron_jobs WHERE id = ?", (cron_id,)
+        ).fetchone()
 
     def schedule_job(
         self, tool_call: str, run_at: str, user_id: str | None = None
@@ -740,7 +751,16 @@ class StructureDB:
         self.conn.execute("DELETE FROM cron_jobs WHERE id = ?", (cron_id,))
         self.conn.commit()
 
-    def list_scheduled_jobs(self) -> list[sqlite3.Row]:
+    def list_scheduled_jobs(
+        self, user_id: str | None = None
+    ) -> list[sqlite3.Row]:
+        if user_id:
+            return self.conn.execute(
+                "SELECT * FROM scheduled_jobs"
+                " WHERE status = 'pending' AND user_id = ?"
+                " ORDER BY run_at ASC",
+                (user_id,),
+            ).fetchall()
         return self.conn.execute(
             "SELECT * FROM scheduled_jobs"
             " WHERE status = 'pending' ORDER BY run_at ASC"

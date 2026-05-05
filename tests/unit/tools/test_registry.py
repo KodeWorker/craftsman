@@ -80,3 +80,9 @@ def test_categories_are_valid():
         assert (
             t["category"] in valid
         ), f"{t['name']} has unknown category {t['category']}"
+
+
+def test_seed_registry_skips_if_no_enabled_tools(db, mocker):
+    mocker.patch("craftsman.tools.registry._enabled_tools", return_value=[])
+    seed_registry(db)
+    assert db.list_tools() == []

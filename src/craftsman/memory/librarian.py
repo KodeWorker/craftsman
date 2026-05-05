@@ -52,12 +52,12 @@ class Librarian:
         self.get_tasks().append(task)
 
     def revoke_tool(self, session_id: str, name: str) -> None:
-        self.cache.setdefault(self._key(session_id, "revoked"), set()).add(
-            name
-        )
+        revoked = self.cache.setdefault(self._key(session_id, "revoked"), [])
+        if name not in revoked:
+            revoked.append(name)
 
     def get_revoked_tools(self, session_id: str) -> set:
-        return set(self.cache.get(self._key(session_id, "revoked"), set()))
+        return set(self.cache.get(self._key(session_id, "revoked"), []))
 
     def clear_session(self, session_id: str) -> None:
         for slot in ("scratchpad", "state", "context", "revoked"):

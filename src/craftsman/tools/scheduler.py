@@ -79,6 +79,12 @@ class JobDispatcher:
         resp = await self._http.get(
             f"{self.base_url}/jobs/due", headers=self._headers
         )
+        if resp.status_code == 401:
+            _log.error(
+                "Dispatcher token expired"
+                " — restart the client to re-authenticate."
+            )
+            return
         if resp.status_code != 200:
             _log.warning(f"GET /jobs/due failed: {resp.status_code}")
             return
