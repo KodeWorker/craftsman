@@ -30,8 +30,6 @@ from craftsman.tools.constants import REMOTE_TOOLS
 from craftsman.tools.executor import _LOCAL_DISPATCH
 from craftsman.tools.text_tools import commit_tmp
 
-_PENDING_TOOLS = {"text:replace", "text:insert", "text:delete"}
-
 
 class TelegramClient:
     def __init__(self, host: str, port: int):
@@ -139,6 +137,18 @@ class TelegramClient:
 
         dispatcher = JobDispatcher(self._entry_point, self._jwt, _on_result)
         await dispatcher.run_loop()
+
+    async def _wait_for_server(self) -> None:
+        retry = self.config.get("chat", {}).get("retry_interval_sec", 3)
+        while True:
+            try:
+                resp = await self._http.get(f"{self._entry_point}/health")
+                if resp.status_code == 200:
+                    return
+            except Exception:
+                pass
+            print(f"Server not ready yet, retrying in {retry}s...")
+            await asyncio.sleep(retry)
 
     async def _reset_provider(self) -> None:
         cfg = self.config.get("provider", {})
@@ -382,7 +392,7 @@ class TelegramClient:
                 args = tc.get("args", {})
                 audited = tc.get("audited", False)
 
-                if audited and name not in _PENDING_TOOLS and bot and chat_id:
+                if audited and bot and chat_id:
                     approved, reason = await self._request_confirmation(
                         bot, chat_id, tc["id"], name, args
                     )
@@ -520,9 +530,12 @@ class TelegramClient:
         context: ContextTypes.DEFAULT_TYPE,
         text: str,
     ) -> None:
-        await context.bot.send_chat_action(
-            chat_id=update.effective_chat.id, action=ChatAction.TYPING
-        )
+        try:
+            await context.bot.send_chat_action(
+                chat_id=update.effective_chat.id, action=ChatAction.TYPING
+            )
+        except Exception as e:
+            print(f"[warning] send_chat_action failed: {e}")
         response = await self._complete(
             self._state["session_id"],
             text,
@@ -953,6 +966,7 @@ class TelegramClient:
 
         self._http = httpx.AsyncClient(timeout=60.0)
         try:
+            await self._wait_for_server()
             if not await self._login():
                 return
             await self._reset_provider()
@@ -972,6 +986,7 @@ class TelegramClient:
                 Application.builder()
                 .token(self._token)
                 .request(tg_request)
+                .concurrent_updates(True)
                 .build()
             )
             self._register_handlers()
@@ -987,8 +1002,16 @@ class TelegramClient:
                 await self._app.start()
                 stop = asyncio.Event()
                 loop = asyncio.get_running_loop()
-                for sig in (signal.SIGINT, signal.SIGTERM):
-                    loop.add_signal_handler(sig, stop.set)
+                try:
+                    for sig in (signal.SIGINT, signal.SIGTERM):
+                        loop.add_signal_handler(sig, stop.set)
+                except NotImplementedError:
+                    # Windows does not support add_signal_handler
+                    def _win_handler(signum, frame):
+                        loop.call_soon_threadsafe(stop.set)
+
+                    signal.signal(signal.SIGINT, _win_handler)
+                    signal.signal(signal.SIGTERM, _win_handler)
                 await stop.wait()
                 await self._app.updater.stop()
                 await self._app.stop()
