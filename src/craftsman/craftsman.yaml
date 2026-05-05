@@ -93,10 +93,6 @@ tools:
   #                 cron:create, cron:list, cron:remove)
   schedule:
     enabled: true
-  # plan tools (plan:create, plan:done, task:create, task:start,
-  #             task:verify, task:done, task:fail, task:list)
-  plan:
-    enabled: true
   # agent tools (agent:run — prompt-driven multi-tool subagent)
   agent:
     enabled: true
