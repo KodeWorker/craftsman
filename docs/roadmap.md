@@ -6,6 +6,6 @@
 4. Phase 3: multimodal support [phase3.md](plan/phase3.md)
 5. Phase 4: wire telegram bot [phase4.md](plan/phase4.md)
 6. Phase 5: tool use [phase5.md](plan/phase5.md)
-7. Phase 6: web & browser tools
+7. Phase 6: web & browser & plan tools
 8. Phase 7: memory (LightRAG, vector, knowledge graph)
    - upgrade `tool:find` from SQLite LIKE to sqlite-vec semantic search

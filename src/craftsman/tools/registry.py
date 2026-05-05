@@ -34,7 +34,7 @@ _TOOLS: list[dict] = [
                     "type": "string",
                     "description": (
                         "Filter by category: meta, bash, text, memory,"
-                        " schedule, plan"
+                        " schedule, agent"
                     ),
                 }
             },
@@ -655,136 +655,6 @@ _TOOLS: list[dict] = [
                 }
             },
             "required": ["prompt"],
-        },
-    },
-    # ── plan ─────────────────────────────────────────────────────────────
-    {
-        "name": "plan:create",
-        "description": "Create a plan with a goal; call after research, not before",
-        "category": "plan",
-        "audited": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "goal": {
-                    "type": "string",
-                    "description": "What you intend to achieve",
-                },
-                "context": {
-                    "type": "string",
-                    "description": "Background and constraints gathered so far",
-                },
-            },
-            "required": ["goal"],
-        },
-    },
-    {
-        "name": "plan:done",
-        "description": "Close a completed plan",
-        "category": "plan",
-        "audited": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "plan_id": {"type": "string", "description": "Plan ID"}
-            },
-            "required": ["plan_id"],
-        },
-    },
-    {
-        "name": "task:create",
-        "description": "Add a task with acceptance criteria to a plan",
-        "category": "plan",
-        "audited": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "plan_id": {"type": "string", "description": "Parent plan ID"},
-                "description": {
-                    "type": "string",
-                    "description": "What needs to be done",
-                },
-                "criteria": {
-                    "type": "string",
-                    "description": "Acceptance criteria for task:verify",
-                },
-            },
-            "required": ["plan_id", "description"],
-        },
-    },
-    {
-        "name": "task:start",
-        "description": "Transition task pending → in_progress",
-        "category": "plan",
-        "audited": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "task_id": {"type": "string", "description": "Task ID"}
-            },
-            "required": ["task_id"],
-        },
-    },
-    {
-        "name": "task:verify",
-        "description": (
-            "Record task output and transition in_progress → verifying"
-        ),
-        "category": "plan",
-        "audited": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "task_id": {"type": "string", "description": "Task ID"},
-                "output": {
-                    "type": "string",
-                    "description": "Output or evidence to check against criteria",
-                },
-            },
-            "required": ["task_id", "output"],
-        },
-    },
-    {
-        "name": "task:done",
-        "description": "Transition task verifying → done",
-        "category": "plan",
-        "audited": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "task_id": {"type": "string", "description": "Task ID"}
-            },
-            "required": ["task_id"],
-        },
-    },
-    {
-        "name": "task:fail",
-        "description": "Transition task to failed with a reason",
-        "category": "plan",
-        "audited": True,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "task_id": {"type": "string", "description": "Task ID"},
-                "reason": {
-                    "type": "string",
-                    "description": "Why the task failed",
-                },
-            },
-            "required": ["task_id", "reason"],
-        },
-    },
-    {
-        "name": "task:list",
-        "description": "List all tasks for a plan with their current status",
-        "category": "plan",
-        "audited": False,
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "plan_id": {"type": "string", "description": "Plan ID"}
-            },
-            "required": ["plan_id"],
         },
     },
 ]

@@ -60,11 +60,9 @@ def test_audited_flags():
     assert by_name["text:read"]["audited"] is False
     assert by_name["tool:list"]["audited"] is False
     assert by_name["memory:retrieve"]["audited"] is False
-    assert by_name["task:list"]["audited"] is False
     # write/action tools are audited
     assert by_name["text:replace"]["audited"] is True
     assert by_name["memory:store"]["audited"] is True
-    assert by_name["plan:create"]["audited"] is True
     assert by_name["tool:revoke"]["audited"] is True
 
 

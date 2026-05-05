@@ -90,8 +90,7 @@ concrete registry to query against.
   - `memory`: `memory:store`✓, `memory:retrieve`, `memory:forget`✓
   - `schedule`: `schedule:at`✓, `schedule:list`, `schedule:cancel`✓,
     `cron:create`✓, `cron:list`, `cron:remove`✓
-  - `plan`: `plan:create`✓, `plan:done`✓, `task:create`✓, `task:start`✓,
-    `task:verify`✓, `task:done`✓, `task:fail`✓, `task:list`
+  - `plan`: deferred — see 5.4 note
 
   ✓ = audited
 
@@ -221,17 +220,23 @@ uv run pytest tests/unit/tools/test_bash_tools.py tests/unit/tools/test_text_too
 
 ---
 
-## 5.4 — Executor: Memory, Plan/Task, Schedule Tools
+## 5.4 — Executor: Memory, Schedule Tools
 
-Implement concrete execution for `memory:*`, `plan:*`, `task:*`,
-`schedule:*`, and `cron:*` tools.
+Implement concrete execution for `memory:*`, `schedule:*`, and `cron:*`
+tools.
+
+> **`plan:*` / `task:*` deferred to a later phase.** Two unresolved problems:
+> (1) The LLM prefers `agent:run` over individual tool calls when given task
+> tools, bypassing human verification for each step. (2) `task:verify` has no
+> ground truth — the agent self-reports completion by calling `task:done`
+> without any objective check. Both require a different design before these
+> tools are safe to expose.
 
 ### Files
 
 | Path | Change |
 |------|--------|
 | `src/craftsman/tools/memory_tools.py` | `memory:store/retrieve/forget` |
-| `src/craftsman/tools/plan_tools.py` | `plan:create/done`, `task:create/start/verify/done/fail/list` |
 | `src/craftsman/tools/schedule_tools.py` | `schedule:at/list/cancel`, `cron:create/list/remove` |
 | `src/craftsman/tools/executor.py` | accept `librarian: Librarian` and `session_id: str` |
 | `pyproject.toml` | add `croniter>=2.0` |
@@ -259,19 +264,18 @@ pending → in_progress → verifying → done
 ### Checklist
 
 - [x] `src/craftsman/tools/memory_tools.py`
-- [x] `src/craftsman/tools/plan_tools.py` — state machine validation
 - [x] `src/craftsman/tools/schedule_tools.py` — datetime + cron validation
 - [x] `executor.py` extended with `librarian` + `session_id`
 - [x] `pyproject.toml` — `croniter>=2.0`
 - [x] `tests/unit/tools/test_memory_tools.py`
-- [x] `tests/unit/tools/test_plan_tools.py` — every valid and invalid transition
 - [x] `tests/unit/tools/test_schedule_tools.py` — bad datetime/cron rejected
+- [ ] `src/craftsman/tools/plan_tools.py` — deferred (state machine exists but not registered)
+- [ ] `tests/unit/tools/test_plan_tools.py` — deferred
 
 ### Verify
 
 ```bash
 uv run pytest tests/unit/tools/test_memory_tools.py \
-              tests/unit/tools/test_plan_tools.py \
               tests/unit/tools/test_schedule_tools.py
 ```
 
@@ -461,12 +465,12 @@ user can see the agent acting.
 
 ### Checklist
 
-- [ ] `chat.py` — `tool_call` event handler
-- [ ] `chat.py` — `tool_result` event handler (yellow / red)
-- [ ] Spinner behaviour unchanged across tool iterations
-- [ ] `telegram.py` — `_drain` collects `tool_call` / `tool_result` events
-- [ ] `telegram.py` — tool summary prepended to reply, truncated to 200 chars
-- [ ] `tests/unit/test_client_display.py` — interleaved NDJSON stream verify
+- [x] `chat.py` — `tool_call` event handler
+- [x] `chat.py` — `tool_result` event handler (yellow / red)
+- [x] Spinner behaviour unchanged across tool iterations
+- [x] `telegram.py` — `_drain` collects `tool_call` / `tool_result` events
+- [x] `telegram.py` — tool summary prepended to reply, truncated to 200 chars
+- [x] `tests/unit/test_client_display.py` — interleaved NDJSON stream verify
 
 ### Verify
 
