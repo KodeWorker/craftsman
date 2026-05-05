@@ -15,6 +15,9 @@ _READ_MAX_LINES: int = (
 _SEARCH_CTX_LINES: int = (
     _cfg.get("text", {}).get("search", {}).get("context_lines", 2)
 )
+_web_cfg = get_config().get("web", {})
+_WEB_MAX_RESULTS: int = _web_cfg.get("search", {}).get("max_results", 10)
+_WEB_FETCH_MAX_CHARS: int = _web_cfg.get("fetch", {}).get("max_chars", 8000)
 
 # Each entry: name, description, category, audited, parameters dict.
 # `schema` stored in DB is json.dumps(parameters).
@@ -34,7 +37,7 @@ _TOOLS: list[dict] = [
                     "type": "string",
                     "description": (
                         "Filter by category: meta, bash, text, memory,"
-                        " schedule, agent"
+                        " schedule, web, agent"
                     ),
                 }
             },
@@ -634,6 +637,55 @@ _TOOLS: list[dict] = [
                 "cron_id": {"type": "string", "description": "Cron job ID"}
             },
             "required": ["cron_id"],
+        },
+    },
+    # ── web ──────────────────────────────────────────────────────────────
+    {
+        "name": "web:search",
+        "description": (
+            "Search the web via a self-hosted searxng instance;"
+            " returns titles, URLs, and snippets"
+        ),
+        "category": "web",
+        "audited": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum results to return",
+                    "default": _WEB_MAX_RESULTS,
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "web:fetch_url",
+        "description": (
+            "Fetch a URL and return its main content as Markdown;"
+            " boilerplate (nav, footer, ads) is stripped automatically"
+        ),
+        "category": "web",
+        "audited": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "URL to fetch",
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "description": "Maximum characters to return",
+                    "default": _WEB_FETCH_MAX_CHARS,
+                },
+            },
+            "required": ["url"],
         },
     },
     # ── agent ────────────────────────────────────────────────────────────
