@@ -97,7 +97,7 @@ CREATE TABLE tasks (
 CREATE TABLE tools (
   name        TEXT PRIMARY KEY,
   description TEXT NOT NULL,
-  category    TEXT NOT NULL,   -- meta, bash, text, web, memory, schedule, plan
+  category    TEXT NOT NULL,   -- meta, bash, text, memory, schedule, agent
   schema      TEXT NOT NULL,   -- JSON parameters schema (OpenAI function-calling format)
   audited     INTEGER NOT NULL DEFAULT 0,  -- 1 = log every invocation to tool_invocations
   call_count  INTEGER NOT NULL DEFAULT 0,
