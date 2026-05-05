@@ -24,6 +24,7 @@ from craftsman.tools.text_tools import (
     text_replace,
     text_search,
 )
+from craftsman.tools.web_tools import web_fetch_url, web_search
 
 _LOCAL_DISPATCH = {
     "bash:ls": bash_ls,
@@ -43,6 +44,8 @@ _LOCAL_DISPATCH = {
     "text:replace": text_replace,
     "text:insert": text_insert,
     "text:delete": text_delete,
+    "web:search": web_search,
+    "web:fetch_url": web_fetch_url,
 }
 
 
