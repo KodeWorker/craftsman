@@ -353,11 +353,11 @@ class Client(SessionsClient, ArtifactsClient):
         tmp = result.get("tmp", "")
         try:
             if os.path.exists(file_path):
-                with open(file_path, errors="replace") as f:
+                with open(file_path, encoding="utf-8", errors="replace") as f:
                     orig = f.readlines()
             else:
                 orig = []
-            with open(tmp, errors="replace") as f:
+            with open(tmp, encoding="utf-8", errors="replace") as f:
                 new = f.readlines()
             diff = list(
                 difflib.unified_diff(
