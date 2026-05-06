@@ -29,13 +29,6 @@ chat:
     - "💬 One must imagine Sisyphus happy." # quote from Albert Camus' essay "The Myth of Sisyphus"
     - "💬 The only true wisdom is in knowing you know nothing." # quote from Socrates
 
-web:
-  searxng_url: ""  # required for web:search — point to your searxng instance
-  search:
-    max_results: 10
-  fetch:
-    max_chars: 8000
-
 workspace:
   root: ~/.craftsman
   database: ~/.craftsman/database
@@ -101,9 +94,13 @@ tools:
   schedule:
     enabled: true
   # web tools (web:search, web:fetch_url)
-  # requires searxng_url configured in the web: section above
   web:
     enabled: false
+    searxng_url: ""  # required for web:search — point to your searxng instance
+    search:
+      max_results: 10
+    fetch:
+      max_chars: 8000
   # agent tools (agent:run — prompt-driven multi-tool subagent)
   agent:
     enabled: true

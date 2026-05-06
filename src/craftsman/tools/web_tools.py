@@ -6,7 +6,7 @@ from craftsman.configure import get_config
 
 
 def _web_cfg() -> dict:
-    return get_config().get("web", {})
+    return get_config().get("tools", {}).get("web", {})
 
 
 async def web_search(args: dict) -> dict:

@@ -5,13 +5,31 @@ Searxng is a self-hosted, privacy-respecting meta-search engine.
 
 ## Install
 
-### Docker (recommended)
+> **Port conflict:** llama.cpp server also defaults to `8080`. Examples below
+> use `8888` to avoid the conflict.
+
+### Dev (quick start)
+
+Create a minimal `settings.yml` — `use_default_settings: true` inherits all
+defaults; `server.secret_key` is required (SearXNG refuses to start with the
+built-in default).
+
+```yaml
+# settings.yml
+use_default_settings: true
+server:
+  secret_key: "craftsman-local-dev"
+search:
+  formats:
+    - html
+    - json
+```
 
 ```bash
 docker run -d \
   --name searxng \
-  -p 8080:8080 \
-  -e SEARXNG_SECRET=$(openssl rand -hex 32) \
+  -p 8888:8080 \
+  -v /path/to/settings.yml:/etc/searxng/settings.yml:ro \
   searxng/searxng:latest
 ```
 
@@ -22,38 +40,16 @@ services:
   searxng:
     image: searxng/searxng:latest
     ports:
-      - "8080:8080"
-    environment:
-      SEARXNG_SECRET: your_secret_here
+      - "8888:8080"
+    volumes:
+      - /path/to/settings.yml:/etc/searxng/settings.yml:ro
     restart: unless-stopped
-```
-
-## Enable JSON output
-
-Searxng disables JSON format by default. Enable it in your searxng config:
-
-```yaml
-# settings.yml (searxng config file)
-search:
-  formats:
-    - html
-    - json
-```
-
-If using Docker, mount your settings file:
-
-```bash
-docker run -d \
-  --name searxng \
-  -p 8080:8080 \
-  -v /path/to/settings.yml:/etc/searxng/settings.yml \
-  searxng/searxng:latest
 ```
 
 Verify JSON is working:
 
 ```bash
-curl "http://localhost:8080/search?q=test&format=json" | python3 -m json.tool
+curl "http://localhost:8888/search?q=test&format=json" | python3 -m json.tool
 ```
 
 ## Configure craftsman
@@ -61,16 +57,10 @@ curl "http://localhost:8080/search?q=test&format=json" | python3 -m json.tool
 In `~/.craftsman/craftsman.yaml`:
 
 ```yaml
-web:
-  searxng_url: "http://localhost:8080"
-```
-
-Then enable the web tools category:
-
-```yaml
 tools:
   web:
     enabled: true
+    searxng_url: "http://localhost:8888"
 ```
 
 ## Which engines searxng uses
