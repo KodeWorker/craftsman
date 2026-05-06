@@ -99,14 +99,14 @@ def _craftsman_path(file: str, suffix: str) -> str:
 
 def _write_tmp(file: str, content: str) -> str:
     tmp = _craftsman_path(file, ".tmp")
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         f.write(content)
     return tmp
 
 
 def _write_tmp_lines(file: str, lines: list[str]) -> str:
     tmp = _craftsman_path(file, ".tmp")
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         f.writelines(lines)
     return tmp
 
