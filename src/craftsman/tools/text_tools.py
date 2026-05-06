@@ -33,7 +33,7 @@ async def text_read(args: dict) -> dict:
     max_lines = args.get("max_lines", _read_max_lines())
 
     def _read():
-        with open(file, "r", errors="replace") as f:
+        with open(file, "r", encoding="utf-8", errors="replace") as f:
             return f.readlines()
 
     all_lines = await asyncio.to_thread(_read)
@@ -68,7 +68,7 @@ async def text_search(args: dict) -> dict:
     context_lines = args.get("context_lines", _search_context_lines())
 
     def _read():
-        with open(file, "r", errors="replace") as f:
+        with open(file, "r", encoding="utf-8", errors="replace") as f:
             return f.readlines()
 
     lines = await asyncio.to_thread(_read)
@@ -136,7 +136,7 @@ async def text_replace(args: dict) -> dict:
     old = args["old_string"]
     new = args["new_string"]
     content = await asyncio.to_thread(
-        lambda: open(file, "r", errors="replace").read()
+        lambda: open(file, "r", encoding="utf-8", errors="replace").read()
     )
 
     # Exact match
@@ -189,7 +189,9 @@ async def text_insert(args: dict) -> dict:
         tmp = _write_tmp_lines(file, to_insert)
     else:
         lines = await asyncio.to_thread(
-            lambda: open(file, "r", errors="replace").readlines()
+            lambda: open(
+                file, "r", encoding="utf-8", errors="replace"
+            ).readlines()
         )
         if line_num < 1 or line_num > len(lines) + 1:
             return {
@@ -213,7 +215,7 @@ async def text_delete(args: dict) -> dict:
     line_start = args["line_start"]
     line_end = args["line_end"]
     lines = await asyncio.to_thread(
-        lambda: open(file, "r", errors="replace").readlines()
+        lambda: open(file, "r", encoding="utf-8", errors="replace").readlines()
     )
     if line_start < 1 or line_end > len(lines) or line_start > line_end:
         return {
