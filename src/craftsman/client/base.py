@@ -61,7 +61,9 @@ class BaseClient:
 
     # wire requests through this method to handle 401
     # and retry with JWT token if needed
-    def _request(self, method: str, url: str, **kwargs) -> requests.Response:
+    def _request(
+        self, method: str, url: str, _reseeding: bool = False, **kwargs
+    ) -> requests.Response:
         resp = getattr(self.request_session, method)(url, **kwargs)
         if resp.status_code == 401:
             token = self._jwt_token()
@@ -71,6 +73,13 @@ class BaseClient:
                 {"Authorization": f"Bearer {token}"}
             )
             resp = getattr(self.request_session, method)(url, **kwargs)
+            # Server restarted — re-seed tools into the fresh DB
+            if not _reseeding:
+                self._request(
+                    "post",
+                    f"{self.entry_point}/tools/seed",
+                    _reseeding=True,
+                )
         return resp
 
     def _update_banner(
