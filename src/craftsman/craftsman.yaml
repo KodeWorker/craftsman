@@ -104,6 +104,8 @@ tools:
   # agent tools (agent:run — prompt-driven multi-tool subagent)
   agent:
     enabled: true
+    max_loops: 10
+    timeout: 300
   # Individual tools to disable within an otherwise-enabled category.
   # Example: disabled: [bash:ps, bash:df, bash:du]
   disabled: []
