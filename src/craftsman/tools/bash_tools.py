@@ -12,6 +12,7 @@ import sys
 from craftsman.configure import get_config
 
 _DIM = "\033[2m"
+_BG_BLACK = "\033[40m"
 _RESET = "\033[0m"
 
 
@@ -41,7 +42,8 @@ class RollingDisplay:
         while len(lines) < self._n:
             lines = [""] + lines
         for line in lines:
-            sys.stdout.write(f"\033[2K  {_DIM}{line[:cols]}{_RESET}\n")
+            padded = f"  {line}"[:cols].ljust(cols)
+            sys.stdout.write(f"\033[2K{_BG_BLACK}{_DIM}{padded}{_RESET}\n")
         sys.stdout.flush()
 
     def add_line(self, line: str) -> None:
