@@ -48,7 +48,8 @@ class Server:
         body = await request.json()
         api_base = body.get("api_base", None)
         api_key = body.get("api_key", None)
-        self.provider.reset(api_base=api_base, api_key=api_key)
+        model = body.get("model", None)
+        self.provider.reset(api_base=api_base, api_key=api_key, model=model)
         return {"status": "provider reset"}
 
     async def run_subagent(self, request: Request) -> dict:
