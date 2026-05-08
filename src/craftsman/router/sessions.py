@@ -24,6 +24,7 @@ class SessionsRouter:
         self.provider = provider
         self.librarian = librarian
         self.active_sessions = active_sessions
+        self.session_cwd: dict[str, str | None] = {}
         self.logger = CraftsmanLogger().get_logger(__name__)
 
         self.router = APIRouter(prefix="/sessions", tags=["sessions"])
@@ -331,17 +332,26 @@ class SessionsRouter:
         return {"status": "system prompt set"}
 
     async def create_session(
-        self, user_id: str = Depends(get_current_user)
+        self,
+        request: Request,
+        user_id: str = Depends(get_current_user),
     ) -> dict:
+        body = {}
+        try:
+            body = await request.json()
+        except Exception:
+            pass
+        cwd = body.get("cwd") or None
         session_id = self.librarian.structure_db.create_session(
-            user_id=user_id
+            user_id=user_id, cwd=cwd
         )
         if session_id in self.active_sessions:
             self.logger.warning(
                 f"Session ID collision: {session_id} already active. "
             )
         self.active_sessions.add(session_id)
-        return {"session_id": session_id}
+        self.session_cwd[session_id] = cwd
+        return {"session_id": session_id, "cwd": cwd}
 
     async def delete_session(
         self,

@@ -24,6 +24,7 @@ from craftsman.client.artifacts import ArtifactsClient
 from craftsman.client.base import _AT_FILE_STYLE
 from craftsman.client.completer import AtFileLexer, ChatCompleter
 from craftsman.client.sessions import SessionsClient
+from craftsman.tools.bash_tools import RollingDisplay, bash_run_live
 from craftsman.tools.constants import REMOTE_TOOLS
 from craftsman.tools.executor import _LOCAL_DISPATCH
 from craftsman.tools.text_tools import commit_tmp, discard_tmp
@@ -67,6 +68,7 @@ class Client(SessionsClient, ArtifactsClient):
         self.upload_tokens = 0
         self.download_tokens = 0
         self.cost = 0.0
+        self.session_cwd: str | None = None
         self.input_style = PTStyle.from_dict(
             {
                 "prompt": "fg:ansigreen bold",
@@ -311,6 +313,19 @@ class Client(SessionsClient, ArtifactsClient):
         return stop, thread
 
     def _call_tool(self, name: str, args: dict, session_id: str) -> dict:
+        if name == "bash:run" and "cwd" not in args and self.session_cwd:
+            args = {**args, "cwd": self.session_cwd}
+        if name == "bash:run":
+            display = RollingDisplay()
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(
+                    bash_run_live(args, on_line=display.add_line)
+                )
+            except Exception as e:
+                return {"error": str(e)}
+            finally:
+                loop.close()
         if name in _LOCAL_DISPATCH:
             loop = asyncio.new_event_loop()
             try:
@@ -337,8 +352,23 @@ class Client(SessionsClient, ArtifactsClient):
         return {"error": f"Unknown tool: {name}"}
 
     def _confirm_audited(self, name: str, args: dict) -> tuple[bool, str]:
-        args_str = json.dumps(args)
-        print(Fore.YELLOW + f"[audited] {name} {args_str}" + Style.RESET_ALL)
+        if name in ("bash:run", "powershell:run"):
+            print(Fore.YELLOW + f"[audited] {name}" + Style.RESET_ALL)
+            cmd = args.get("cmd", "")
+            cmd_lines = cmd.split("\n")
+            for i, ln in enumerate(cmd_lines):
+                if ln.strip() or i < len(cmd_lines) - 1:
+                    prefix = "  $ " if i == 0 else "    "
+                    print(Style.BRIGHT + prefix + ln + Style.RESET_ALL)
+            for k, v in args.items():
+                if k not in ("cmd", "max_lines"):
+                    print(Style.DIM + f"  {k}: {v}" + Style.RESET_ALL)
+        else:
+            print(
+                Fore.YELLOW
+                + f"[audited] {name} {json.dumps(args)}"
+                + Style.RESET_ALL
+            )
         try:
             answer = input(
                 "[y] run / [n] skip (add reason after 'n'): "
@@ -742,7 +772,12 @@ class Client(SessionsClient, ArtifactsClient):
         self._start_dispatcher(token, session_holder)
 
         if not session_id:
-            response = self._request("post", f"{self.entry_point}/sessions/")
+            self.session_cwd = os.getcwd()
+            response = self._request(
+                "post",
+                f"{self.entry_point}/sessions/",
+                json={"cwd": self.session_cwd},
+            )
             session_id = response.json().get("session_id", "")
             session_holder["session_id"] = session_id
         else:
