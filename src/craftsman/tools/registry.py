@@ -327,6 +327,10 @@ _TOOLS: list[dict] = [
                     "type": "string",
                     "description": "Command string to execute",
                 },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory for the command",
+                },
                 "max_lines": {
                     "type": "integer",
                     "description": "Maximum output lines to return",

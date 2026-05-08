@@ -27,6 +27,7 @@ CREATE TABLE IF NOT EXISTS sessions (
     title      TEXT,
     user_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
     metadata   TEXT,
+    cwd        TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     ended_at   TEXT
 );
@@ -233,12 +234,14 @@ class StructureDB:
         title: str = None,
         user_id: str = None,
         metadata: str = None,
+        cwd: str = None,
     ) -> str:
         sid = str(uuid.uuid4())
         self.conn.execute(
-            "INSERT INTO sessions (id, project_id, title, user_id, metadata)"
-            " VALUES (?, ?, ?, ?, ?)",
-            (sid, project_id, title, user_id, metadata),
+            "INSERT INTO sessions"
+            " (id, project_id, title, user_id, metadata, cwd)"
+            " VALUES (?, ?, ?, ?, ?, ?)",
+            (sid, project_id, title, user_id, metadata, cwd),
         )
         self.conn.commit()
         return sid

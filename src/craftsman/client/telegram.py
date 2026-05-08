@@ -51,6 +51,7 @@ class TelegramClient:
         self._completion_tokens: int = 0
         self._cost: float = 0.0
         self._pending_audit: dict[str, asyncio.Future] = {}
+        self._session_cwd: str | None = None
 
     # ── State ────────────────────────────────────────────────────────────
 
@@ -200,7 +201,12 @@ class TelegramClient:
         )
 
     async def _create_session(self) -> str | None:
-        resp = await self._request("post", f"{self._entry_point}/sessions/")
+        self._session_cwd = os.getcwd()
+        resp = await self._request(
+            "post",
+            f"{self._entry_point}/sessions/",
+            json={"cwd": self._session_cwd},
+        )
         if resp.status_code == 200:
             return resp.json().get("session_id")
         return None
@@ -254,6 +260,8 @@ class TelegramClient:
         return chunks, tool_calls
 
     async def _call_tool(self, name: str, args: dict, session_id: str) -> dict:
+        if name == "bash:run" and "cwd" not in args and self._session_cwd:
+            args = {**args, "cwd": self._session_cwd}
         if name in _LOCAL_DISPATCH:
             try:
                 return await _LOCAL_DISPATCH[name](args)
