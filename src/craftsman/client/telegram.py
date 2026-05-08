@@ -362,7 +362,9 @@ class TelegramClient:
         chat_id: int = 0,
     ) -> str:
         tools = self.config.get("chat", {}).get("tools", ["all"])
-        max_loops = self.config.get("chat", {}).get("max_tool_loops", 10)
+        checkpoint = self.config.get("chat", {}).get(
+            "tool_loop_checkpoint", 10
+        )
         url = f"{self._entry_point}/sessions/{session_id}/completion"
         body = {
             "message": {"role": "user", "content": text},
@@ -383,9 +385,42 @@ class TelegramClient:
         else:
             return ""
 
-        for _ in range(max_loops):
+        tool_round = 0
+        while True:
             if not tool_calls:
                 break
+            tool_round += 1
+            if tool_round % checkpoint == 0 and bot and chat_id:
+                call_id = f"checkpoint_{tool_round}"
+                keyboard = InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "✓ Continue",
+                                callback_data=f"audit:y:{call_id}",
+                            ),
+                            InlineKeyboardButton(
+                                "✗ Stop",
+                                callback_data=f"audit:n:{call_id}",
+                            ),
+                        ]
+                    ]
+                )
+                await bot.send_message(
+                    chat_id,
+                    f"{tool_round} tool loops completed. Continue?",
+                    reply_markup=keyboard,
+                )
+                loop = asyncio.get_running_loop()
+                future: asyncio.Future = loop.create_future()
+                self._pending_audit[call_id] = future
+                try:
+                    approved, _ = await asyncio.wait_for(future, timeout=120.0)
+                except asyncio.TimeoutError:
+                    self._pending_audit.pop(call_id, None)
+                    approved = False
+                if not approved:
+                    break
             tool_results = []
             for tc in tool_calls:
                 name = tc["name"]

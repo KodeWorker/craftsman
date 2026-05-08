@@ -177,7 +177,9 @@ class Client(SessionsClient, ArtifactsClient):
                     status = data.get("status", "")
                     print(Fore.LIGHTMAGENTA_EX + status + Style.RESET_ALL)
                     self.logger.info(status)
-                    self.ctx_used = data.get("meta", {}).get("ctx_used", 0)
+                    self.ctx_used = int(
+                        data.get("meta", {}).get("ctx_used", 0) or 0
+                    )
                     self.upload_tokens += data.get("meta", {}).get(
                         "prompt_tokens", 0
                     )
@@ -479,8 +481,9 @@ class Client(SessionsClient, ArtifactsClient):
                     self._update_banner(
                         model=chunk.get("model", ""),
                         session=session_id[:8],
-                        ctx_used=self.ctx_used + chunk.get("ctx_used", 0),
-                        ctx_total=chunk.get("ctx_total", 0),
+                        ctx_used=self.ctx_used
+                        + int(chunk.get("ctx_used", 0) or 0),
+                        ctx_total=int(chunk.get("ctx_total", 0) or 0),
                         upload_tokens=self.upload_tokens
                         + chunk.get("prompt_tokens", 0),
                         download_tokens=self.download_tokens
@@ -541,7 +544,9 @@ class Client(SessionsClient, ArtifactsClient):
 
     def _agentic_loop(self, session_id: str, message: dict) -> None:
         tools = self.config.get("chat", {}).get("tools", ["all"])
-        max_loops = self.config.get("chat", {}).get("max_tool_loops", 10)
+        checkpoint = self.config.get("chat", {}).get(
+            "tool_loop_checkpoint", 10
+        )
 
         spinner_stop, spinner_thread = self._start_spinner("Thinking...")
         response = self._request(
@@ -563,8 +568,8 @@ class Client(SessionsClient, ArtifactsClient):
             )
             return
 
-        # pass 0 = initial completion; passes 1..max_loops = tool rounds
-        for tool_round in range(max_loops + 1):
+        tool_round = 0
+        while True:
             tool_calls, meta = self._do_stream(
                 response, session_id, spinner_stop, spinner_thread
             )
@@ -579,13 +584,22 @@ class Client(SessionsClient, ArtifactsClient):
             if not tool_calls:
                 return
 
-            if tool_round >= max_loops:
-                print(
-                    Fore.YELLOW
-                    + f"[max tool loops ({max_loops}) reached]"
-                    + Style.RESET_ALL
-                )
-                return
+            tool_round += 1
+            if tool_round % checkpoint == 0:
+                try:
+                    answer = (
+                        input(
+                            Fore.YELLOW
+                            + f"[{tool_round} tool loops] Continue? [y/n]: "
+                            + Style.RESET_ALL
+                        )
+                        .strip()
+                        .lower()
+                    )
+                except (EOFError, KeyboardInterrupt):
+                    return
+                if answer != "y":
+                    return
 
             tool_results = []
             for tc in tool_calls:

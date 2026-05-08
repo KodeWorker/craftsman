@@ -36,7 +36,7 @@ _TOOLS: list[dict] = [
                 "category": {
                     "type": "string",
                     "description": (
-                        "Filter by category: meta, bash, text, memory,"
+                        "Filter by category: meta, bash, shell, text, memory,"
                         " schedule, web, agent"
                     ),
                 }
@@ -310,14 +310,14 @@ _TOOLS: list[dict] = [
         },
     },
     {
-        "name": "bash:run",
+        "name": "shell:run",
         "description": (
-            "Run an arbitrary shell command on Linux/macOS"
-            " (tokenised via shlex — no shell, so redirections and pipes"
-            " do not work); do NOT use to read or write files —"
+            "Run an arbitrary shell command on Linux/macOS via bash —"
+            " supports built-ins, pipes, redirections, and && chains;"
+            " do NOT use to read or write files —"
             " use text:read / text:insert / text:replace instead"
         ),
-        "category": "bash",
+        "category": "shell",
         "audited": True,
         "platform": ["linux", "darwin"],
         "parameters": {
