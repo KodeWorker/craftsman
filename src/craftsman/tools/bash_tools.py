@@ -26,7 +26,7 @@ def _run_max_lines() -> int:
     return (
         get_config()
         .get("tools", {})
-        .get("shell", {})
+        .get("bash", {})
         .get("run", {})
         .get("max_lines", 200)
     )
@@ -307,7 +307,7 @@ async def bash_du(args: dict) -> dict:
     return {"output": "\n".join(lines), "truncated": False}
 
 
-async def shell_run(args: dict) -> dict:
+async def bash_run(args: dict) -> dict:
     cmd_str = args.get("cmd", "").strip()
     if not cmd_str:
         return {"error": "cmd is required"}
@@ -317,6 +317,7 @@ async def shell_run(args: dict) -> dict:
         stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE,
         stderr=asyncio.subprocess.PIPE,
+        executable="/bin/bash",
     )
     stdout, stderr = await proc.communicate()
     enc = locale.getpreferredencoding(False) or "utf-8"
