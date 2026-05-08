@@ -6,9 +6,9 @@ from craftsman.tools.bash_tools import (
     bash_head,
     bash_ls,
     bash_ps,
+    bash_run,
     bash_stat,
     bash_tail,
-    shell_run,
 )
 
 
@@ -148,37 +148,37 @@ async def test_df_returns_output():
 
 
 async def test_run_executes_command():
-    result = await shell_run({"cmd": "echo hello"})
+    result = await bash_run({"cmd": "echo hello"})
     assert "error" not in result
     assert "hello" in result["output"]
 
 
 async def test_run_captures_nonzero_exit():
-    result = await shell_run({"cmd": "false"})
+    result = await bash_run({"cmd": "false"})
     assert "error" not in result or result.get("output") == ""
 
 
 async def test_run_truncates_output():
-    result = await shell_run({"cmd": "seq 1 300", "max_lines": 10})
+    result = await bash_run({"cmd": "seq 1 300", "max_lines": 10})
     lines = result["output"].splitlines()
     assert result["truncated"] is True
     assert len(lines) <= 11  # 10 lines + truncation marker
 
 
 async def test_run_empty_cmd_returns_error():
-    result = await shell_run({"cmd": ""})
+    result = await bash_run({"cmd": ""})
     assert "error" in result
 
 
 async def test_run_handles_path_with_spaces(tmp_path):
     f = tmp_path / "safe file.txt"
     f.write_text("ok")
-    result = await shell_run({"cmd": f"cat {str(f)!r}"})
+    result = await bash_run({"cmd": f"cat {str(f)!r}"})
     assert "error" not in result
     assert "ok" in result["output"]
 
 
 async def test_run_shell_builtins_and_chaining(tmp_path):
-    result = await shell_run({"cmd": f"cd {tmp_path} && echo $PWD"})
+    result = await bash_run({"cmd": f"cd {tmp_path} && echo $PWD"})
     assert "error" not in result
     assert str(tmp_path) in result["output"]
