@@ -9,7 +9,7 @@ logging:
 chat:
   retry_interval_sec: 3
   rebuild_completer_interval_sec: 15
-  tool_loop_checkpoint: 10
+  tool_loop_checkpoint: 20
   completer:
     enabled: true
     ignores:
