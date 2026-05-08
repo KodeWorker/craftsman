@@ -284,6 +284,7 @@ class Client(SessionsClient, ArtifactsClient):
                     "api_base", None
                 ),
                 "api_key": Auth.get_password("LLM_API_KEY"),
+                "model": self.config.get("provider", {}).get("model", None),
             },
         )
         if response.status_code == 200:

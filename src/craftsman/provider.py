@@ -29,10 +29,17 @@ class Provider:
             "output_cost_per_token", 0.0
         )
 
-    def reset(self, api_base: str = None, api_key: str = None):
+    def reset(
+        self,
+        api_base: str = None,
+        api_key: str = None,
+        model: str = None,
+    ):
         self.logger.debug("Resetting provider state...")
         self.api_key = api_key if api_key else "dummy_api_key"
         self.api_base = api_base if api_base else "http://localhost:8000"
+        if model:
+            self.model = model
 
     async def completion(
         self,

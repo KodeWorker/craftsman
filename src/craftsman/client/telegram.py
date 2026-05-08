@@ -158,6 +158,7 @@ class TelegramClient:
             json={
                 "api_base": cfg.get("api_base"),
                 "api_key": Auth.get_password("LLM_API_KEY"),
+                "model": cfg.get("model"),
             },
         )
 
