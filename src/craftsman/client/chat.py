@@ -353,13 +353,19 @@ class Client(SessionsClient, ArtifactsClient):
 
     def _confirm_audited(self, name: str, args: dict) -> tuple[bool, str]:
         if name in ("bash:run", "powershell:run"):
+            cols = shutil.get_terminal_size((80, 24)).columns
             print(Fore.YELLOW + f"[audited] {name}" + Style.RESET_ALL)
             cmd = args.get("cmd", "")
             cmd_lines = cmd.split("\n")
             for i, ln in enumerate(cmd_lines):
                 if ln.strip() or i < len(cmd_lines) - 1:
                     prefix = "  $ " if i == 0 else "    "
-                    print(Style.BRIGHT + prefix + ln + Style.RESET_ALL)
+                    print(
+                        Back.BLACK
+                        + Style.BRIGHT
+                        + (prefix + ln).ljust(cols)
+                        + Style.RESET_ALL
+                    )
             for k, v in args.items():
                 if k not in ("cmd", "max_lines"):
                     print(Style.DIM + f"  {k}: {v}" + Style.RESET_ALL)
