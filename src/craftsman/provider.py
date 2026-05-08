@@ -58,6 +58,7 @@ class Provider:
             stream=True,
             stream_options={"include_usage": True},
             max_tokens=ctx_size,
+            chat_template_kwargs={"enable_thinking": not self.debug},
         )
         if tools:
             kwargs["tools"] = tools
