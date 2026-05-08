@@ -78,6 +78,7 @@ def test_categories_are_valid():
     valid = {
         "meta",
         "bash",
+        "shell",
         "text",
         "memory",
         "schedule",

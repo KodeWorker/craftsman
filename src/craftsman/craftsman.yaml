@@ -9,6 +9,7 @@ logging:
 chat:
   retry_interval_sec: 3
   rebuild_completer_interval_sec: 15
+  tool_loop_checkpoint: 10
   completer:
     enabled: true
     ignores:
@@ -72,13 +73,15 @@ tools:
   meta:
     enabled: true
   # bash tools (bash:ls, bash:cat, bash:grep, bash:find, bash:head, bash:tail,
-  #             bash:stat, bash:ps, bash:df, bash:du, bash:run)
+  #             bash:stat, bash:ps, bash:df, bash:du, shell:run)
   bash:
     enabled: true
     cat:
       max_lines: 200 # lines returned per bash:cat call before tail-truncation
+  shell:
+    enabled: true
     run:
-      max_lines: 200 # lines returned per bash:run call before tail-truncation
+      max_lines: 200 # lines returned per shell:run call before tail-truncation
   # text tools (text:read, text:search, text:replace, text:insert, text:delete)
   text:
     enabled: true

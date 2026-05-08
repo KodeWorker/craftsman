@@ -5,7 +5,6 @@ import locale
 import os
 import pathlib
 import re
-import shlex
 import shutil
 import stat as _stat
 import sys
@@ -27,7 +26,7 @@ def _run_max_lines() -> int:
     return (
         get_config()
         .get("tools", {})
-        .get("bash", {})
+        .get("shell", {})
         .get("run", {})
         .get("max_lines", 200)
     )
@@ -308,16 +307,33 @@ async def bash_du(args: dict) -> dict:
     return {"output": "\n".join(lines), "truncated": False}
 
 
-async def bash_run(args: dict) -> dict:
+async def shell_run(args: dict) -> dict:
     cmd_str = args.get("cmd", "").strip()
     if not cmd_str:
         return {"error": "cmd is required"}
     max_lines = args.get("max_lines", _run_max_lines())
-    try:
-        cmd = shlex.split(cmd_str)
-    except ValueError as e:
-        return {"error": f"invalid command: {e}"}
-    return await _run(cmd, max_lines, ok_codes=tuple(range(256)))
+    proc = await asyncio.create_subprocess_shell(
+        cmd_str,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    stdout, stderr = await proc.communicate()
+    enc = locale.getpreferredencoding(False) or "utf-8"
+    out = stdout.decode(enc, errors="replace")
+    err = stderr.decode(enc, errors="replace").strip()
+    combined = (out + ("\n" + err if err else "")).rstrip("\n")
+    lines = combined.splitlines()
+    truncated = len(lines) > max_lines
+    if truncated:
+        omitted = len(lines) - max_lines
+        lines = lines[-max_lines:]
+        lines.insert(0, f"[... {omitted} lines omitted ...]")
+    return {
+        "output": "\n".join(lines),
+        "truncated": truncated,
+        "exit_code": proc.returncode,
+    }
 
 
 async def powershell_run(args: dict) -> dict:
