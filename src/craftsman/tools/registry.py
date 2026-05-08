@@ -314,7 +314,10 @@ _TOOLS: list[dict] = [
         "description": (
             "Run an arbitrary bash command on Linux/macOS —"
             " supports built-ins, pipes, redirections, brace expansion,"
-            " and && chains; do NOT use to read or write files —"
+            " and && chains;"
+            " for long-lived background processes use &>/dev/null &"
+            " to detach output (e.g. 'python app.py &>/dev/null &');"
+            " do NOT use to read or write files —"
             " use text:read / text:insert / text:replace instead"
         ),
         "category": "bash",
