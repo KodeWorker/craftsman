@@ -403,14 +403,10 @@ async def bash_run_live(args: dict, on_line=None) -> dict:
     enc = locale.getpreferredencoding(False) or "utf-8"
     all_lines: list[str] = []
     lock = asyncio.Lock()
-    done = asyncio.Event()
 
     async def _read(stream):
-        while not done.is_set():
-            try:
-                raw = await asyncio.wait_for(stream.readline(), timeout=0.2)
-            except asyncio.TimeoutError:
-                continue
+        while True:
+            raw = await stream.readline()
             if not raw:
                 break
             line = raw.decode(enc, errors="replace").rstrip("\n")
@@ -422,7 +418,8 @@ async def bash_run_live(args: dict, on_line=None) -> dict:
     async def _wait():
         await proc.wait()
         await asyncio.sleep(1.0)
-        done.set()
+        proc.stdout.feed_eof()
+        proc.stderr.feed_eof()
 
     await asyncio.gather(_read(proc.stdout), _read(proc.stderr), _wait())
     lines = all_lines
