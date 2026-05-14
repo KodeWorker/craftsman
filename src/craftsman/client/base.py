@@ -75,11 +75,18 @@ class BaseClient:
             resp = getattr(self.request_session, method)(url, **kwargs)
             # Server restarted — re-seed tools into the fresh DB
             if not _reseeding:
-                self._request(
+                seed_resp = self._request(
                     "post",
                     f"{self.entry_point}/tools/seed",
                     _reseeding=True,
                 )
+                if seed_resp.status_code != 200:
+                    msg = (
+                        f"Tool seed failed: "
+                        f"{seed_resp.status_code} {seed_resp.text}"
+                    )
+                    self.logger.warning(msg)
+                    print(Fore.YELLOW + msg + Style.RESET_ALL)
         return resp
 
     def _update_banner(
