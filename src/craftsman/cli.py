@@ -359,5 +359,6 @@ def arti_delete(
     If no artifact is specified, chooses from a list of artifacts.
     """
     client = Client(host=host, port=port)
-    if client.delete_artifact(artifact):
-        click.echo(f"Artifact '{artifact}' deleted successfully.")
+    deleted = client.delete_artifact(artifact)
+    if deleted:
+        click.echo(f"Artifact '{deleted}' deleted successfully.")

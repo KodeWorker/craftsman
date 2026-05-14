@@ -103,6 +103,12 @@ tools:
       max_results: 10
     fetch:
       max_chars: 8000
+  # browser tools (browser:navigate, browser:get_text, browser:get_accessibility_tree,
+  #                browser:click, browser:type, browser:wait, browser:scroll,
+  #                browser:hover, browser:select, browser:screenshot, browser:eval)
+  browser:
+    enabled: false  # opt-in — requires `playwright install chromium`
+    headless: true  # false for visual debugging
   # agent tools (agent:run — prompt-driven multi-tool subagent)
   agent:
     enabled: true
