@@ -9,3 +9,12 @@
 7. Phase 6: web & browser & plan tools [phase6.md](plan/phase6.md)
 8. Phase 7: memory (LightRAG, vector, knowledge graph)
    - upgrade `tool:find` from SQLite LIKE to sqlite-vec semantic search
+
+---
+
+## TODO / Revisit
+
+- **Plan tools** — full rewrite of plan/task system; human-gated intercepts
+  for `task:start`, `task:done`, `task:cancel`, `task:update`; `depends_on`
+  enforcement; `agent:run` auto-revoke when plan enabled. Was originally
+  phase 6.3 — dropped to revisit later.

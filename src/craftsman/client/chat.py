@@ -315,6 +315,8 @@ class Client(SessionsClient, ArtifactsClient):
     def _call_tool(self, name: str, args: dict, session_id: str) -> dict:
         if name == "bash:run" and "cwd" not in args and self.session_cwd:
             args = {**args, "cwd": self.session_cwd}
+        if name == "browser:screenshot" and session_id:
+            args = {**args, "session_id": session_id}
         if name == "bash:run":
             display = RollingDisplay()
             loop = asyncio.new_event_loop()
@@ -708,10 +710,14 @@ class Client(SessionsClient, ArtifactsClient):
         import httpx
         from prompt_toolkit.patch_stdout import patch_stdout
 
-        from craftsman.tools.registry import register_agent_runner
+        from craftsman.tools.registry import (
+            register_agent_runner,
+            register_browser_tools,
+        )
         from craftsman.tools.scheduler import JobDispatcher
 
         register_agent_runner(self.entry_point, token)
+        register_browser_tools(self.entry_point, token)
 
         entry = self.entry_point
         headers = {"Authorization": f"Bearer {token}"}

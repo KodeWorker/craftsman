@@ -125,10 +125,14 @@ class TelegramClient:
             queue.task_done()
 
     async def _run_dispatcher(self) -> None:
-        from craftsman.tools.registry import register_agent_runner
+        from craftsman.tools.registry import (
+            register_agent_runner,
+            register_browser_tools,
+        )
         from craftsman.tools.scheduler import JobDispatcher
 
         register_agent_runner(self._entry_point, self._jwt)
+        register_browser_tools(self._entry_point, self._jwt)
 
         queue: asyncio.Queue = asyncio.Queue()
         asyncio.create_task(self._drain_job_results(queue))
@@ -262,6 +266,8 @@ class TelegramClient:
     async def _call_tool(self, name: str, args: dict, session_id: str) -> dict:
         if name == "bash:run" and "cwd" not in args and self._session_cwd:
             args = {**args, "cwd": self._session_cwd}
+        if name == "browser:screenshot" and session_id:
+            args = {**args, "session_id": session_id}
         if name in _LOCAL_DISPATCH:
             try:
                 return await _LOCAL_DISPATCH[name](args)

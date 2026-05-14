@@ -76,18 +76,18 @@ class ArtifactsClient(BaseClient):
         )
         return result
 
-    def delete_artifact(self, artifact: str | None = None) -> bool:
+    def delete_artifact(self, artifact: str | None = None) -> str | None:
         if not artifact:
             artifact = self.pick_artifact()
         if not artifact:
-            return False
+            return None
 
         response = self._request(
             "delete", f"{self.entry_point}/artifacts/{artifact}"
         )
         if response.status_code == 200:
             self.logger.info(f"Artifact '{artifact}' deleted.")
-            return True
+            return artifact
         self.logger.error(
             f"Error deleting artifact '{artifact}': "
             f"{response.status_code} - {response.text}"
