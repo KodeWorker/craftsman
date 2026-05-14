@@ -52,8 +52,23 @@ async def tool_find(
     if not keyword:
         return {"error": "keyword required"}
     revoked = librarian.get_revoked_tools(session_id)
-    rows = db.search_tools(keyword)
-    matches = [r for r in rows if r["name"] not in revoked]
+
+    # Try semantic vector search first; fall back to SQLite LIKE
+    vdb = getattr(librarian, "vector_db", None)
+    vec_available = getattr(vdb, "_available", False)
+
+    if vec_available:
+        vec_results = vdb.search_tools(keyword, top_k=5)
+        matches = [
+            db.get_tool(r["name"])
+            for r in vec_results
+            if r["name"] not in revoked
+        ]
+        matches = [m for m in matches if m is not None]
+    else:
+        rows = db.search_tools(keyword)
+        matches = [r for r in rows if r["name"] not in revoked]
+
     if not matches:
         return {"error": f"No tools matching '{keyword}'"}
     best = matches[0]

@@ -26,6 +26,23 @@ def librarian_with_real_db(mocker):
     real_db.close()
 
 
+@pytest.fixture
+def librarian_with_lightrag(mocker):
+    mocker.patch("craftsman.memory.librarian.StructureDB")
+    mocker.patch("craftsman.memory.librarian.VectorDB")
+    mock_graph = mocker.MagicMock()
+    mock_lightrag = mocker.AsyncMock()
+    mock_lightrag.insert = mocker.AsyncMock()
+    mock_lightrag.query = mocker.AsyncMock(return_value="some retrieved fact")
+    lib = Librarian(
+        graph_db=mock_graph,
+        lightrag_adapter=mock_lightrag,
+    )
+    lib._mock_lightrag = mock_lightrag
+    lib._mock_graph = mock_graph
+    return lib
+
+
 # --- cache helpers ---
 
 
@@ -138,3 +155,76 @@ def test_retrieve_messages_empty_session(librarian_with_real_db):
     messages, stats = lib.retrieve_messages(sid)
     assert messages == []
     assert stats == {"ctx_used": 0, "upload_tokens": 0, "download_tokens": 0}
+
+
+# --- ingest_message ---
+
+
+async def test_ingest_message_calls_lightrag(librarian_with_lightrag):
+    lib = librarian_with_lightrag
+    await lib.ingest_message("s1", "Alice works on craftsman.")
+    lib._mock_lightrag.insert.assert_awaited_once_with(
+        "Alice works on craftsman.", session_id="s1"
+    )
+
+
+async def test_ingest_message_noop_when_no_adapter(librarian):
+    await librarian.ingest_message("s1", "some text")  # must not raise
+
+
+async def test_ingest_message_noop_on_empty_text(librarian_with_lightrag):
+    lib = librarian_with_lightrag
+    await lib.ingest_message("s1", "   ")
+    lib._mock_lightrag.insert.assert_not_awaited()
+
+
+async def test_ingest_message_swallows_exceptions(librarian_with_lightrag):
+    lib = librarian_with_lightrag
+    lib._mock_lightrag.insert.side_effect = RuntimeError("boom")
+    await lib.ingest_message("s1", "text")  # must not raise
+
+
+# --- retrieve_context ---
+
+
+async def test_retrieve_context_returns_block(librarian_with_lightrag):
+    lib = librarian_with_lightrag
+    result = await lib.retrieve_context("what do you know?", "s1")
+    assert result.startswith("[Retrieved context]")
+    assert "some retrieved fact" in result
+
+
+async def test_retrieve_context_empty_when_no_adapter(librarian):
+    result = await librarian.retrieve_context("q", "s1")
+    assert result == ""
+
+
+async def test_retrieve_context_empty_on_blank_query(librarian_with_lightrag):
+    lib = librarian_with_lightrag
+    result = await lib.retrieve_context("  ", "s1")
+    assert result == ""
+
+
+async def test_retrieve_context_empty_when_rag_returns_empty(
+    librarian_with_lightrag,
+):
+    lib = librarian_with_lightrag
+    lib._mock_lightrag.query.return_value = ""
+    result = await lib.retrieve_context("q", "s1")
+    assert result == ""
+
+
+async def test_retrieve_context_swallows_exceptions(librarian_with_lightrag):
+    lib = librarian_with_lightrag
+    lib._mock_lightrag.query.side_effect = RuntimeError("boom")
+    result = await lib.retrieve_context("q", "s1")
+    assert result == ""
+
+
+# --- close_session_memory ---
+
+
+def test_close_session_memory_saves_graph(librarian_with_lightrag):
+    lib = librarian_with_lightrag
+    lib.close_session_memory("s1")
+    lib._mock_graph.save.assert_called_once()

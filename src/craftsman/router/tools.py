@@ -20,6 +20,9 @@ class ToolsRouter:
 
     async def seed(self, user_id: str = Depends(get_current_user)) -> dict:
         seed_registry(self.librarian.structure_db)
+        self.librarian.vector_db.seed_from_registry(
+            self.librarian.structure_db
+        )
         return {"status": "ok"}
 
     async def invoke(

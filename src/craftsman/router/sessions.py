@@ -120,6 +120,30 @@ class SessionsRouter:
             context = [
                 {"role": "system", "content": _DEFAULT_SYSTEM}
             ] + context
+
+        # Inject long-term memory retrieval before LLM call
+        user_query = next(
+            (
+                m.get("content", "")
+                for m in reversed(context)
+                if m.get("role") == "user"
+                and isinstance(m.get("content"), str)
+            ),
+            "",
+        )
+        if user_query:
+            retrieval = await self.librarian.retrieve_context(
+                user_query, session_id
+            )
+            if retrieval:
+                insert_pos = (
+                    1 if context and context[0].get("role") == "system" else 0
+                )
+                context = (
+                    context[:insert_pos]
+                    + [{"role": "system", "content": retrieval}]
+                    + context[insert_pos:]
+                )
         content_parts: list[str] = []
         reasoning_parts: list[str] = []
         tool_calls: list[dict] = []
@@ -275,6 +299,13 @@ class SessionsRouter:
         original_content = message.get("content", "")
         message = await self.multimodalize_message(message)
         self.librarian.push_context(session_id, message)
+
+        # Fire-and-forget: extract entities from the user message
+        if original_content:
+            coro = self.librarian.ingest_message(session_id, original_content)
+            if asyncio.iscoroutine(coro):
+                asyncio.create_task(coro)
+
         tool_schemas = self._build_tool_schemas(tool_names)
 
         return StreamingResponse(
@@ -359,6 +390,7 @@ class SessionsRouter:
         user_id: str = Depends(get_current_user),
     ) -> dict:
         self.__check_owner(session_id, user_id)
+        self.librarian.close_session_memory(session_id)
         self.active_sessions.discard(session_id)
         self.librarian.structure_db.delete_session(session_id)
         return {"status": f"session '{session_id}' deleted"}
@@ -485,6 +517,7 @@ class SessionsRouter:
                 "tokens": up_tokens + down_tokens,
             },
         )
+        self.librarian.close_session_memory(session_id)
 
         return {
             "status": f"session '{session_id}' compacted with summary",

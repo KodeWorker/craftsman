@@ -1,8 +1,15 @@
+import os
+
+import litellm
 import uvicorn
 from fastapi import Depends, FastAPI, HTTPException, Request
 
+from craftsman.configure import get_config
 from craftsman.logger import CraftsmanLogger
+from craftsman.memory.graph import GraphDB
 from craftsman.memory.librarian import Librarian
+from craftsman.memory.lightrag_adapter import LightRAGAdapter
+from craftsman.memory.vector import VectorDB
 from craftsman.provider import Provider
 from craftsman.router.artifacts import ArtifactsRouter
 from craftsman.router.deps import _crypto, get_current_user
@@ -11,12 +18,133 @@ from craftsman.router.sessions import SessionsRouter
 from craftsman.router.tools import ToolsRouter
 
 
+def _build_memory(provider: Provider):
+    """Construct VectorDB, GraphDB, and LightRAGAdapter from config.
+
+    All components degrade gracefully: if a dependency is missing or a call
+    fails, the relevant object is returned in its disabled state (no-op).
+    """
+    config = get_config()
+    mem_cfg = config.get("memory", {})
+    provider_cfg = config.get("provider", {})
+    workspace_cfg = config.get("workspace", {})
+
+    embed_dim: int = mem_cfg.get("embedding_dim", 384)
+    embed_model: str = mem_cfg.get("embed_model") or provider_cfg.get(
+        "model", ""
+    )
+    lightrag_enabled: bool = mem_cfg.get("lightrag", {}).get("enabled", True)
+
+    db_dir: str = os.path.expanduser(
+        workspace_cfg.get("database", "~/.craftsman/database")
+    )
+    os.makedirs(db_dir, exist_ok=True)
+
+    # --- sync embed_fn for VectorDB tools seeding (called at /tools/seed) ---
+    def embed_fn(text: str) -> list[float]:
+        api_base = provider.api_base
+        api_key = provider.api_key
+        if not api_base or not api_key:
+            raise RuntimeError("Provider not configured yet")
+        resp = litellm.embedding(
+            model=embed_model,
+            input=[text],
+            api_base=api_base,
+            api_key=api_key,
+        )
+        return resp.data[0]["embedding"]
+
+    db_path = os.path.join(db_dir, "craftsman.db")
+    try:
+        vector_db = VectorDB(
+            db_path=db_path,
+            embed_fn=embed_fn,
+            dimensions=embed_dim,
+        )
+    except Exception as exc:
+        CraftsmanLogger().get_logger(__name__).warning(
+            f"VectorDB init failed (vector search disabled): {exc}"
+        )
+        vector_db = VectorDB()
+
+    gml_path = os.path.join(db_dir, "graph.gml")
+    graph_db = GraphDB(gml_path=gml_path)
+
+    lightrag_adapter = None
+    if lightrag_enabled:
+        # async llm_func for LightRAG entity extraction
+        async def llm_func(
+            prompt, system_prompt=None, history_messages=None, **kwargs
+        ):
+            messages = []
+            if system_prompt:
+                messages.append({"role": "system", "content": system_prompt})
+            if history_messages:
+                messages.extend(history_messages)
+            messages.append({"role": "user", "content": prompt})
+            api_base = provider.api_base
+            api_key = provider.api_key
+            if not api_base or not api_key:
+                return ""
+            try:
+                resp = await litellm.acompletion(
+                    model=provider_cfg.get("model", ""),
+                    api_base=api_base,
+                    api_key=api_key,
+                    messages=messages,
+                    max_tokens=kwargs.get("max_tokens", 1024),
+                    stream=False,
+                )
+                return resp.choices[0].message.content or ""
+            except Exception:
+                return ""
+
+        # async embed_func for LightRAG vector store
+        async def async_embed_func(texts: list[str]) -> list[list[float]]:
+            api_base = provider.api_base
+            api_key = provider.api_key
+            if not api_base or not api_key:
+                return [[0.0] * embed_dim] * len(texts)
+            try:
+                resp = await litellm.aembedding(
+                    model=embed_model,
+                    input=texts,
+                    api_base=api_base,
+                    api_key=api_key,
+                )
+                return [d["embedding"] for d in resp.data]
+            except Exception:
+                return [[0.0] * embed_dim] * len(texts)
+
+        lightrag_dir = os.path.join(db_dir, "lightrag")
+        try:
+            lightrag_adapter = LightRAGAdapter(
+                working_dir=lightrag_dir,
+                llm_func=llm_func,
+                embed_func=async_embed_func,
+                graph_db=graph_db,
+                embedding_dim=embed_dim,
+            )
+        except Exception as exc:
+            CraftsmanLogger().get_logger(__name__).warning(
+                f"LightRAGAdapter init failed (KG retrieval disabled): {exc}"
+            )
+
+    return vector_db, graph_db, lightrag_adapter
+
+
 class Server:
     def __init__(self, port: int):
         self.port = port
         self.logger = CraftsmanLogger().get_logger(__name__)
         self.provider = Provider()
-        self.librarian = Librarian()
+
+        vector_db, graph_db, lightrag_adapter = _build_memory(self.provider)
+        self.librarian = Librarian(
+            vector_db=vector_db,
+            graph_db=graph_db,
+            lightrag_adapter=lightrag_adapter,
+        )
         self.active_sessions = set()
 
         self.app = FastAPI()
