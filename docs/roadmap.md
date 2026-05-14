@@ -7,7 +7,7 @@
 5. Phase 4: wire telegram bot [phase4.md](plan/phase4.md)
 6. Phase 5: tool use [phase5.md](plan/phase5.md)
 7. Phase 6: web & browser & plan tools [phase6.md](plan/phase6.md)
-8. Phase 7: memory (LightRAG, vector, knowledge graph)
+8. Phase 7: memory (LightRAG, vector, knowledge graph) [phase7.md](plan/phase7.md)
    - upgrade `tool:find` from SQLite LIKE to sqlite-vec semantic search
 
 ---
@@ -18,3 +18,9 @@
   for `task:start`, `task:done`, `task:cancel`, `task:update`; `depends_on`
   enforcement; `agent:run` auto-revoke when plan enabled. Was originally
   phase 6.3 — dropped to revisit later.
+
+- **Nightly Librarian** — offline batch agent that runs on a cron schedule
+  (e.g. nightly at 3 AM via the existing `cron_jobs` scheduler): promotes
+  session-layer entities to project/global layers, prunes expired nodes
+  (TTL-based), and rebuilds the `graph.gml` from the canonical SQLite state.
+  Deferred from Phase 7.
