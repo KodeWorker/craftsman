@@ -24,7 +24,6 @@ from craftsman.client.artifacts import ArtifactsClient
 from craftsman.client.base import _AT_FILE_STYLE
 from craftsman.client.completer import AtFileLexer, ChatCompleter
 from craftsman.client.sessions import SessionsClient
-from craftsman.tools.bash_tools import RollingDisplay, bash_run_live
 from craftsman.tools.constants import REMOTE_TOOLS
 from craftsman.tools.executor import _LOCAL_DISPATCH
 from craftsman.tools.text_tools import commit_tmp, discard_tmp
@@ -317,17 +316,6 @@ class Client(SessionsClient, ArtifactsClient):
             args = {**args, "cwd": self.session_cwd}
         if name == "browser:screenshot" and session_id:
             args = {**args, "session_id": session_id}
-        if name == "bash:run":
-            display = RollingDisplay()
-            loop = asyncio.new_event_loop()
-            try:
-                return loop.run_until_complete(
-                    bash_run_live(args, on_line=display.add_line)
-                )
-            except Exception as e:
-                return {"error": str(e)}
-            finally:
-                loop.close()
         if name in _LOCAL_DISPATCH:
             loop = asyncio.new_event_loop()
             try:
@@ -957,6 +945,10 @@ class Client(SessionsClient, ArtifactsClient):
 
             message = {"role": "user", "content": user_input}
             self._agentic_loop(session_id, message)
+
+        from craftsman.tools.registry import teardown_browser_tools
+
+        teardown_browser_tools()
 
     def run(self, prompt: str):
         self.logger.info(f"Connecting to server at {self.entry_point}...")

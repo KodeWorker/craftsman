@@ -415,13 +415,8 @@ async def bash_run_live(args: dict, on_line=None) -> dict:
                 if on_line:
                     on_line(line)
 
-    async def _wait():
-        await proc.wait()
-        await asyncio.sleep(1.0)
-        proc.stdout.feed_eof()
-        proc.stderr.feed_eof()
-
-    await asyncio.gather(_read(proc.stdout), _read(proc.stderr), _wait())
+    await asyncio.gather(_read(proc.stdout), _read(proc.stderr))
+    await proc.wait()
     lines = all_lines
     truncated = len(lines) > max_lines
     if truncated:

@@ -1066,4 +1066,7 @@ class TelegramClient:
                 await self._app.updater.stop()
                 await self._app.stop()
         finally:
+            from craftsman.tools.registry import teardown_browser_tools
+
+            teardown_browser_tools()
             await self._http.aclose()
