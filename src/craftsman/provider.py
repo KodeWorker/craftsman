@@ -1,10 +1,22 @@
+import ipaddress
 import os
+from urllib.parse import urlparse
 
 import litellm
 
 from craftsman.auth import Auth
 from craftsman.configure import get_config
 from craftsman.logger import CraftsmanLogger
+
+
+def _is_local(api_base: str) -> bool:
+    host = urlparse(api_base).hostname or ""
+    if host in ("localhost", "127.0.0.1", "::1"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_private
+    except ValueError:
+        return False
 
 
 class Provider:
@@ -29,10 +41,17 @@ class Provider:
             "output_cost_per_token", 0.0
         )
 
-    def reset(self, api_base: str = None, api_key: str = None):
+    def reset(
+        self,
+        api_base: str = None,
+        api_key: str = None,
+        model: str = None,
+    ):
         self.logger.debug("Resetting provider state...")
         self.api_key = api_key if api_key else "dummy_api_key"
         self.api_base = api_base if api_base else "http://localhost:8000"
+        if model:
+            self.model = model
 
     async def completion(
         self,
@@ -52,6 +71,10 @@ class Provider:
             stream_options={"include_usage": True},
             max_tokens=ctx_size,
         )
+        if _is_local(self.api_base):
+            kwargs["chat_template_kwargs"] = {
+                "enable_thinking": not self.debug
+            }
         if tools:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice

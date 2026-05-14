@@ -26,8 +26,12 @@ def _search_context_lines() -> int:
     )
 
 
+def _resolve_file(file: str) -> str:
+    return file.lstrip("@")
+
+
 async def text_read(args: dict) -> dict:
-    file = args["file"]
+    file = _resolve_file(args["file"])
     line_start = args.get("line_start", 1)
     line_end = args.get("line_end")
     max_lines = args.get("max_lines", _read_max_lines())
@@ -63,7 +67,7 @@ async def text_read(args: dict) -> dict:
 
 
 async def text_search(args: dict) -> dict:
-    file = args["file"]
+    file = _resolve_file(args["file"])
     pattern = args["pattern"]
     context_lines = args.get("context_lines", _search_context_lines())
 
@@ -132,7 +136,7 @@ def discard_tmp(tmp: str) -> None:
 
 
 async def text_replace(args: dict) -> dict:
-    file = args["file"]
+    file = _resolve_file(args["file"])
     old = args["old_string"]
     new = args["new_string"]
     content = await asyncio.to_thread(
@@ -175,7 +179,7 @@ async def text_replace(args: dict) -> dict:
 
 
 async def text_insert(args: dict) -> dict:
-    file = args["file"]
+    file = _resolve_file(args["file"])
     line_num = args["line_num"]
     new_lines = args["lines"]
     to_insert = [ln if ln.endswith("\n") else ln + "\n" for ln in new_lines]
@@ -211,7 +215,7 @@ async def text_insert(args: dict) -> dict:
 
 
 async def text_delete(args: dict) -> dict:
-    file = args["file"]
+    file = _resolve_file(args["file"])
     line_start = args["line_start"]
     line_end = args["line_end"]
     lines = await asyncio.to_thread(

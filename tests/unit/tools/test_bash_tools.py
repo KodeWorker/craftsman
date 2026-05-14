@@ -170,14 +170,15 @@ async def test_run_empty_cmd_returns_error():
     assert "error" in result
 
 
-async def test_run_invalid_shlex_returns_error():
-    result = await bash_run({"cmd": "echo 'unterminated"})
-    assert "error" in result
-
-
-async def test_run_uses_shlex_not_shell(tmp_path):
+async def test_run_handles_path_with_spaces(tmp_path):
     f = tmp_path / "safe file.txt"
     f.write_text("ok")
     result = await bash_run({"cmd": f"cat {str(f)!r}"})
     assert "error" not in result
     assert "ok" in result["output"]
+
+
+async def test_run_shell_builtins_and_chaining(tmp_path):
+    result = await bash_run({"cmd": f"cd {tmp_path} && echo $PWD"})
+    assert "error" not in result
+    assert str(tmp_path) in result["output"]

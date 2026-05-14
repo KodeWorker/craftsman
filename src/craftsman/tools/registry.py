@@ -15,6 +15,9 @@ _READ_MAX_LINES: int = (
 _SEARCH_CTX_LINES: int = (
     _cfg.get("text", {}).get("search", {}).get("context_lines", 2)
 )
+_web_cfg = get_config().get("web", {})
+_WEB_MAX_RESULTS: int = _web_cfg.get("search", {}).get("max_results", 10)
+_WEB_FETCH_MAX_CHARS: int = _web_cfg.get("fetch", {}).get("max_chars", 8000)
 
 # Each entry: name, description, category, audited, parameters dict.
 # `schema` stored in DB is json.dumps(parameters).
@@ -34,7 +37,7 @@ _TOOLS: list[dict] = [
                     "type": "string",
                     "description": (
                         "Filter by category: meta, bash, text, memory,"
-                        " schedule, agent"
+                        " schedule, web, browser, agent"
                     ),
                 }
             },
@@ -309,9 +312,12 @@ _TOOLS: list[dict] = [
     {
         "name": "bash:run",
         "description": (
-            "Run an arbitrary shell command on Linux/macOS"
-            " (tokenised via shlex — no shell, so redirections and pipes"
-            " do not work); do NOT use to read or write files —"
+            "Run an arbitrary bash command on Linux/macOS —"
+            " supports built-ins, pipes, redirections, brace expansion,"
+            " and && chains;"
+            " for long-lived background processes use &>/dev/null &"
+            " to detach output (e.g. 'python app.py &>/dev/null &');"
+            " do NOT use to read or write files —"
             " use text:read / text:insert / text:replace instead"
         ),
         "category": "bash",
@@ -323,6 +329,10 @@ _TOOLS: list[dict] = [
                 "cmd": {
                     "type": "string",
                     "description": "Command string to execute",
+                },
+                "cwd": {
+                    "type": "string",
+                    "description": "Working directory for the command",
                 },
                 "max_lines": {
                     "type": "integer",
@@ -636,6 +646,271 @@ _TOOLS: list[dict] = [
             "required": ["cron_id"],
         },
     },
+    # ── web ──────────────────────────────────────────────────────────────
+    {
+        "name": "web:search",
+        "description": (
+            "Search the web via a self-hosted searxng instance;"
+            " returns titles, URLs, and snippets"
+        ),
+        "category": "web",
+        "audited": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query",
+                },
+                "max_results": {
+                    "type": "integer",
+                    "description": "Maximum results to return",
+                    "default": _WEB_MAX_RESULTS,
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "web:fetch_url",
+        "description": (
+            "Fetch a URL and return its main content as Markdown;"
+            " boilerplate (nav, footer, ads) is stripped automatically"
+        ),
+        "category": "web",
+        "audited": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "URL to fetch",
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "description": "Maximum characters to return",
+                    "default": _WEB_FETCH_MAX_CHARS,
+                },
+            },
+            "required": ["url"],
+        },
+    },
+    # ── browser ──────────────────────────────────────────────────────────
+    {
+        "name": "browser:navigate",
+        "description": (
+            "Navigate to a URL and wait for the page to finish loading;"
+            " cookie/GDPR banners are auto-dismissed"
+        ),
+        "category": "browser",
+        "audited": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "url": {"type": "string", "description": "URL to navigate to"}
+            },
+            "required": ["url"],
+        },
+    },
+    {
+        "name": "browser:get_text",
+        "description": "Return the visible text content of the current page",
+        "category": "browser",
+        "audited": False,
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "browser:aria_snapshot",
+        "description": (
+            "Return the ARIA accessibility snapshot of the current page"
+            " as a YAML-like string; preferred over raw HTML —"
+            " token-efficient and handles dynamic content"
+        ),
+        "category": "browser",
+        "audited": False,
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "browser:click",
+        "description": "Click an element on the current page",
+        "category": "browser",
+        "audited": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "selector": {
+                    "type": "string",
+                    "description": (
+                        "Playwright selector for the element."
+                        " Use CSS (#id, .class, tag[attr]),"
+                        " text match (text=Sign in),"
+                        ' has-text (a:has-text("Learn more")),'
+                        " or XPath (xpath=//button[@type='submit'])."
+                        " Do NOT use jQuery :contains() — it is invalid."
+                    ),
+                }
+            },
+            "required": ["selector"],
+        },
+    },
+    {
+        "name": "browser:type",
+        "description": "Fill a text input on the current page",
+        "category": "browser",
+        "audited": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "selector": {
+                    "type": "string",
+                    "description": (
+                        "Playwright selector for the input element."
+                        " Use CSS (input[name='q'], #search),"
+                        " text match (text=Search),"
+                        " or XPath (xpath=//input[@placeholder='Search'])."
+                        " Do NOT use jQuery :contains() — it is invalid."
+                    ),
+                },
+                "text": {
+                    "type": "string",
+                    "description": "Text to type into the element",
+                },
+            },
+            "required": ["selector", "text"],
+        },
+    },
+    {
+        "name": "browser:wait",
+        "description": "Wait for a number of milliseconds",
+        "category": "browser",
+        "audited": False,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "ms": {
+                    "type": "integer",
+                    "description": "Milliseconds to wait",
+                    "default": 1000,
+                }
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "browser:scroll",
+        "description": "Scroll the page by a pixel offset",
+        "category": "browser",
+        "audited": False,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "x": {
+                    "type": "integer",
+                    "description": "Horizontal scroll in pixels",
+                    "default": 0,
+                },
+                "y": {
+                    "type": "integer",
+                    "description": "Vertical scroll in pixels",
+                    "default": 0,
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "browser:hover",
+        "description": "Hover over an element on the current page",
+        "category": "browser",
+        "audited": False,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "selector": {
+                    "type": "string",
+                    "description": (
+                        "Playwright selector for the element."
+                        " Use CSS, text= prefix, :has-text(), or xpath=."
+                        " Do NOT use jQuery :contains()."
+                    ),
+                }
+            },
+            "required": ["selector"],
+        },
+    },
+    {
+        "name": "browser:select",
+        "description": "Select an option in a <select> element",
+        "category": "browser",
+        "audited": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "selector": {
+                    "type": "string",
+                    "description": (
+                        "Playwright selector for the <select> element."
+                        " Use CSS (select#lang, select[name='country']),"
+                        " or xpath=."
+                        " Do NOT use jQuery :contains()."
+                    ),
+                },
+                "value": {
+                    "type": "string",
+                    "description": "Option value to select",
+                },
+            },
+            "required": ["selector", "value"],
+        },
+    },
+    {
+        "name": "browser:screenshot",
+        "description": (
+            "Take a PNG screenshot of the current page and upload it as"
+            " an artifact; returns artifact_id"
+        ),
+        "category": "browser",
+        "audited": True,
+        "parameters": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
+        "name": "browser:eval",
+        "description": (
+            "Evaluate a JavaScript expression in the page context and"
+            " return the result — last resort; prefer other browser tools"
+            " when possible"
+        ),
+        "category": "browser",
+        "audited": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "script": {
+                    "type": "string",
+                    "description": (
+                        "A JavaScript EXPRESSION (not a statement)."
+                        " Do NOT use `return` — write the value directly."
+                        " Examples: `document.title`,"
+                        " `document.querySelectorAll('a').length`,"
+                        " `window.scrollY`"
+                    ),
+                }
+            },
+            "required": ["script"],
+        },
+    },
     # ── agent ────────────────────────────────────────────────────────────
     {
         "name": "agent:run",
@@ -682,6 +957,28 @@ def register_agent_runner(base_url: str, token: str) -> None:
     from craftsman.tools.executor import _LOCAL_DISPATCH
 
     _LOCAL_DISPATCH["agent:run"] = make_agent_runner(base_url, token)
+
+
+_browser_manager = None
+
+
+def register_browser_tools(base_url: str, token: str) -> None:
+    from craftsman.tools.browser_tools import (
+        BrowserManager,
+        make_browser_dispatch,
+    )
+    from craftsman.tools.executor import _LOCAL_DISPATCH
+
+    global _browser_manager
+    _browser_manager = BrowserManager(base_url=base_url, token=token)
+    _LOCAL_DISPATCH.update(make_browser_dispatch(_browser_manager))
+
+
+def teardown_browser_tools() -> None:
+    global _browser_manager
+    if _browser_manager is not None:
+        _browser_manager.teardown()
+        _browser_manager = None
 
 
 def seed_registry(db: StructureDB) -> None:

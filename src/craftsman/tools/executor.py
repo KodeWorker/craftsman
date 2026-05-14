@@ -1,6 +1,7 @@
 import httpx
 
 from craftsman.tools.bash_tools import (
+    RollingDisplay,
     bash_cat,
     bash_df,
     bash_du,
@@ -9,7 +10,7 @@ from craftsman.tools.bash_tools import (
     bash_head,
     bash_ls,
     bash_ps,
-    bash_run,
+    bash_run_live,
     bash_stat,
     bash_tail,
     powershell_run,
@@ -24,6 +25,12 @@ from craftsman.tools.text_tools import (
     text_replace,
     text_search,
 )
+from craftsman.tools.web_tools import web_fetch_url, web_search
+
+
+async def _bash_run(args: dict) -> dict:
+    return await bash_run_live(args, on_line=RollingDisplay().add_line)
+
 
 _LOCAL_DISPATCH = {
     "bash:ls": bash_ls,
@@ -36,13 +43,15 @@ _LOCAL_DISPATCH = {
     "bash:ps": bash_ps,
     "bash:df": bash_df,
     "bash:du": bash_du,
-    "bash:run": bash_run,
+    "bash:run": _bash_run,
     "powershell:run": powershell_run,
     "text:read": text_read,
     "text:search": text_search,
     "text:replace": text_replace,
     "text:insert": text_insert,
     "text:delete": text_delete,
+    "web:search": web_search,
+    "web:fetch_url": web_fetch_url,
 }
 
 

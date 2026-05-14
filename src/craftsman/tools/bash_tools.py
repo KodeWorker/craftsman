@@ -5,12 +5,50 @@ import locale
 import os
 import pathlib
 import re
-import shlex
 import shutil
 import stat as _stat
 import sys
 
 from craftsman.configure import get_config
+
+_DIM = "\033[2m"
+_BG_BLACK = "\033[40m"
+_RESET = "\033[0m"
+
+
+def _live_display_lines() -> int:
+    return (
+        get_config()
+        .get("tools", {})
+        .get("bash", {})
+        .get("run", {})
+        .get("live_display_lines", 5)
+    )
+
+
+class RollingDisplay:
+    def __init__(self):
+        self._n = _live_display_lines()
+        self._buf: list[str] = []
+        self._allocated = False
+
+    def _redraw(self) -> None:
+        cols = shutil.get_terminal_size((80, 24)).columns - 4
+        if self._allocated:
+            sys.stdout.write(f"\033[{self._n}A")
+        else:
+            self._allocated = True
+        lines = self._buf[-self._n :]
+        while len(lines) < self._n:
+            lines = [""] + lines
+        for line in lines:
+            padded = f"  {line}"[:cols].ljust(cols)
+            sys.stdout.write(f"\033[2K{_BG_BLACK}{_DIM}{padded}{_RESET}\n")
+        sys.stdout.flush()
+
+    def add_line(self, line: str) -> None:
+        self._buf.append(line)
+        self._redraw()
 
 
 def _cat_max_lines() -> int:
@@ -313,11 +351,83 @@ async def bash_run(args: dict) -> dict:
     if not cmd_str:
         return {"error": "cmd is required"}
     max_lines = args.get("max_lines", _run_max_lines())
-    try:
-        cmd = shlex.split(cmd_str)
-    except ValueError as e:
-        return {"error": f"invalid command: {e}"}
-    return await _run(cmd, max_lines, ok_codes=tuple(range(256)))
+    cwd = args.get("cwd") or None
+    if cwd:
+        cwd = os.path.expanduser(cwd)
+        if not os.path.isdir(cwd):
+            return {"error": f"cwd not a directory: {cwd}"}
+    proc = await asyncio.create_subprocess_shell(
+        cmd_str,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        executable="/bin/bash",
+        cwd=cwd,
+    )
+    stdout, stderr = await proc.communicate()
+    enc = locale.getpreferredencoding(False) or "utf-8"
+    out = stdout.decode(enc, errors="replace")
+    err = stderr.decode(enc, errors="replace").strip()
+    combined = (out + ("\n" + err if err else "")).rstrip("\n")
+    lines = combined.splitlines()
+    truncated = len(lines) > max_lines
+    if truncated:
+        omitted = len(lines) - max_lines
+        lines = lines[-max_lines:]
+        lines.insert(0, f"[... {omitted} lines omitted ...]")
+    return {
+        "output": "\n".join(lines),
+        "truncated": truncated,
+        "exit_code": proc.returncode,
+    }
+
+
+async def bash_run_live(args: dict, on_line=None) -> dict:
+    cmd_str = args.get("cmd", "").strip()
+    if not cmd_str:
+        return {"error": "cmd is required"}
+    max_lines = args.get("max_lines", _run_max_lines())
+    cwd = args.get("cwd") or None
+    if cwd:
+        cwd = os.path.expanduser(cwd)
+        if not os.path.isdir(cwd):
+            return {"error": f"cwd not a directory: {cwd}"}
+    proc = await asyncio.create_subprocess_shell(
+        cmd_str,
+        stdin=asyncio.subprocess.DEVNULL,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+        executable="/bin/bash",
+        cwd=cwd,
+    )
+    enc = locale.getpreferredencoding(False) or "utf-8"
+    all_lines: list[str] = []
+    lock = asyncio.Lock()
+
+    async def _read(stream):
+        while True:
+            raw = await stream.readline()
+            if not raw:
+                break
+            line = raw.decode(enc, errors="replace").rstrip("\n")
+            async with lock:
+                all_lines.append(line)
+                if on_line:
+                    on_line(line)
+
+    await asyncio.gather(_read(proc.stdout), _read(proc.stderr))
+    await proc.wait()
+    lines = all_lines
+    truncated = len(lines) > max_lines
+    if truncated:
+        omitted = len(lines) - max_lines
+        lines = lines[-max_lines:]
+        lines.insert(0, f"[... {omitted} lines omitted ...]")
+    return {
+        "output": "\n".join(lines),
+        "truncated": truncated,
+        "exit_code": proc.returncode,
+    }
 
 
 async def powershell_run(args: dict) -> dict:

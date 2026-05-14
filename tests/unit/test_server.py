@@ -502,7 +502,7 @@ def test_reset_calls_provider_reset(app):
     )
     assert resp.status_code == 200
     mock_provider.reset.assert_called_once_with(
-        api_base="http://x:1234", api_key="mykey"
+        api_base="http://x:1234", api_key="mykey", model=None
     )
 
 

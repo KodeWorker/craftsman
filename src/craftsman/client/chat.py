@@ -67,6 +67,7 @@ class Client(SessionsClient, ArtifactsClient):
         self.upload_tokens = 0
         self.download_tokens = 0
         self.cost = 0.0
+        self.session_cwd: str | None = None
         self.input_style = PTStyle.from_dict(
             {
                 "prompt": "fg:ansigreen bold",
@@ -177,7 +178,9 @@ class Client(SessionsClient, ArtifactsClient):
                     status = data.get("status", "")
                     print(Fore.LIGHTMAGENTA_EX + status + Style.RESET_ALL)
                     self.logger.info(status)
-                    self.ctx_used = data.get("meta", {}).get("ctx_used", 0)
+                    self.ctx_used = int(
+                        data.get("meta", {}).get("ctx_used", 0) or 0
+                    )
                     self.upload_tokens += data.get("meta", {}).get(
                         "prompt_tokens", 0
                     )
@@ -282,6 +285,7 @@ class Client(SessionsClient, ArtifactsClient):
                     "api_base", None
                 ),
                 "api_key": Auth.get_password("LLM_API_KEY"),
+                "model": self.config.get("provider", {}).get("model", None),
             },
         )
         if response.status_code == 200:
@@ -308,6 +312,10 @@ class Client(SessionsClient, ArtifactsClient):
         return stop, thread
 
     def _call_tool(self, name: str, args: dict, session_id: str) -> dict:
+        if name == "bash:run" and "cwd" not in args and self.session_cwd:
+            args = {**args, "cwd": self.session_cwd}
+        if name == "browser:screenshot" and session_id:
+            args = {**args, "session_id": session_id}
         if name in _LOCAL_DISPATCH:
             loop = asyncio.new_event_loop()
             try:
@@ -334,8 +342,29 @@ class Client(SessionsClient, ArtifactsClient):
         return {"error": f"Unknown tool: {name}"}
 
     def _confirm_audited(self, name: str, args: dict) -> tuple[bool, str]:
-        args_str = json.dumps(args)
-        print(Fore.YELLOW + f"[audited] {name} {args_str}" + Style.RESET_ALL)
+        if name in ("bash:run", "powershell:run"):
+            cols = shutil.get_terminal_size((80, 24)).columns
+            print(Fore.YELLOW + f"[audited] {name}" + Style.RESET_ALL)
+            cmd = args.get("cmd", "")
+            cmd_lines = cmd.split("\n")
+            for i, ln in enumerate(cmd_lines):
+                if ln.strip() or i < len(cmd_lines) - 1:
+                    prefix = "  $ " if i == 0 else "    "
+                    print(
+                        Back.BLACK
+                        + Style.BRIGHT
+                        + (prefix + ln).ljust(cols)
+                        + Style.RESET_ALL
+                    )
+            for k, v in args.items():
+                if k not in ("cmd", "max_lines"):
+                    print(Style.DIM + f"  {k}: {v}" + Style.RESET_ALL)
+        else:
+            print(
+                Fore.YELLOW
+                + f"[audited] {name} {json.dumps(args)}"
+                + Style.RESET_ALL
+            )
         try:
             answer = input(
                 "[y] run / [n] skip (add reason after 'n'): "
@@ -479,8 +508,9 @@ class Client(SessionsClient, ArtifactsClient):
                     self._update_banner(
                         model=chunk.get("model", ""),
                         session=session_id[:8],
-                        ctx_used=self.ctx_used + chunk.get("ctx_used", 0),
-                        ctx_total=chunk.get("ctx_total", 0),
+                        ctx_used=self.ctx_used
+                        + int(chunk.get("ctx_used", 0) or 0),
+                        ctx_total=int(chunk.get("ctx_total", 0) or 0),
                         upload_tokens=self.upload_tokens
                         + chunk.get("prompt_tokens", 0),
                         download_tokens=self.download_tokens
@@ -541,7 +571,9 @@ class Client(SessionsClient, ArtifactsClient):
 
     def _agentic_loop(self, session_id: str, message: dict) -> None:
         tools = self.config.get("chat", {}).get("tools", ["all"])
-        max_loops = self.config.get("chat", {}).get("max_tool_loops", 10)
+        checkpoint = self.config.get("chat", {}).get(
+            "tool_loop_checkpoint", 10
+        )
 
         spinner_stop, spinner_thread = self._start_spinner("Thinking...")
         response = self._request(
@@ -563,8 +595,8 @@ class Client(SessionsClient, ArtifactsClient):
             )
             return
 
-        # pass 0 = initial completion; passes 1..max_loops = tool rounds
-        for tool_round in range(max_loops + 1):
+        tool_round = 0
+        while True:
             tool_calls, meta = self._do_stream(
                 response, session_id, spinner_stop, spinner_thread
             )
@@ -579,13 +611,22 @@ class Client(SessionsClient, ArtifactsClient):
             if not tool_calls:
                 return
 
-            if tool_round >= max_loops:
-                print(
-                    Fore.YELLOW
-                    + f"[max tool loops ({max_loops}) reached]"
-                    + Style.RESET_ALL
-                )
-                return
+            tool_round += 1
+            if tool_round % checkpoint == 0:
+                try:
+                    answer = (
+                        input(
+                            Fore.YELLOW
+                            + f"[{tool_round} tool loops] Continue? [y/n]: "
+                            + Style.RESET_ALL
+                        )
+                        .strip()
+                        .lower()
+                    )
+                except (EOFError, KeyboardInterrupt):
+                    return
+                if answer != "y":
+                    return
 
             tool_results = []
             for tc in tool_calls:
@@ -657,10 +698,14 @@ class Client(SessionsClient, ArtifactsClient):
         import httpx
         from prompt_toolkit.patch_stdout import patch_stdout
 
-        from craftsman.tools.registry import register_agent_runner
+        from craftsman.tools.registry import (
+            register_agent_runner,
+            register_browser_tools,
+        )
         from craftsman.tools.scheduler import JobDispatcher
 
         register_agent_runner(self.entry_point, token)
+        register_browser_tools(self.entry_point, token)
 
         entry = self.entry_point
         headers = {"Authorization": f"Bearer {token}"}
@@ -727,7 +772,12 @@ class Client(SessionsClient, ArtifactsClient):
         self._start_dispatcher(token, session_holder)
 
         if not session_id:
-            response = self._request("post", f"{self.entry_point}/sessions/")
+            self.session_cwd = os.getcwd()
+            response = self._request(
+                "post",
+                f"{self.entry_point}/sessions/",
+                json={"cwd": self.session_cwd},
+            )
             session_id = response.json().get("session_id", "")
             session_holder["session_id"] = session_id
         else:
@@ -895,6 +945,10 @@ class Client(SessionsClient, ArtifactsClient):
 
             message = {"role": "user", "content": user_input}
             self._agentic_loop(session_id, message)
+
+        from craftsman.tools.registry import teardown_browser_tools
+
+        teardown_browser_tools()
 
     def run(self, prompt: str):
         self.logger.info(f"Connecting to server at {self.entry_point}...")

@@ -51,6 +51,7 @@ class TelegramClient:
         self._completion_tokens: int = 0
         self._cost: float = 0.0
         self._pending_audit: dict[str, asyncio.Future] = {}
+        self._session_cwd: str | None = None
 
     # ── State ────────────────────────────────────────────────────────────
 
@@ -124,10 +125,14 @@ class TelegramClient:
             queue.task_done()
 
     async def _run_dispatcher(self) -> None:
-        from craftsman.tools.registry import register_agent_runner
+        from craftsman.tools.registry import (
+            register_agent_runner,
+            register_browser_tools,
+        )
         from craftsman.tools.scheduler import JobDispatcher
 
         register_agent_runner(self._entry_point, self._jwt)
+        register_browser_tools(self._entry_point, self._jwt)
 
         queue: asyncio.Queue = asyncio.Queue()
         asyncio.create_task(self._drain_job_results(queue))
@@ -158,6 +163,7 @@ class TelegramClient:
             json={
                 "api_base": cfg.get("api_base"),
                 "api_key": Auth.get_password("LLM_API_KEY"),
+                "model": cfg.get("model"),
             },
         )
 
@@ -199,7 +205,12 @@ class TelegramClient:
         )
 
     async def _create_session(self) -> str | None:
-        resp = await self._request("post", f"{self._entry_point}/sessions/")
+        self._session_cwd = os.getcwd()
+        resp = await self._request(
+            "post",
+            f"{self._entry_point}/sessions/",
+            json={"cwd": self._session_cwd},
+        )
         if resp.status_code == 200:
             return resp.json().get("session_id")
         return None
@@ -253,6 +264,10 @@ class TelegramClient:
         return chunks, tool_calls
 
     async def _call_tool(self, name: str, args: dict, session_id: str) -> dict:
+        if name == "bash:run" and "cwd" not in args and self._session_cwd:
+            args = {**args, "cwd": self._session_cwd}
+        if name == "browser:screenshot" and session_id:
+            args = {**args, "session_id": session_id}
         if name in _LOCAL_DISPATCH:
             try:
                 return await _LOCAL_DISPATCH[name](args)
@@ -362,7 +377,9 @@ class TelegramClient:
         chat_id: int = 0,
     ) -> str:
         tools = self.config.get("chat", {}).get("tools", ["all"])
-        max_loops = self.config.get("chat", {}).get("max_tool_loops", 10)
+        checkpoint = self.config.get("chat", {}).get(
+            "tool_loop_checkpoint", 10
+        )
         url = f"{self._entry_point}/sessions/{session_id}/completion"
         body = {
             "message": {"role": "user", "content": text},
@@ -383,9 +400,42 @@ class TelegramClient:
         else:
             return ""
 
-        for _ in range(max_loops):
+        tool_round = 0
+        while True:
             if not tool_calls:
                 break
+            tool_round += 1
+            if tool_round % checkpoint == 0 and bot and chat_id:
+                call_id = f"checkpoint_{tool_round}"
+                keyboard = InlineKeyboardMarkup(
+                    [
+                        [
+                            InlineKeyboardButton(
+                                "✓ Continue",
+                                callback_data=f"audit:y:{call_id}",
+                            ),
+                            InlineKeyboardButton(
+                                "✗ Stop",
+                                callback_data=f"audit:n:{call_id}",
+                            ),
+                        ]
+                    ]
+                )
+                await bot.send_message(
+                    chat_id,
+                    f"{tool_round} tool loops completed. Continue?",
+                    reply_markup=keyboard,
+                )
+                loop = asyncio.get_running_loop()
+                future: asyncio.Future = loop.create_future()
+                self._pending_audit[call_id] = future
+                try:
+                    approved, _ = await asyncio.wait_for(future, timeout=120.0)
+                except asyncio.TimeoutError:
+                    self._pending_audit.pop(call_id, None)
+                    approved = False
+                if not approved:
+                    break
             tool_results = []
             for tc in tool_calls:
                 name = tc["name"]
@@ -1016,4 +1066,7 @@ class TelegramClient:
                 await self._app.updater.stop()
                 await self._app.stop()
         finally:
+            from craftsman.tools.registry import teardown_browser_tools
+
+            teardown_browser_tools()
             await self._http.aclose()

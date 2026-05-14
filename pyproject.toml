@@ -21,6 +21,9 @@ dependencies = [
     "pydub>=0.25",
     "croniter>=2.0",
     "keyrings-alt>=5.0.0",
+    "readability-lxml>=0.8",
+    "html2text>=2020.1",
+    "playwright>=1.44",
 ]
 
 [project.scripts]

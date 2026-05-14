@@ -9,6 +9,7 @@ logging:
 chat:
   retry_interval_sec: 3
   rebuild_completer_interval_sec: 15
+  tool_loop_checkpoint: 20
   completer:
     enabled: true
     ignores:
@@ -79,6 +80,7 @@ tools:
       max_lines: 200 # lines returned per bash:cat call before tail-truncation
     run:
       max_lines: 200 # lines returned per bash:run call before tail-truncation
+      live_display_lines: 5 # rolling display lines shown during live execution
   # text tools (text:read, text:search, text:replace, text:insert, text:delete)
   text:
     enabled: true
@@ -93,9 +95,25 @@ tools:
   #                 cron:create, cron:list, cron:remove)
   schedule:
     enabled: true
+  # web tools (web:search, web:fetch_url)
+  web:
+    enabled: false
+    searxng_url: ""  # required for web:search — point to your searxng instance
+    search:
+      max_results: 10
+    fetch:
+      max_chars: 8000
+  # browser tools (browser:navigate, browser:get_text, browser:get_accessibility_tree,
+  #                browser:click, browser:type, browser:wait, browser:scroll,
+  #                browser:hover, browser:select, browser:screenshot, browser:eval)
+  browser:
+    enabled: false  # opt-in — requires `playwright install chromium`
+    headless: true  # false for visual debugging
   # agent tools (agent:run — prompt-driven multi-tool subagent)
   agent:
     enabled: true
+    max_loops: 10
+    timeout: 300
   # Individual tools to disable within an otherwise-enabled category.
   # Example: disabled: [bash:ps, bash:df, bash:du]
   disabled: []

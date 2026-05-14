@@ -1,7 +1,6 @@
-# Phase 6: Web, Browser & Plan Tools
+# Phase 6: Web & Browser Tools
 
-Extend craftsman with read/write web access and a human-gated plan/task
-system. Three independent sub-phases; 6.1 and 6.3 can run in parallel.
+Extend craftsman with read/write web access. Two sub-phases.
 
 ---
 
@@ -12,8 +11,7 @@ craftsman chat / telegram  (client)
   │
   ├── ToolExecutor (existing)
   │    ├── web_tools.py     web:search, web:fetch_url          (6.1)
-  │    ├── browser_tools.py browser:navigate, …                (6.2)
-  │    └── plan_tools.py    plan:*, task:*                     (6.3)
+  │    └── browser_tools.py browser:navigate, …                (6.2)
   │
   └── BrowserManager (new, 6.2)
        └── one Playwright Browser + Page per ToolExecutor
@@ -21,20 +19,18 @@ craftsman chat / telegram  (client)
 ```
 
 Web and browser tools are **client-side** (run on user's machine).
-Plan tools are also client-side — DB writes go through the local SQLite
-file shared with the server.
 
 ---
 
 ## Dependency Chain
 
 ```
-6.1 (web tools)         6.3 (plan tools)
+6.1 (web tools)
   └─ 6.2 (browser)
 ```
 
-6.1 and 6.3 are independent. 6.2 shares the `web:` yaml config section
-with 6.1 but has no code dependency on it.
+6.2 shares the `web:` yaml config section with 6.1 but has no code
+dependency on it.
 
 ---
 
@@ -183,122 +179,6 @@ web:
 uv run pytest tests/unit/tools/test_browser_tools.py
 # Integration: set browser.enabled: true
 # craftsman chat → "navigate to example.com and get the page text"
-```
-
----
-
-## 6.3 — Plan Tools (redesign)
-
-### DB schema changes
-
-**Tasks table** — three changes:
-
-1. Drop `verifying` state; add `cancelled` state
-2. Drop `criteria` column (no `task:verify` — criteria have no consumer)
-3. Add `depends_on TEXT NOT NULL DEFAULT '[]'` (JSON array of task UUIDs)
-
-```sql
-CREATE TABLE tasks (
-  id          TEXT PRIMARY KEY,
-  plan_id     TEXT NOT NULL REFERENCES plans(id) ON DELETE CASCADE,
-  description TEXT NOT NULL,
-  depends_on  TEXT NOT NULL DEFAULT '[]',  -- JSON array of task UUIDs
-  status      TEXT NOT NULL DEFAULT 'pending'
-                CHECK (status IN ('pending', 'in_progress', 'done', 'failed', 'cancelled')),
-  output      TEXT,
-  fail_reason TEXT,
-  created_at  TEXT NOT NULL DEFAULT (datetime('now')),
-  updated_at  TEXT NOT NULL DEFAULT (datetime('now'))
-);
-```
-
-Drop DB in dev; update DDL only — no ALTER TABLE.
-
-### State machine
-
-```
-pending → in_progress → done       (human confirms at task:done)
-                       ↘ failed    (LLM calls task:fail)
-pending → cancelled                 (human confirms at task:cancel)
-```
-
-`task:start` blocked if any `depends_on` task is not `done` — error returned
-immediately, no confirm prompt shown.
-
-### Human-gated intercepts
-
-Same pending-confirm pattern as `text:replace` (5.6). Tool returns
-`{"status": "pending", "action": "...", ...}` — agentic loop in `chat.py`
-and `telegram.py` intercepts before posting tool result.
-
-| Tool | Confirm shows | On reject |
-|------|--------------|-----------|
-| `task:start` | task description + depends_on status | `{"status": "rejected", "reason": ...}` |
-| `task:done` | task description + agent's claimed output | LLM can retry or call `task:fail` |
-| `task:cancel` | task description | `{"status": "rejected"}` |
-| `task:update` | task description + proposed changes | `{"status": "rejected"}` |
-
-`task:update` only valid on `pending` tasks; updates `description`
-and/or `depends_on`.
-
-### `agent:run` mutual exclusion
-
-When `tools.plan.enabled: true`, client auto-revokes `agent:run` at session
-start (after `_seed_tools()`). Enforced via `executor._revoked` — same
-mechanism as `tool:revoke`. No prompt engineering.
-
-### Files
-
-| Path | Change |
-|------|--------|
-| `docs/schema.md` | update tasks DDL |
-| `src/craftsman/memory/structure.py` | update tasks DDL + methods: `cancel_task`, `update_task`, `get_plan_with_tasks` |
-| `src/craftsman/tools/plan_tools.py` | full rewrite — all plan/task handlers |
-| `src/craftsman/tools/registry.py` | add plan tool schemas (category `plan`) |
-| `src/craftsman/tools/executor.py` | agent:run auto-revoke when plan enabled |
-| `src/craftsman/client/chat.py` | pending-confirm intercepts for plan tools |
-| `src/craftsman/client/telegram.py` | same |
-
-### Tool schemas
-
-| Tool | Human-gated | Notes |
-|------|------------|-------|
-| `plan:create` | no | `{goal, context?}` |
-| `plan:list` | no | returns all plans: `[{plan_id, goal, status, task_count}]` |
-| `plan:get` | no | `{plan_id}` → plan + full task tree with `depends_on` |
-| `plan:done` | no | `{plan_id}` |
-| `task:create` | no | `{plan_id, description, depends_on?}` |
-| `task:start` | yes | `{task_id}` — blocked if deps not done |
-| `task:done` | yes | `{task_id, output}` |
-| `task:fail` | no | `{task_id, reason}` |
-| `task:cancel` | yes | `{task_id}` — only from `pending` |
-| `task:update` | yes | `{task_id, description?, depends_on?}` — only `pending` |
-| `task:list` | no | `{plan_id}` → flat task list with status |
-
-All write tools audited. Read tools not audited.
-
-### Checklist
-
-- [ ] `docs/schema.md` + `memory/structure.py` — updated tasks DDL; new methods:
-      `cancel_task`, `update_task`, `get_plan_with_tasks`
-- [ ] `tools/plan_tools.py` — full rewrite; `_TRANSITIONS` updated; pending-confirm
-      returns for `task:start`, `task:done`, `task:cancel`, `task:update`
-- [ ] `tools/registry.py` — 11 plan schemas, category `plan`
-- [ ] `craftsman.yaml` tools section — `plan: enabled: false` (off by default)
-- [ ] `tools/executor.py` — agent:run auto-revoke when `tools.plan.enabled: true`
-- [ ] `client/chat.py` — `_confirm_plan_action` intercept alongside `_confirm_pending`
-- [ ] `client/telegram.py` — same
-- [ ] `tests/unit/tools/test_plan_tools.py` — state machine transitions, depends_on
-      enforcement, cancel only from pending, update only on pending, pending-confirm
-      return shape
-
-### Verify
-
-```bash
-uv run pytest tests/unit/tools/test_plan_tools.py
-# Integration: enable plan tools, disable agent
-# craftsman chat → "create a plan to build a todo app"
-# → add tasks → start task1 (confirm) → done task1 (confirm) → start task2
 ```
 
 ---
