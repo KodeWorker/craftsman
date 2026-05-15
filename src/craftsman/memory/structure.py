@@ -713,8 +713,10 @@ class StructureDB:
         self, active_only: bool = True, user_id: str | None = None
     ) -> list[sqlite3.Row]:
         if active_only and user_id:
+            # include system-level jobs (user_id IS NULL) for all users
             return self.conn.execute(
-                "SELECT * FROM cron_jobs WHERE active = 1 AND user_id = ?"
+                "SELECT * FROM cron_jobs"
+                " WHERE active = 1 AND (user_id = ? OR user_id IS NULL)"
                 " ORDER BY created_at",
                 (user_id,),
             ).fetchall()
@@ -725,7 +727,8 @@ class StructureDB:
         if user_id:
             return self.conn.execute(
                 "SELECT * FROM cron_jobs"
-                " WHERE user_id = ? ORDER BY created_at",
+                " WHERE user_id = ? OR user_id IS NULL"
+                " ORDER BY created_at",
                 (user_id,),
             ).fetchall()
         return self.conn.execute(

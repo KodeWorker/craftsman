@@ -485,6 +485,58 @@ must continue to pass without `sqlite-vec` or `lightrag-hku` installed.
 
 ---
 
+## 7.6 — Nightly Librarian
+
+Offline batch job that runs on a cron schedule (daily at 03:00 UTC via the
+existing `cron_jobs` scheduler). Promotes session-layer entities to the
+project/global layers, prunes stale session nodes, and writes distilled
+keynotes to `global_facts`.
+
+### Files
+
+| Path | Change |
+|------|--------|
+| `src/craftsman/tools/memory_tools.py` | Add `memory_promote` |
+| `src/craftsman/tools/constants.py` | Add `memory:promote` to `META_DISPATCH` |
+| `src/craftsman/tools/registry.py` | Add schema for `memory:promote` |
+| `src/craftsman/tools/scheduler.py` | `_ensure_nightly_cron()` called at dispatcher start |
+| `src/craftsman/memory/structure.py` | `list_cron_jobs` includes `user_id IS NULL` system jobs |
+
+### Design notes
+
+**`memory:promote`** (META_DISPATCH — receives `args, db, librarian, session_id`):
+
+1. **Session discovery** — queries all sessions with `ended_at IS NOT NULL`;
+   skips any whose `id` already appears in `global_facts.source_session_id`.
+2. **LightRAG ingest** — calls `librarian.ingest_message(sess_id, text)`
+   with user+assistant messages concatenated (capped at `max_chars`, default 4000).
+   Entity extraction and KG update happen via the existing LightRAG pipeline.
+3. **Layer promotion** — walks `GraphDB.graph` and flips `layer=session →
+   layer=project` for every node whose `session_id` matches the promoted session.
+4. **global_facts write** — stores the last 3 assistant responses as the
+   distilled keynote for that session.
+5. **Pruning** — removes GraphDB nodes still in `layer=session` that are older
+   than `prune_days` (default 7) and flushes `graph.gml` to disk.
+
+**Parameters**: `prune_days` (int, default 7), `max_chars` (int, default 4000).
+
+**Auto-registration** — `JobDispatcher.run_loop()` calls `_ensure_nightly_cron()`
+before entering the poll loop. It checks `cron:list` (system-level, no session
+context) and creates `"0 3 * * *" → memory:promote` if absent. The cron job is
+stored with `user_id=NULL` (system-level); `list_cron_jobs` was updated to
+include `user_id IS NULL` rows when filtering by a specific user so all
+dispatchers pick it up.
+
+### Checklist
+
+- [x] `tools/memory_tools.py` — `memory_promote(args, db, librarian, session_id)`
+- [x] `tools/constants.py` — `"memory:promote": memory_promote` in `META_DISPATCH`
+- [x] `tools/registry.py` — schema entry (category `memory`, audited, optional params)
+- [x] `tools/scheduler.py` — `_ensure_nightly_cron()` in `run_loop()`
+- [x] `memory/structure.py` — `list_cron_jobs` OR-includes `user_id IS NULL`
+
+---
+
 ## Dependencies Added
 
 | Package | Purpose | Sub-phase |

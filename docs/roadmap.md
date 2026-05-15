@@ -18,9 +18,3 @@
   for `task:start`, `task:done`, `task:cancel`, `task:update`; `depends_on`
   enforcement; `agent:run` auto-revoke when plan enabled. Was originally
   phase 6.3 — dropped to revisit later.
-
-- **Nightly Librarian** — offline batch agent that runs on a cron schedule
-  (e.g. nightly at 3 AM via the existing `cron_jobs` scheduler): promotes
-  session-layer entities to project/global layers, prunes expired nodes
-  (TTL-based), and rebuilds the `graph.gml` from the canonical SQLite state.
-  Deferred from Phase 7.

@@ -34,12 +34,54 @@ class JobDispatcher:
         register_agent_runner(self.base_url, self.token)
         async with httpx.AsyncClient(timeout=60.0) as http:
             self._http = http
+            await self._ensure_nightly_cron()
             while True:
                 try:
                     await self._tick()
                 except Exception as e:
                     _log.error(f"Dispatcher tick error: {e}")
                 await asyncio.sleep(POLL_INTERVAL)
+
+    async def _ensure_nightly_cron(self) -> None:
+        """Register the memory:promote cron job if it doesn't exist yet."""
+        try:
+            resp = await self._http.post(
+                f"{self.base_url}/tools/invoke",
+                json={"name": "cron:list", "args": {}},
+                headers=self._headers,
+            )
+            resp.raise_for_status()
+            jobs = resp.json().get("jobs", [])
+        except Exception as e:
+            _log.warning(f"Could not list cron jobs: {e}")
+            return
+
+        already = any(
+            "memory:promote" in job.get("tool_call", "") for job in jobs
+        )
+        if already:
+            return
+
+        try:
+            resp = await self._http.post(
+                f"{self.base_url}/tools/invoke",
+                json={
+                    "name": "cron:create",
+                    "args": {
+                        "expression": "0 3 * * *",
+                        "tool_call": {
+                            "name": "memory:promote",
+                            "args": {},
+                        },
+                    },
+                },
+                headers=self._headers,
+            )
+            resp.raise_for_status()
+            cron_id = resp.json().get("cron_id", "?")
+            _log.info(f"Registered nightly memory:promote cron job {cron_id}")
+        except Exception as e:
+            _log.warning(f"Could not register nightly cron job: {e}")
 
     # ── Tool dispatch ────────────────────────────────────────────────────
 
