@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import os
 import sqlite3
 from pathlib import Path
 from typing import Callable
+
+from craftsman.configure import get_config
 
 try:
     import sqlite_vec
@@ -18,14 +21,28 @@ class VectorDB:
     All methods are no-ops when sqlite-vec is unavailable or embed_fn is None,
     so callers can always call them unconditionally and rely on the graceful
     degradation path (LIKE-based fallback in tool:find etc.).
+
+    Uses the same craftsman.db file as StructureDB; loads the sqlite-vec
+    extension on a separate connection.
     """
 
     def __init__(
         self,
-        db_path: str | Path = ":memory:",
+        db_path: str | Path | None = None,
         embed_fn: Callable[[str], list[float]] | None = None,
         dimensions: int = 384,
     ):
+        if db_path is None:
+            config = get_config()
+            db_dir = Path(
+                os.path.expanduser(
+                    config.get("workspace", {}).get(
+                        "database", "~/.craftsman/database"
+                    )
+                )
+            )
+            db_dir.mkdir(parents=True, exist_ok=True)
+            db_path = db_dir / "craftsman.db"
         self._embed_fn = embed_fn
         self._dimensions = dimensions
         self._available = _SQLITE_VEC_AVAILABLE and embed_fn is not None

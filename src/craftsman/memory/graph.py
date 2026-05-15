@@ -4,14 +4,14 @@ import os
 from datetime import datetime, timezone
 from pathlib import Path
 
+from craftsman.configure import get_config
+
 try:
     import networkx as nx
 
     _NX_AVAILABLE = True
 except ImportError:
     _NX_AVAILABLE = False
-
-_DEFAULT_PATH = os.path.expanduser("~/.craftsman/database/graph.gml")
 
 
 class GraphDB:
@@ -26,7 +26,18 @@ class GraphDB:
     """
 
     def __init__(self, gml_path: str | Path | None = None):
-        self._gml_path = Path(gml_path) if gml_path else Path(_DEFAULT_PATH)
+        if gml_path is None:
+            config = get_config()
+            db_dir = Path(
+                os.path.expanduser(
+                    config.get("workspace", {}).get(
+                        "database", "~/.craftsman/database"
+                    )
+                )
+            )
+            db_dir.mkdir(parents=True, exist_ok=True)
+            gml_path = db_dir / "graph.gml"
+        self._gml_path = Path(gml_path)
         self._available = _NX_AVAILABLE
         self.graph = self._load() if _NX_AVAILABLE else None
 

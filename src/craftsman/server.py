@@ -38,7 +38,6 @@ def _build_memory(provider: Provider):
     db_dir: str = os.path.expanduser(
         workspace_cfg.get("database", "~/.craftsman/database")
     )
-    os.makedirs(db_dir, exist_ok=True)
 
     # --- sync embed_fn for VectorDB tools seeding (called at /tools/seed) ---
     def embed_fn(text: str) -> list[float]:
@@ -54,21 +53,15 @@ def _build_memory(provider: Provider):
         )
         return resp.data[0]["embedding"]
 
-    db_path = os.path.join(db_dir, "craftsman.db")
     try:
-        vector_db = VectorDB(
-            db_path=db_path,
-            embed_fn=embed_fn,
-            dimensions=embed_dim,
-        )
+        vector_db = VectorDB(embed_fn=embed_fn, dimensions=embed_dim)
     except Exception as exc:
         CraftsmanLogger().get_logger(__name__).warning(
             f"VectorDB init failed (vector search disabled): {exc}"
         )
         vector_db = VectorDB()
 
-    gml_path = os.path.join(db_dir, "graph.gml")
-    graph_db = GraphDB(gml_path=gml_path)
+    graph_db = GraphDB()
 
     lightrag_adapter = None
     if lightrag_enabled:

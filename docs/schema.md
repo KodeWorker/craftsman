@@ -120,12 +120,12 @@ CREATE TABLE tool_invocations (
 -- Dimension matches memory.embedding_dim in craftsman.yaml (default 384)
 CREATE VIRTUAL TABLE tools_vec USING vec0(
   name        TEXT PRIMARY KEY,
-  embedding   FLOAT[768]   -- tool name+description embeddings for tool:find
+  embedding   FLOAT[384]   -- tool name+description embeddings for tool:find
 );
 
 CREATE VIRTUAL TABLE chunks_vec USING vec0(
   chunk_id    TEXT PRIMARY KEY,
-  embedding   FLOAT[768]   -- memory:store fact embeddings for memory:retrieve
+  embedding   FLOAT[384]   -- memory:store fact embeddings for memory:retrieve
 );
 
 CREATE TABLE chunks_meta (

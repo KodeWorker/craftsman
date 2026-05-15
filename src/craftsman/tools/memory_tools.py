@@ -44,6 +44,11 @@ async def memory_retrieve(
             if results:
                 return {"key": key, "value": results[0]["content"]}
 
+        # Fall back to knowledge graph retrieval via LightRAG
+        kg_result = await librarian.retrieve_context(key, sid)
+        if kg_result:
+            return {"key": key, "value": kg_result}
+
         return {"error": f"Key not found: {key}"}
 
     return {"scratchpad": dict(scratchpad)}

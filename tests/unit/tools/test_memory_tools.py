@@ -16,6 +16,8 @@ def librarian():
 @pytest.fixture(autouse=True)
 def _init_librarian(librarian):
     librarian.cache = {}
+    librarian._lightrag = None
+    librarian.vector_db = None
 
 
 SESSION = "test-session"
@@ -55,4 +57,27 @@ async def test_forget_missing_key_error(librarian):
 async def test_sessions_isolated(librarian):
     await memory_store({"key": "k", "value": "s1"}, librarian, "session-1")
     result = await memory_retrieve({"key": "k"}, librarian, "session-2")
+    assert "error" in result
+
+
+async def test_retrieve_falls_back_to_kg(librarian, mocker):
+    mocker.patch.object(
+        librarian,
+        "retrieve_context",
+        mocker.AsyncMock(return_value="[Retrieved context]\nsome kg fact"),
+    )
+    result = await memory_retrieve({"key": "unknown"}, librarian, SESSION)
+    assert result == {
+        "key": "unknown",
+        "value": "[Retrieved context]\nsome kg fact",
+    }
+
+
+async def test_retrieve_kg_empty_returns_error(librarian, mocker):
+    mocker.patch.object(
+        librarian,
+        "retrieve_context",
+        mocker.AsyncMock(return_value=""),
+    )
+    result = await memory_retrieve({"key": "unknown"}, librarian, SESSION)
     assert "error" in result

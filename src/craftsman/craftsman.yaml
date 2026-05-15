@@ -31,7 +31,7 @@ chat:
     - "💬 The only true wisdom is in knowing you know nothing." # quote from Socrates
 
 memory:
-  embedding_dim: 768     # must match your embedding model's output dimension
+  embedding_dim: 384     # must match your embedding model's output dimension
   embed_model: ""        # defaults to provider.model; set to a dedicated embedding model name if needed
   lightrag:
     enabled: true        # set false to disable entity extraction / KG retrieval
