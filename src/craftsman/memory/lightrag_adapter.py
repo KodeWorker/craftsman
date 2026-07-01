@@ -81,6 +81,14 @@ class LightRAGAdapter:
             logger.warning(f"LightRAG query failed: {exc}")
             return ""
 
+    def close(self) -> None:
+        if self._available and hasattr(self, "_rag"):
+            try:
+                if hasattr(self._rag, "close"):
+                    self._rag.close()
+            except Exception:
+                pass
+
     def _sync_graph(self, session_id: str) -> None:
         """Read LightRAG's GraphML output and merge into our GraphDB."""
         if not _NX_AVAILABLE:

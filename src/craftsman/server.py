@@ -144,8 +144,7 @@ class Server:
         @asynccontextmanager
         async def lifespan(app: FastAPI):
             yield
-            self.librarian.graph_db.save()
-            self.librarian.vector_db.close()
+            self.librarian.close()
             self.logger.info("Memory flushed on shutdown.")
 
         self.app = FastAPI(lifespan=lifespan)

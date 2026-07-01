@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 from pathlib import Path
 from typing import Callable
 
 from craftsman.configure import get_config
+
+logger = logging.getLogger(__name__)
 
 try:
     import sqlite_vec
@@ -48,6 +51,8 @@ class VectorDB:
         self._available = _SQLITE_VEC_AVAILABLE and embed_fn is not None
         if not self._available:
             return
+        # check_same_thread=False: all callers run in the asyncio event loop,
+        # which serialises access — no concurrent thread access occurs.
         self._conn = sqlite3.connect(str(db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._conn.enable_load_extension(True)
@@ -81,7 +86,8 @@ class VectorDB:
     def _embed(self, text: str) -> list[float] | None:
         try:
             return self._embed_fn(text)
-        except Exception:
+        except Exception as exc:
+            logger.warning(f"Embedding failed: {exc}")
             return None
 
     # --- tools ---

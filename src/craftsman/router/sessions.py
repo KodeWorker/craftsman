@@ -300,7 +300,9 @@ class SessionsRouter:
         message = await self.multimodalize_message(message)
         self.librarian.push_context(session_id, message)
 
-        # Fire-and-forget: extract entities from the user message
+        # Fire-and-forget: extract entities from the user message.
+        # iscoroutine guard keeps this safe if ingest_message is ever replaced
+        # with a sync no-op (e.g. when LightRAG is disabled in tests).
         if original_content:
             coro = self.librarian.ingest_message(session_id, original_content)
             if asyncio.iscoroutine(coro):

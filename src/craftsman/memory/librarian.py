@@ -150,3 +150,10 @@ class Librarian:
     def close_session_memory(self, session_id: str) -> None:
         """Flush the knowledge graph to disk. Called at session end/compact."""
         self.graph_db.save()
+
+    def close(self) -> None:
+        """Flush and release all memory resources at server shutdown."""
+        self.graph_db.save()
+        self.vector_db.close()
+        if self._lightrag is not None:
+            self._lightrag.close()
