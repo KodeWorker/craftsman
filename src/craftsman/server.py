@@ -1,4 +1,5 @@
 import os
+from contextlib import asynccontextmanager
 
 import litellm
 import uvicorn
@@ -140,7 +141,13 @@ class Server:
         )
         self.active_sessions = set()
 
-        self.app = FastAPI()
+        @asynccontextmanager
+        async def lifespan(app: FastAPI):
+            yield
+            self.librarian.graph_db.save()
+            self.logger.info("Graph flushed on shutdown.")
+
+        self.app = FastAPI(lifespan=lifespan)
         self.app.get("/health")(self.health_check)
         self.app.post("/reset")(self.reset_provider)
         self.app.post("/subagent/run")(self.run_subagent)
