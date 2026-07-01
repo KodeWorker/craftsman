@@ -31,9 +31,7 @@ def _build_memory(provider: Provider):
     workspace_cfg = config.get("workspace", {})
 
     embed_dim: int = mem_cfg.get("embedding_dim", 384)
-    embed_model: str = mem_cfg.get("embed_model") or provider_cfg.get(
-        "model", ""
-    )
+    embed_model: str = mem_cfg.get("embed_model", "").strip()
     lightrag_enabled: bool = mem_cfg.get("lightrag", {}).get("enabled", True)
 
     db_dir: str = os.path.expanduser(
@@ -51,11 +49,15 @@ def _build_memory(provider: Provider):
             input=[text],
             api_base=api_base,
             api_key=api_key,
+            num_retries=0,
         )
         return resp.data[0]["embedding"]
 
     try:
-        vector_db = VectorDB(embed_fn=embed_fn, dimensions=embed_dim)
+        vector_db = VectorDB(
+            embed_fn=embed_fn if embed_model else None,
+            dimensions=embed_dim,
+        )
     except Exception as exc:
         CraftsmanLogger().get_logger(__name__).warning(
             f"VectorDB init failed (vector search disabled): {exc}"
@@ -105,6 +107,7 @@ def _build_memory(provider: Provider):
                     input=texts,
                     api_base=api_base,
                     api_key=api_key,
+                    num_retries=0,
                 )
                 return [d["embedding"] for d in resp.data]
             except Exception:
