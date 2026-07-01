@@ -56,7 +56,10 @@ def test_ingest_scheduled_as_task_for_nonempty_content(app, mocker):
     client, _, mock_provider, mock_librarian = app
     mock_provider.completion = MagicMock(return_value=_content_stream())
     mock_librarian.ingest_message = AsyncMock()
-    mock_create_task = mocker.patch("asyncio.create_task")
+    # close() the coroutine so GC doesn't emit an unawaited-coroutine warning
+    mock_create_task = mocker.patch(
+        "asyncio.create_task", side_effect=lambda c: c.close()
+    )
 
     client.post(
         f"/sessions/{SESSION_ID}/completion",
@@ -67,11 +70,9 @@ def test_ingest_scheduled_as_task_for_nonempty_content(app, mocker):
     mock_create_task.assert_called_once()
 
 
-def test_ingest_not_scheduled_for_empty_content(app, mocker):
+def test_ingest_not_scheduled_for_empty_content(app):
     client, _, mock_provider, mock_librarian = app
     mock_provider.completion = MagicMock(return_value=_content_stream())
-    mock_librarian.ingest_message = AsyncMock()
-    mock_create_task = mocker.patch("asyncio.create_task")
 
     client.post(
         f"/sessions/{SESSION_ID}/completion",
@@ -79,7 +80,6 @@ def test_ingest_not_scheduled_for_empty_content(app, mocker):
     )
 
     mock_librarian.ingest_message.assert_not_called()
-    mock_create_task.assert_not_called()
 
 
 # ── 2. Retrieval block inserted before LLM call ─────────────────────────────
