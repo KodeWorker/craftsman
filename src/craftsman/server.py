@@ -145,7 +145,8 @@ class Server:
         async def lifespan(app: FastAPI):
             yield
             self.librarian.graph_db.save()
-            self.logger.info("Graph flushed on shutdown.")
+            self.librarian.vector_db.close()
+            self.logger.info("Memory flushed on shutdown.")
 
         self.app = FastAPI(lifespan=lifespan)
         self.app.get("/health")(self.health_check)

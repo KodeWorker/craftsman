@@ -68,6 +68,7 @@ class LightRAGAdapter:
         try:
             await self._rag.ainsert(text)
             self._sync_graph(session_id)
+            self._graph_db.save()
         except Exception as exc:
             logger.warning(f"LightRAG insert failed: {exc}")
 

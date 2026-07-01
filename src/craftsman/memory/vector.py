@@ -206,3 +206,10 @@ class VectorDB:
             "DELETE FROM chunks_meta WHERE chunk_id = ?", [chunk_id]
         )
         self._conn.commit()
+
+    def close(self) -> None:
+        if self._available and hasattr(self, "_conn"):
+            try:
+                self._conn.close()
+            except Exception:
+                pass

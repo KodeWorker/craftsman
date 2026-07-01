@@ -56,9 +56,13 @@ class JobDispatcher:
             _log.warning(f"Could not list cron jobs: {e}")
             return
 
-        already = any(
-            "memory:promote" in job.get("tool_call", "") for job in jobs
-        )
+        def _tool_name(job: dict) -> str:
+            try:
+                return json.loads(job.get("tool_call", "{}")).get("name", "")
+            except (json.JSONDecodeError, AttributeError):
+                return ""
+
+        already = any(_tool_name(j) == "memory:promote" for j in jobs)
         if already:
             return
 
