@@ -1,14 +1,26 @@
+from __future__ import annotations
+
+import logging
+
 from craftsman.memory.graph import GraphDB
 from craftsman.memory.structure import StructureDB
 from craftsman.memory.vector import VectorDB
 
+logger = logging.getLogger(__name__)
+
 
 class Librarian:
 
-    def __init__(self):
+    def __init__(
+        self,
+        vector_db: VectorDB | None = None,
+        graph_db: GraphDB | None = None,
+        lightrag_adapter=None,
+    ):
         self.structure_db = StructureDB()
-        self.vector_db = VectorDB()
-        self.graph_db = GraphDB()
+        self.vector_db = vector_db if vector_db is not None else VectorDB()
+        self.graph_db = graph_db if graph_db is not None else GraphDB()
+        self._lightrag = lightrag_adapter
         self.cache: dict = (
             {}
         )  # keyed: "session:{id}:scratchpad|state|context", "tasks"
@@ -63,6 +75,8 @@ class Librarian:
         for slot in ("scratchpad", "state", "context", "revoked"):
             self.cache.pop(self._key(session_id, slot), None)
 
+    # --- persistence ---
+
     def store_message(self, session_id: str, message: dict) -> str:
         return self.structure_db.add_message(
             session_id=session_id,
@@ -95,3 +109,51 @@ class Librarian:
             "upload_tokens": upload_tokens,
             "download_tokens": download_tokens,
         }
+
+    # --- RAG: ingest + retrieve ---
+
+    async def ingest_message(
+        self,
+        session_id: str,
+        text: str,
+        project_id: str | None = None,
+    ) -> None:
+        """Fire-and-forget: extract entities from text into LightRAG + GraphDB.
+
+        Must never raise — ingest failure must not affect the chat response.
+        """
+        if self._lightrag is None or not text.strip():
+            return
+        try:
+            await self._lightrag.insert(text, session_id=session_id)
+        except Exception as exc:
+            logger.warning(f"ingest_message failed: {exc}")
+
+    async def retrieve_context(
+        self, query: str, session_id: str, top_k: int = 5
+    ) -> str:
+        """Return a formatted retrieval block to inject before the LLM call.
+
+        Returns ``""`` when nothing is available (LightRAG disabled, query
+        empty, or retrieval returns nothing useful).
+        """
+        if self._lightrag is None or not query.strip():
+            return ""
+        try:
+            result = await self._lightrag.query(query, mode="hybrid")
+            if result and result.strip():
+                return f"[Retrieved context]\n{result}"
+        except Exception as exc:
+            logger.warning(f"retrieve_context failed: {exc}")
+        return ""
+
+    def close_session_memory(self, session_id: str) -> None:
+        """Flush the knowledge graph to disk. Called at session end/compact."""
+        self.graph_db.save()
+
+    def close(self) -> None:
+        """Flush and release all memory resources at server shutdown."""
+        self.graph_db.save()
+        self.vector_db.close()
+        if self._lightrag is not None:
+            self._lightrag.close()

@@ -1,5 +1,6 @@
 from craftsman.tools.memory_tools import (
     memory_forget,
+    memory_promote,
     memory_retrieve,
     memory_store,
 )
@@ -41,6 +42,7 @@ META_DISPATCH: dict = {
     "tool:describe": tool_describe,
     "tool:find": tool_find,
     "tool:revoke": tool_revoke,
+    "memory:promote": memory_promote,
 }
 
 REMOTE_TOOLS: set[str] = (

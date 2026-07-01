@@ -544,6 +544,37 @@ _TOOLS: list[dict] = [
             "required": ["key"],
         },
     },
+    {
+        "name": "memory:promote",
+        "description": (
+            "Promote ended sessions into long-term project memory:"
+            " re-ingests messages into the knowledge graph (project layer),"
+            " writes a global_facts keynote per session, and prunes stale"
+            " session-layer graph nodes. Intended as a nightly cron job."
+        ),
+        "category": "memory",
+        "audited": True,
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prune_days": {
+                    "type": "integer",
+                    "description": (
+                        "Remove session-layer graph nodes older than this"
+                        " many days (default 7; 0 disables pruning)"
+                    ),
+                },
+                "max_chars": {
+                    "type": "integer",
+                    "description": (
+                        "Character budget per session for ingest and"
+                        " global_facts content (default 4000)"
+                    ),
+                },
+            },
+            "required": [],
+        },
+    },
     # ── schedule ─────────────────────────────────────────────────────────
     {
         "name": "schedule:at",

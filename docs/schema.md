@@ -116,10 +116,22 @@ CREATE TABLE tool_invocations (
   created_at  TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- sqlite-vec virtual table for tool:find semantic search
+-- sqlite-vec virtual tables for semantic search (same DB file, separate connection)
+-- Dimension matches memory.embedding_dim in craftsman.yaml (default 384)
 CREATE VIRTUAL TABLE tools_vec USING vec0(
   name        TEXT PRIMARY KEY,
-  embedding   FLOAT[1536]
+  embedding   FLOAT[384]   -- tool name+description embeddings for tool:find
+);
+
+CREATE VIRTUAL TABLE chunks_vec USING vec0(
+  chunk_id    TEXT PRIMARY KEY,
+  embedding   FLOAT[384]   -- memory:store fact embeddings for memory:retrieve
+);
+
+CREATE TABLE chunks_meta (
+  chunk_id   TEXT PRIMARY KEY,
+  session_id TEXT NOT NULL,
+  content    TEXT NOT NULL
 );
 
 -- Scheduled jobs: one-shot deferred tool calls

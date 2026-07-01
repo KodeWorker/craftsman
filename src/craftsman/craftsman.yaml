@@ -30,6 +30,12 @@ chat:
     - "💬 One must imagine Sisyphus happy." # quote from Albert Camus' essay "The Myth of Sisyphus"
     - "💬 The only true wisdom is in knowing you know nothing." # quote from Socrates
 
+memory:
+  embedding_dim: 384     # must match your embedding model's output dimension
+  embed_model: ""        # leave blank to disable vector search; set to a dedicated embedding model to enable
+  lightrag:
+    enabled: true        # set false to disable entity extraction / KG retrieval
+
 workspace:
   root: ~/.craftsman
   database: ~/.craftsman/database

@@ -43,9 +43,10 @@ Early-stage autonomous agent framework. CLI + server functional; client/vector/g
 | `server.py` | Done | FastAPI server; streaming completion, session management |
 | `provider.py` | Done | LiteLLM wrapper; streams `(kind, text)` tuples |
 | `memory/structure.py` | Done | SQLite layer; all tables per `docs/schema.md` |
-| `memory/librarian.py` | Done | Unified memory interface; in-process cache + SQLite |
-| `memory/vector.py` | Stub | sqlite-vec embeddings via LightRAG |
-| `memory/graph.py` | Stub | Kuzu knowledge graph via LightRAG |
+| `memory/librarian.py` | Done | Unified memory interface; in-process cache + SQLite + RAG |
+| `memory/vector.py` | Done | sqlite-vec embeddings; semantic tool search + chunk storage |
+| `memory/graph.py` | Done | NetworkX DiGraph persisted to `graph.gml`; entity/relation store |
+| `memory/lightrag_adapter.py` | Done | LightRAG wrapper; entity extraction, hybrid KG+vector retrieval |
 | `client/base.py` | Done | BaseClient: HTTP session, JWT retry, spinner, banner |
 | `client/sessions.py` | Done | SessionsClient: list, pick, find, delete sessions |
 | `client/artifacts.py` | Done | ArtifactsClient: list, pick, delete, upload `@file` references |
@@ -56,7 +57,7 @@ Early-stage autonomous agent framework. CLI + server functional; client/vector/g
 | `router/deps.py` | Done | FastAPI dependencies; `get_current_user` JWT guard; `_crypto` singleton |
 | `router/sessions.py` | Done | Sessions router; multimodal message transform (`@image:`, `@audio:`) |
 | `router/artifacts.py` | Done | Artifacts router; upload, list, get, delete with ownership checks |
-| `tools/scheduler.py` | Done | `JobDispatcher`: polls every 30 s, fires due `scheduled_jobs` and `cron_jobs`; supports `agent:run` for multi-tool prompt-driven jobs |
+| `tools/scheduler.py` | Done | `JobDispatcher`: polls every 30 s, fires due `scheduled_jobs` and `cron_jobs`; auto-registers nightly `memory:promote` cron on startup |
 
 ### Infrastructure
 
@@ -64,9 +65,9 @@ All embedded — zero daemons required. See `docs/schema.md`.
 
 - **In-process dict** — session scratchpad, agent state, context window (lives in server process)
 - **SQLite** (`~/.craftsman/database/craftsman.db`) — projects, sessions, messages, global_facts, artifacts, plans, tasks, tools, scheduled/cron jobs
-- **sqlite-vec** — vector embeddings managed by LightRAG; SQLite extension, same DB file
-- **Kuzu** (embedded graph DB) — knowledge graph, managed by LightRAG, no daemon
-- **LightRAG** — KG orchestration: entity extraction + graph+vector hybrid retrieval
+- **sqlite-vec** — vector embeddings (`VectorDB`); SQLite extension, same DB file
+- **NetworkX** (`graph.gml`) — in-process knowledge graph, persisted to GML; no daemon
+- **LightRAG** — KG orchestration: entity extraction + graph+vector hybrid retrieval; syncs extracted entities back to NetworkX graph
 - **Local filesystem** (`~/.craftsman/workspace/`) — artifact storage
 
 ### Memory hierarchy

@@ -84,6 +84,7 @@ def test_categories_are_valid():
         "web",
         "plan",
         "agent",
+        "browser",
     }
     for t in _TOOLS:
         assert (

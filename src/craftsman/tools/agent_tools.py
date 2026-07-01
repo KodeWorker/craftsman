@@ -122,8 +122,8 @@ def make_agent_runner(base_url: str, token: str):
                         f"{_base}/sessions/{session_id}",
                         headers=_headers,
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    return {"error": str(e)}
 
         return {"content": content}
 

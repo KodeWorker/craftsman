@@ -24,6 +24,9 @@ dependencies = [
     "readability-lxml>=0.8",
     "html2text>=2020.1",
     "playwright>=1.44",
+    "sqlite-vec>=0.1.6",
+    "networkx>=3.0",
+    "lightrag-hku>=1.0",
 ]
 
 [project.scripts]
