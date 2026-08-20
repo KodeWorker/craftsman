@@ -253,5 +253,6 @@ class Server:
         return {"token": token}
 
     def start(self):
-        self.logger.info(f"Starting server on port {self.port}...")
-        uvicorn.run(self.app, host="127.0.0.1", port=self.port)
+        host = os.environ.get("CRAFTSMAN_HOST", "127.0.0.1")
+        self.logger.info(f"Starting server on {host}:{self.port}...")
+        uvicorn.run(self.app, host=host, port=self.port)

@@ -1,0 +1,70 @@
+# Three services: llm (llama.cpp, OpenAI-compatible), server (craftsman
+# API), client (interactive chat REPL, run on demand — not a daemon).
+#
+# One-time setup, then `docker compose up -d llm server` to run the
+# always-on pair, and `docker compose run --rm client` whenever you want to
+# chat. Full walkthrough: docs/setup/docker.md
+
+services:
+  llm:
+    image: ghcr.io/ggml-org/llama.cpp:server
+    # GPU build: swap the image above for ghcr.io/ggml-org/llama.cpp:server-cuda
+    # and uncomment the `deploy` block below (requires the NVIDIA container
+    # toolkit on the host).
+    container_name: craftsman-llm
+    command: >
+      -m /models/${LLM_MODEL_FILE:?set LLM_MODEL_FILE in .env}
+      --host 0.0.0.0
+      --port 8080
+      --ctx-size ${LLM_CTX_SIZE:-131072}
+      --api-key ${LLM_API_KEY:?set LLM_API_KEY in .env}
+    volumes:
+      - ${MODELS_DIR:-./models}:/models:ro
+    ports:
+      - "8080:8080" # optional — only needed to hit llama.cpp from the host
+    restart: unless-stopped
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  server:
+    build: .
+    container_name: craftsman-server
+    command: server --port 6969
+    environment:
+      # Bind on all interfaces so the client container can reach it by
+      # service name; server.py defaults to 127.0.0.1 otherwise.
+      CRAFTSMAN_HOST: 0.0.0.0
+      # No OS keyring/D-Bus in the container — fall back to keyring's
+      # file-based backend (keyrings-alt, already a dependency). Credentials
+      # land in $HOME/.local/share/python_keyring/, inside the bind mount
+      # below, so they survive `docker compose down`.
+      PYTHON_KEYRING_BACKEND: keyrings.alt.file.PlaintextKeyring
+    volumes:
+      - ${CRAFTSMAN_HOME:-./craftsman_home}:/home/craftsman
+    depends_on:
+      - llm
+    ports:
+      - "6969:6969" # optional — telegram/daemon/etc. from the host
+    restart: unless-stopped
+
+  client:
+    build: .
+    container_name: craftsman-client
+    command: chat --host server --port 6969
+    environment:
+      PYTHON_KEYRING_BACKEND: keyrings.alt.file.PlaintextKeyring
+    volumes:
+      - ${CRAFTSMAN_HOME:-./craftsman_home}:/home/craftsman
+    depends_on:
+      - server
+    # Interactive REPL, not a long-running service: `docker compose up`
+    # skips it, `docker compose run --rm client [craftsman-args...]` starts
+    # it (also used for one-off `init`/`auth`/`user` commands below).
+    profiles: ["client"]
+    stdin_open: true
+    tty: true

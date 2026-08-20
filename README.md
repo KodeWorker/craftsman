@@ -7,6 +7,8 @@ Self-hosted autonomous agent framework. Zero daemons.
 1. [docs/setup/llama.cpp.md](docs/setup/llama.cpp.md)
 2. [docs/configuration.md](docs/configuration.md)
 3. [docs/setup/telegram.md](docs/setup/telegram.md) — optional
+4. [docs/setup/docker.md](docs/setup/docker.md) — optional, runs
+   server/client/llama.cpp together via `docker-compose.yaml`
 
 ## Usage
 
